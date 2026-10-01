@@ -109,6 +109,28 @@ Agar rekan satu tim bisa memantau dashboard dari komputer lain:
 
 Tampilan tim hanya bisa membaca dashboard, laporan, dan CSV. Semua tindakan, pengaturan, dan data mentah ditolak (403); tombol operator disembunyikan. Catatan: lewat HTTP biasa, pakai hanya di jaringan internal yang dipercaya, dan siapa pun yang memegang token dapat melihat data tiket.
 
+## Tampilan dashboard
+
+- **Sidebar** yang bisa diciutkan (tombol « di kiri atas; pilihan diingat). Grup **Monitoring per sumber** juga bisa dilipat.
+- **Ringkasan**: tiket ITSM dan aduan WhatsApp dalam **satu grafik** (tren tiket masuk, bertumpuk per sumber), komposisi sumber, prioritas, kategori layanan (KAK 18.c), kepatuhan SLA, daftar "perlu perhatian" dan "menunggu balasan WA". Rentang 24 jam / 7 hari / 30 hari.
+- **Tiket ITSM** dan **Aduan WhatsApp**: masing-masing punya KPI, grafik, dan tabelnya sendiri (status, prioritas, kategori; kecepatan balasan, grup teratas, status pra-tiket).
+- Grafik digambar dengan SVG buatan sendiri: **tanpa CDN dan tanpa panggilan keluar**, jadi jalan offline di Mini PC. Font memakai font sistem.
+- Angka pada grafik adalah **data terpantau Sentinel**, bukan angka resmi laporan KAK.
+
+## Input Cepat (NLP)
+
+Menu **Input Cepat** (atau Ctrl+V di mana saja di dashboard, lalu Ctrl+Enter):
+
+1. Tempel satu atau banyak pesan WhatsApp. NLP aturan langsung membaca **pengirim, nomor HP, instansi, intent, prioritas (SOP 3.3), kategori layanan (KAK 18.c), ringkasan satu kalimat, dan entitas** (nomor tiket, IP yang disamarkan, nama host), serta menandai pesan yang tampak **obrolan antar-tenan** (tidak dicentang otomatis).
+2. Bila `ai_provider` = `ollama`, **AI lokal menyempurnakan di latar belakang** (prioritas dan ringkasan); hasil aturan tetap tampil lebih dulu sehingga operator tidak menunggu model. Teks disamarkan (telepon, email, IP, URL, kata sandi) sebelum diberikan ke model, dan model tidak pernah memegang akses ke apa pun.
+3. Pesan yang dipilih menjadi pra-tiket dengan instansi dan ringkasan dari NLP, dan hasil NLP menempel di tiket sebagai **saran** (Helpdesk menerima atau menolak).
+
+## Pengujian
+
+```
+python -B tests/run_all.py     # 92 uji otomatis; memakai salinan sementara, data asli tidak tersentuh
+```
+
 ## Dasar angka (apa yang resmi, apa yang internal)
 
 Bersumber dari **teks KAK** (poin 18.c, 8.5, 14), SOP v0.2, dan MoM 29 Sep 2026.

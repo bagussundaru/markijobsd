@@ -40,7 +40,13 @@ try:
 except Exception:
     pass
 
+sys.dont_write_bytecode = True
 APP_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(APP_DIR))
+try:
+    import hermes_agent as _HA
+except Exception:
+    _HA = None
 CONFIG_PATH = APP_DIR / "config.json"
 DATA_FILE = APP_DIR / "sentinel_data.json"
 
@@ -535,7 +541,7 @@ def wa_tier_for(group):
     return 2
 
 
-def convert_wa_message_to_ticket(sender, group, text, matched_kw="GC 1", msg_id="", wa_ts=None, verified=None):
+def convert_wa_message_to_ticket(sender, group, text, matched_kw="GC 1", msg_id="", wa_ts=None, verified=None, instansi_hint="", summary_hint=""):
     """
     Konversi aduan grup WhatsApp menjadi pra-tiket di Dashboard GC 1 (SOP bab 4).
     Waktu aduan pertama (wa_ts) dipakai sebagai dasar SLA agar laporan sesuai fakta (SOP 4.4).
@@ -573,10 +579,15 @@ def convert_wa_message_to_ticket(sender, group, text, matched_kw="GC 1", msg_id=
             loc = agency
             break
 
+    if instansi_hint:   # hasil NLP yang sudah dilihat/diubah operator menang atas deteksi generik
+        loc = instansi_hint
+
     cleaned_desc = re.sub(
         r"^(selamat\s+(pagi|siang|sore|malam)|halo|dear\s+all|assalamu['a-z]+|mohon\s+izin|permisi)[,\.\s-]*",
         "", text_clean, flags=re.IGNORECASE).strip()
     short_desc = f"[Aduan WA] {cleaned_desc[:127]}..." if len(cleaned_desc) > 130 else f"[Aduan WA] {cleaned_desc}"
+    if summary_hint:
+        short_desc = f"[Aduan WA] {summary_hint[:127]}"
 
     prio, ttype, reason = classify_ticket(text_clean)
     hours = SLA_HOURS[prio]
@@ -998,6 +1009,7 @@ def archive_ticket(t):
         "createdTs": t.get("createdTs") or rec["firstSeenTs"],
         "respondedTs": e.get("responded_ts"),
         "waFirstReportAt": t.get("waFirstReportAt", "") or "",
+        "waGroup": t.get("waGroup", "") or "",
         "serviceCategory": t.get("serviceCategory", "") or "",
         "slaHours": t.get("slaLimitHours"),
         "docsRule": (t.get("docs") or {}).get("rule", ""),
@@ -1133,6 +1145,7 @@ def compute_report(kind, day):
         "critical_major": cm,
         "wa_total": len(wa), "wa_linked": len(wa_linked), "wa_unlinked": len(wa) - len(wa_linked),
         "docs_incomplete": len([r for r in rows if r.get("docsRule") and not r.get("docsComplete") and not r.get("closedSeenTs")]),
+        "kak_items": [{"no": n_, "item": i_, "cakupan": c_, "sumber": s_} for n_, i_, c_, s_ in KAK_MONTHLY_ITEMS] if kind == "monthly" else [],
         "sla_kak_compliance_pct": sla_kak_pct,
         "by_category": by_category,
         "wa_reply_target_minutes": brk_s // 60,
@@ -1170,6 +1183,9 @@ def build_report_html(rep):
     pct = lambda v: "-" if v is None else f"{v}%"
     cat_rows = "".join(f"<tr><td>{e(c['kategori'])}</td><td style='text-align:right'>{c['request']}</td><td style='text-align:right'>{c['insiden']}</td><td style='text-align:right'>{pct(c['sla_pct'])}</td></tr>" for c in rep["by_category"])
     cat_table = f"<h3>Per kategori layanan (KAK 8.5.h)</h3><table><tr><th>Kategori</th><th>Request</th><th>Insiden</th><th>SLA</th></tr>{cat_rows or '<tr><td colspan=4><em>Tidak ada data</em></td></tr>'}</table>"
+    _lbl = {"ya": "Tercakup", "sebagian": "Sebagian", "tidak": "Tidak dari Sentinel"}
+    kak_rows = "".join(f"<tr><td>{k['no']}</td><td>{e(k['item'])}</td><td>{_lbl[k['cakupan']]}</td><td>{e(k['sumber'])}</td></tr>" for k in rep.get("kak_items", []))
+    kak_table = f"<h3>Cakupan terhadap 14 item laporan bulanan KAK 8.5.f</h3><table><tr><th>No</th><th>Item</th><th>Cakupan</th><th>Sumber data</th></tr>{kak_rows}</table>" if kak_rows else ""
     kind_name = {"daily": "Harian", "weekly": "Mingguan", "monthly": "Bulanan"}[rep["kind"]]
     return f"""<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Laporan {kind_name} GC 1 (data terpantau)</title>
 <style>body{{font:13px/1.45 Segoe UI,Arial,sans-serif;margin:24px;color:#0f172a}}h1{{font-size:20px;margin:0}}h3{{margin:18px 0 6px;font-size:14px}}
@@ -1188,7 +1204,7 @@ table{{border-collapse:collapse;min-width:360px}}td,th{{border:1px solid #cbd5e1
 <tr><td>Balasan WA dalam target {rep['wa_reply_target_minutes']} menit</td><td>{'-' if rep['wa_reply_within_target_pct'] is None else str(rep['wa_reply_within_target_pct']) + '%'} (teramati {rep['wa_reply_known']}, tidak teramati {rep['wa_reply_unknown']})</td></tr>
 <tr><td>Aduan WA dari pelapor belum terverifikasi</td><td>{rep['wa_unverified']}</td></tr>
 <tr><td>Tiket dengan syarat dokumen belum lengkap (mis. approval/nota dinas)</td><td>{rep['docs_incomplete']}</td></tr></table>
-{cat_table}{table('Hasil SLA', rep['sla_outcomes'])}{table('Per sumber', rep['by_source'])}{table('Per tipe', rep['by_type'])}{table('Per prioritas', rep['by_priority'])}
+{cat_table}{kak_table}{table('Hasil SLA', rep['sla_outcomes'])}{table('Per sumber', rep['by_source'])}{table('Per tipe', rep['by_type'])}{table('Per prioritas', rep['by_priority'])}
 {table('Tren', rep['trend'])}{table('Instansi terbanyak', dict(rep['top_agencies']))}
 <h3>Insiden Critical / Major</h3><table><tr><th>Tiket</th><th>Instansi</th><th>Prioritas</th><th>Status</th><th>SLA</th><th>Uraian</th></tr>{cm or '<tr><td colspan=6><em>Tidak ada</em></td></tr>'}</table>
 <p class="noprint"><button onclick="window.print()">Cetak / Simpan PDF</button></p></body></html>"""
@@ -1220,6 +1236,309 @@ def build_export_csv(kind="daily", day=""):
             "-" if not r.get("docsRule") else ("Lengkap" if r.get("docsComplete") else "Belum lengkap"),
         ])
     return buf.getvalue()
+
+
+def build_team_tickets():
+    """Kolam tiket lingkup GC 1: tiket ITSM + pra-tiket WA (yang sudah tertaut tidak ditampilkan dua kali), sudah diperkaya."""
+    # ITSM adalah sumber resmi. Pra-tiket WA yang sudah tertaut ke tiket portal
+    # tidak ditampilkan dua kali: tiket portal diberi anotasi waktu aduan pertama WA.
+    itsm_ids = {(t.get("ticketId") or "").strip() for t in HELPDESK_SNAPSHOT}
+    wa_by_portal = {}
+    for w in WA_TICKETS:
+        lid = TICKET_REGISTRY.get(w.get("ticketId"), {}).get("linked_portal") or w.get("linkedPortalId") or ""
+        if lid:
+            wa_by_portal.setdefault(lid, w)
+
+    pool, seen_ids = [], set()
+    for t in HELPDESK_SNAPSHOT:
+        tid = (t.get("ticketId") or "").strip()
+        if not tid or tid in seen_ids:
+            continue
+        seen_ids.add(tid)
+        w = wa_by_portal.get(tid)
+        if w:
+            t["waTicketId"] = w.get("ticketId")
+            t["waFirstReportAt"] = w.get("createdDate")
+            t["waFirstTs"] = w.get("createdTs")
+            t["waGroup"] = w.get("waGroup")
+        pool.append(t)
+    for w in WA_TICKETS:
+        tid = (w.get("ticketId") or "").strip()
+        lid = TICKET_REGISTRY.get(tid, {}).get("linked_portal") or w.get("linkedPortalId") or ""
+        if not tid or tid in seen_ids or (lid and lid in itsm_ids):
+            continue
+        seen_ids.add(tid)
+        pool.append(w)
+
+    # Ruang lingkup: hanya GC 1. Tiket/aduan Telkom (GC 2) diabaikan.
+    our_team_tickets = [
+        enrich_ticket_with_sop(t) for t in pool
+        if not t.get("isTelkom") and "telkom" not in (t.get("assignmentGroup", "") + " " + t.get("shortDesc", "")).lower()
+    ]
+
+    for t in our_team_tickets:
+        archive_ticket(t)
+    return our_team_tickets
+
+
+
+KAK_MONTHLY_ITEMS = [
+    (1, "Total Kapasitas Government Cloud 1", "tidak", "Sistem hypervisor/cloud management"),
+    (2, "Sisa Kapasitas Government Cloud 1", "tidak", "Sistem hypervisor/cloud management"),
+    (3, "Proyeksi kebutuhan kapasitas sampai akhir tahun", "tidak", "Analisis kapasitas (L3 Cloud Expert)"),
+    (4, "Hasil rekonsiliasi pembayaran", "tidak", "Administrasi bersama PPK"),
+    (5, "Daftar rasionalisasi", "tidak", "Administrasi bersama PPK"),
+    (6, "Daftar laporan penyelesaian tiket permintaan", "ya", "Ekspor CSV/Laporan Sentinel (data terpantau; angka resmi dari portal)"),
+    (7, "Daftar laporan penyelesaian tiket insiden", "ya", "Ekspor CSV/Laporan Sentinel (data terpantau; angka resmi dari portal)"),
+    (8, "Data layanan IP Government Cloud 1", "tidak", "IPAM / sistem jaringan"),
+    (9, "Data tenan baru dan total (K/L/D)", "sebagian", "Instansi pelapor yang terpantau; data resmi dari portal pendaftaran tenan"),
+    (10, "Data tenan berikut kapasitas dan perubahannya", "tidak", "Cloud management / portal"),
+    (11, "Laporan pengelolaan cyber security", "tidak", "SIEM / NDR / EDR"),
+    (12, "Daftar VDC berikut kapasitas dan perubahannya", "tidak", "Cloud management"),
+    (13, "Laporan detail tiket permintaan dan insiden SLA", "ya", "Laporan dan CSV Sentinel (data terpantau; angka resmi dari portal)"),
+    (14, "Laporan kondisi perangkat yang digunakan", "tidak", "Monitoring perangkat (CI Expert)"),
+]
+
+
+def _bucket_defs(rng, now):
+    mid = time.mktime(time.strptime(time.strftime("%Y-%m-%d", time.localtime(now)), "%Y-%m-%d"))
+    if rng == "week":
+        return mid - 6 * 86400, 86400, 7, lambda ts: time.strftime("%d %b", time.localtime(ts))
+    if rng == "month":
+        return mid - 29 * 86400, 86400, 30, lambda ts: time.strftime("%d", time.localtime(ts))
+    start = (now // 3600) * 3600 - 23 * 3600
+    return start, 3600, 24, lambda ts: time.strftime("%H:00", time.localtime(ts))
+
+
+def compute_stats(rng):
+    """Agregat untuk grafik dashboard: tren ITSM vs WA, distribusi status/prioritas/kategori, SLA, balasan WA."""
+    now = time.time()
+    tickets = build_team_tickets()
+    start, step, n, label = _bucket_defs(rng, now)
+    buckets = [{"label": label(start + i * step), "itsm": 0, "wa": 0} for i in range(n)]
+    wa_groups, reply_buckets, reply_minutes = {}, {"≤ 5 menit": 0, "5-10 menit": 0, "> 10 menit": 0, "Belum dibalas": 0}, []
+    brk_s = int(CONFIG.get("wa_reply_breach_minutes", 10)) * 60
+    warn_s = int(CONFIG.get("wa_reply_warn_minutes", 5)) * 60
+    for r in TICKET_ARCHIVE.values():
+        ts = r.get("createdTs", 0)
+        if not (start <= ts < start + n * step):
+            continue
+        is_wa = r.get("source") == "Pra-tiket WA"
+        buckets[int((ts - start) // step)]["wa" if is_wa else "itsm"] += 1
+        if is_wa:
+            g = r.get("waGroup") or "(tanpa nama grup)"
+            wa_groups[g] = wa_groups.get(g, 0) + 1
+            if r.get("respondedTs"):
+                m = (r["respondedTs"] - ts) / 60
+                reply_minutes.append(m)
+                reply_buckets["≤ 5 menit" if m * 60 <= warn_s else "5-10 menit" if m * 60 <= brk_s else "> 10 menit"] += 1
+            elif not r.get("closedSeenTs"):
+                reply_buckets["Belum dibalas"] += 1
+
+    itsm = [t for t in tickets if not t.get("isFromWa")]
+    wa = [t for t in tickets if t.get("isFromWa")]
+
+    def group_state(t):
+        sl = (t.get("requestState") or "").lower()
+        if any(k in sl for k in CLOSED_STATES):
+            return "Selesai"
+        if "pending" in sl:
+            return "Pending Approval"
+        if "progress" in sl:
+            return "In Progress"
+        if "hold" in sl:
+            return "On-Hold"
+        return "Assigned"
+
+    def cnt(items, fn):
+        out = {}
+        for t in items:
+            k = fn(t)
+            out[k] = out.get(k, 0) + 1
+        return out
+
+    def wa_state(t):
+        idn = (t.get("identity") or {}).get("status")
+        if idn == "rejected":
+            return "Ditolak (bukan tenan)"
+        if t.get("linkedPortalId"):
+            return "Tertaut ke tiket ITSM"
+        if t.get("responseStatus") == "ok" or TICKET_REGISTRY.get(t.get("ticketId", ""), {}).get("responded_ts"):
+            return "Sudah dibalas"
+        return "Menunggu balasan"
+
+    itsm_open = [t for t in itsm if not t.get("slaClosed")]
+    wa_open = [t for t in wa if not t.get("slaClosed")]
+    open_all = [t for t in tickets if not t.get("slaClosed")]
+    sla_pool = [t for t in itsm_open]
+    breached = [t for t in sla_pool if t.get("slaBreached")]
+    kind = {"day": "daily", "week": "weekly", "month": "monthly"}.get(rng, "daily")
+    rep = compute_report(kind, time.strftime("%Y-%m-%d"))
+    waiting = [t for t in wa_open if wa_state(t) == "Menunggu balasan"]
+    return {
+        "range": rng,
+        "generated": time.strftime("%H:%M:%S"),
+        "buckets": buckets,
+        "totals": {"itsm": sum(b["itsm"] for b in buckets), "wa": sum(b["wa"] for b in buckets)},
+        "itsm_status": cnt(itsm, group_state),
+        "wa_status": cnt(wa, wa_state),
+        "priority": {"itsm": cnt(itsm_open, lambda t: t.get("priority") or "Minor"), "wa": cnt(wa_open, lambda t: t.get("priority") or "Minor")},
+        "category": rep["by_category"],
+        "wa_groups": dict(sorted(wa_groups.items(), key=lambda kv: -kv[1])[:6]),
+        "wa_reply_dist": reply_buckets,
+        "wa_reply_avg_min": round(sum(reply_minutes) / len(reply_minutes), 1) if reply_minutes else None,
+        "sla": {"matrix_pct": rep["sla_compliance_pct"], "kak_pct": rep["sla_kak_compliance_pct"], "target_pct": 95,
+                "health_pct": 100 if not sla_pool else int((len(sla_pool) - len(breached)) / len(sla_pool) * 100),
+                "breached": len(breached), "open": len(sla_pool),
+                "wa_reply_pct": rep["wa_reply_within_target_pct"], "wa_reply_target_min": rep["wa_reply_target_minutes"]},
+        "kpi": {
+            "itsm_total": len(itsm), "itsm_open": len(itsm_open),
+            "itsm_assigned": len([t for t in itsm if group_state(t) == "Assigned"]),
+            "itsm_pending": len([t for t in itsm if group_state(t) == "Pending Approval"]),
+            "itsm_progress": len([t for t in itsm if group_state(t) == "In Progress"]),
+            "wa_total": len(wa), "wa_active": len(wa_open), "wa_waiting": len(waiting),
+            "wa_late": len([t for t in waiting if t.get("responseStatus") == "late"]),
+            "wa_unlinked": len([t for t in wa_open if not t.get("linkedPortalId")]),
+            "wa_unverified": len([t for t in wa_open if (t.get("identity") or {}).get("status") != "verified"]),
+            "attention": len([t for t in open_all if t.get("escalationFlags")]),
+        },
+        "attention": [{"ticketId": t["ticketId"], "source": "WA" if t.get("isFromWa") else "ITSM", "priority": t.get("priority"),
+                       "who": t.get("requestedFor", ""), "flag": (t.get("escalationFlags") or [""])[0]}
+                      for t in open_all if t.get("escalationFlags")][:8],
+        "waiting_replies": [{"ticketId": t["ticketId"], "who": t.get("requestedFor", ""), "text": t.get("responseText", ""), "status": t.get("responseStatus")}
+                            for t in waiting][:8],
+    }
+
+
+# ---------------------------------------------------------------------------
+# NLP aduan WhatsApp: ekstraksi instan (aturan) + penyempurnaan AI lokal (opsional, di latar belakang)
+# ---------------------------------------------------------------------------
+_AGENCY_RE = re.compile(r"\b(?:(?:Pemkab|Pemkot)[\s-]+[A-Z][\w]*|(?:Pemprov|Kabupaten|Kota|Provinsi|Dinas|Badan|Kementerian|Biro|Sekretariat)[\s-]+[A-Z][\w]*(?:\s+[A-Z][\w]*){0,2})")
+_AGENCY_ALIAS = {
+    "kemenkes": "Kementerian Kesehatan", "kemenkeu": "Kementerian Keuangan", "kemendagri": "Kementerian Dalam Negeri",
+    "kemendikbud": "Kemendikbudristek", "kemendikbudristek": "Kemendikbudristek", "kemenpanrb": "Kementerian PANRB",
+    "bappenas": "Bappenas", "bps": "Badan Pusat Statistik", "bmkg": "BMKG", "setneg": "Sekretariat Negara", "pupr": "Kementerian PUPR",
+    "kemenlu": "Kementerian Luar Negeri", "kemensos": "Kementerian Sosial", "kemenag": "Kementerian Agama", "kominfo": "Komdigi", "komdigi": "Komdigi",
+}
+_GREET_RE = re.compile(r"^\s*(?:selamat\s+(?:pagi|siang|sore|malam)|halo|hai|dear\s+all|assalamu\S*|permisi|mohon\s+izin|izin|ijin|maaf\s+(?:mengganggu|izin))[,.!\s]*(?:(?:pak|bu|bapak|ibu|tim|helpdesk|min|admin|mas|mbak|rekan\S*)[,.!\s]*)*", re.I)
+_CHATTER = ["terima kasih", "makasih", "thanks", "siap pak", "siap bu", "oke pak", "noted", "bs dicoba", "bisa dicoba", "di kami berhasil", "di kami normal", "sudah normal", "izin pamit"]
+_URGENT = ["segera", "mendesak", "urgent", "darurat", "secepatnya", "asap", "kritis", "sangat penting"]
+
+
+def guess_agency(sender, group, text):
+    # Nama grup TIDAK dipakai: ia nama forum (mis. "Layanan Cloud PDN Kominfo"), bukan instansi pelapor.
+    hay = f"{sender} {text}"
+    low = hay.lower()
+    for k, v in _AGENCY_ALIAS.items():
+        if re.search(r"\b" + re.escape(k) + r"\b", low):
+            return v
+    m = _AGENCY_RE.search(re.sub(r"\bPD[12]\b\s*", "", hay))
+    return re.sub(r"[-]+", " ", m.group(0)).strip() if m else ""
+
+
+def summarize(text):
+    t = re.sub(r"\s+", " ", str(text or "")).strip()
+    for _ in range(3):
+        t2 = _GREET_RE.sub("", t, count=1).strip()
+        if t2 == t:
+            break
+        t = t2
+    parts = [x.strip() for x in re.split(r"(?<=[.!?])\s+", t) if x.strip()]
+    out = parts[0] if parts else t
+    if len(out) < 25 and len(parts) > 1:
+        out = f"{out} {parts[1]}"
+    out = out[:140].rstrip()
+    return (out[:1].upper() + out[1:]) if out else ""
+
+
+def nlp_analyze(sender, text, group="", ts=None, phone_hint=""):
+    t = re.sub(r"[ \t]+", " ", str(text or "")).strip()
+    low = t.lower()
+    phone = normalize_phone(phone_hint) or (normalize_phone(sender) if looks_like_phone(sender) else "")
+    if not phone:
+        m = _PHONE_RE.search(t)
+        phone = normalize_phone(m.group(0)) if m else ""
+    prio, ttype, reason = classify_ticket(t)
+    cat = classify_category(t)
+    ident = identity_for(phone)
+    verified = ident["status"] == "verified"
+    instansi = ident.get("instansi", "") if verified else guess_agency(sender, group, t)
+    refs = sorted({x.upper() for x in re.findall(r"(REQ-[A-Z0-9-]+|INC[0-9]+|TKT-[0-9]+)", t, re.I)})
+    ips = sorted({mask_phones(i) if False else re.sub(r"\d+$", "x", i) for i in re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", t)})
+    stop = {"yang", "kami", "kita", "ini", "itu", "dan", "tidak", "bisa", "mati", "down", "error", "lambat", "nya", "di", "ke", "dari", "pak", "bu", "tolong", "mohon"}
+    # nama host biasanya memuat angka atau tanda hubung/garis bawah/titik (mis. web-01, db01); kata biasa diabaikan
+    vms = sorted({m.group(1) for m in re.finditer(r"\b(?:vm|server|host)\s+([A-Za-z0-9_.-]{3,30})", t, re.I)
+                  if m.group(1).lower() not in stop and re.search(r"[0-9_.-]", m.group(1)) and not m.group(1).endswith(".") and not re.fullmatch(r"[\d.]+", m.group(1))})[:5]
+    mention = bool(re.search(r"@\s*helpdesk|tim\s+helpdesk|\bhelpdesk\b", low))
+    critical = prio == "Critical"
+    chatter = (any(k in low for k in _CHATTER)) and not critical and not mention and prio == "Minor" and ttype != "Service request"
+    urgent = any(k in low for k in _URGENT) or critical
+    question = "?" in t or bool(re.search(r"\b(bagaimana|apakah|kenapa|mengapa|bisakah|bisa kah)\b", low))
+    intent = "obrolan antar-tenan" if chatter else {"Insiden": "insiden", "Service request": "permintaan layanan", "Informasi": "pertanyaan informasi"}[ttype]
+    flags = []
+    if not phone:
+        flags.append("nomor HP belum ada")
+    elif not verified:
+        flags.append("nomor baru, belum terdaftar")
+    if mention:
+        flags.append("menyebut Helpdesk")
+    if refs:
+        flags.append("menyebut nomor tiket")
+    if urgent:
+        flags.append("bernada mendesak")
+    if chatter:
+        flags.append("kemungkinan obrolan antar-tenan")
+    return {
+        "sender": sender, "phone": phone, "text": t, "ts": ts,
+        "instansi": instansi, "identityStatus": ident["status"], "identityName": ident.get("name", ""),
+        "intent": intent, "priority": prio, "ticketType": ttype, "category": cat, "reason": reason,
+        "summary": summarize(t), "needsReply": not chatter, "urgent": urgent, "isQuestion": question,
+        "entities": {"tiket": refs, "ip": ips, "vm": vms},
+        "flags": flags, "engine": "rules",
+    }
+
+
+NLP_JOBS = {}
+NLP_LOCK = threading.Lock()
+
+
+def _nlp_ai_worker(job_id, items):
+    """Penyempurnaan oleh model LOKAL (Ollama) di latar belakang; hasil aturan tetap tampil lebih dulu."""
+    try:
+        h = _HA.Hermes(dict(CONFIG))
+        for idx, text in items:
+            try:
+                clean = _HA.redact(text)
+                r = h.ask(clean)
+                if r:
+                    with NLP_LOCK:
+                        NLP_JOBS[job_id]["results"][str(idx)] = {
+                            "priority": r.get("priority"), "summary": r.get("summary"), "reason": r.get("reason"),
+                            "is_peer_chatter": r.get("is_peer_chatter"), "needs_followup": r.get("needs_followup"),
+                            "has_image_only": r.get("has_image_only"), "engine": f"ai-lokal:{h.model}",
+                        }
+            except Exception as e:  # satu pesan gagal tidak menghentikan yang lain
+                with NLP_LOCK:
+                    NLP_JOBS[job_id]["errors"].append(f"#{idx}: {str(e)[:100]}")
+        with NLP_LOCK:
+            NLP_JOBS[job_id]["status"] = "done"
+    except Exception as e:
+        with NLP_LOCK:
+            NLP_JOBS[job_id].update(status="error", errors=[str(e)[:150]])
+
+
+def nlp_ai_available():
+    return bool(_HA) and CONFIG.get("ai_provider") == "ollama" and bool(CONFIG.get("ai_model"))
+
+
+def start_nlp_job(items):
+    job_id = f"nlp_{int(time.time() * 1000)}"
+    with NLP_LOCK:
+        for k in [k for k, v in NLP_JOBS.items() if time.time() - v["created"] > 600]:
+            NLP_JOBS.pop(k, None)
+        NLP_JOBS[job_id] = {"status": "pending", "results": {}, "errors": [], "created": time.time()}
+    threading.Thread(target=_nlp_ai_worker, args=(job_id, items), daemon=True).start()
+    return job_id
 
 
 class SentinelHandler(http.server.SimpleHTTPRequestHandler):
@@ -1439,44 +1758,7 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"registry": TICKET_REGISTRY})
 
             elif path == "/api/helpdesk_snapshot":
-                # ITSM adalah sumber resmi. Pra-tiket WA yang sudah tertaut ke tiket portal
-                # tidak ditampilkan dua kali: tiket portal diberi anotasi waktu aduan pertama WA.
-                itsm_ids = {(t.get("ticketId") or "").strip() for t in HELPDESK_SNAPSHOT}
-                wa_by_portal = {}
-                for w in WA_TICKETS:
-                    lid = TICKET_REGISTRY.get(w.get("ticketId"), {}).get("linked_portal") or w.get("linkedPortalId") or ""
-                    if lid:
-                        wa_by_portal.setdefault(lid, w)
-
-                pool, seen_ids = [], set()
-                for t in HELPDESK_SNAPSHOT:
-                    tid = (t.get("ticketId") or "").strip()
-                    if not tid or tid in seen_ids:
-                        continue
-                    seen_ids.add(tid)
-                    w = wa_by_portal.get(tid)
-                    if w:
-                        t["waTicketId"] = w.get("ticketId")
-                        t["waFirstReportAt"] = w.get("createdDate")
-                        t["waFirstTs"] = w.get("createdTs")
-                        t["waGroup"] = w.get("waGroup")
-                    pool.append(t)
-                for w in WA_TICKETS:
-                    tid = (w.get("ticketId") or "").strip()
-                    lid = TICKET_REGISTRY.get(tid, {}).get("linked_portal") or w.get("linkedPortalId") or ""
-                    if not tid or tid in seen_ids or (lid and lid in itsm_ids):
-                        continue
-                    seen_ids.add(tid)
-                    pool.append(w)
-
-                # Ruang lingkup: hanya GC 1. Tiket/aduan Telkom (GC 2) diabaikan.
-                our_team_tickets = [
-                    enrich_ticket_with_sop(t) for t in pool
-                    if not t.get("isTelkom") and "telkom" not in (t.get("assignmentGroup", "") + " " + t.get("shortDesc", "")).lower()
-                ]
-
-                for t in our_team_tickets:
-                    archive_ticket(t)
+                our_team_tickets = build_team_tickets()
 
                 def st(t):
                     return (t.get("requestState") or "").lower()
@@ -1558,6 +1840,20 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     return
                 q = parse_qs(parsed.query)
                 self.send_json(identity_for(normalize_phone((q.get("phone") or [""])[0])))
+
+            elif path == "/api/stats":
+                q = parse_qs(parsed.query)
+                rng = (q.get("range") or ["day"])[0]
+                self.send_json(compute_stats(rng if rng in ("day", "week", "month") else "day"))
+
+            elif path == "/api/nlp_job":
+                if not self._is_local():
+                    self.send_error(403, "Hanya dari Mini PC operator")
+                    return
+                jid = (parse_qs(parsed.query).get("id") or [""])[0]
+                with NLP_LOCK:
+                    j = NLP_JOBS.get(jid)
+                    self.send_json({"status": j["status"], "results": j["results"], "errors": j["errors"]} if j else {"status": "unknown", "results": {}, "errors": []})
 
             elif path == "/api/whoami":
                 self.send_json({"role": "operator" if self._is_local() else "team"})
@@ -2002,7 +2298,9 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 roster = [v.strip().lower() for v in (CONFIG.get("wa_verified_senders") or []) if v.strip()]
                 verified = None if not roster else any(v in str(sender).lower() for v in roster)
 
-                wa_ticket = convert_wa_message_to_ticket(sender, group, text, kw, msg_id=msg_id, wa_ts=wa_ts, verified=verified)
+                wa_ticket = convert_wa_message_to_ticket(sender, group, text, kw, msg_id=msg_id, wa_ts=wa_ts, verified=verified,
+                                                         instansi_hint=re.sub(r"\s+", " ", str(data.get("instansi") or "")).strip()[:120],
+                                                         summary_hint=re.sub(r"\s+", " ", str(data.get("summary") or "")).strip()[:140])
                 if wa_ticket:
                     phone = normalize_phone(data.get("phone") or (sender if looks_like_phone(sender) else ""))
                     wa_ticket["senderPhone"] = phone
@@ -2054,6 +2352,21 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 add_history(e, "Saran AI diterima server", f"{clean['priority'] or '-'} | {clean['summary'][:80]}", actor="Agen AI")
                 save_persisted_data()
                 self.send_json({"status": "ok"})
+
+            elif path == "/api/nlp_extract":
+                if not self._is_local():
+                    self.send_json({"status": "error", "message": "Hanya dari Mini PC operator"}, 403)
+                    return
+                msgs = data.get("messages") or []
+                grp = str(data.get("group") or "")[:120]
+                if not isinstance(msgs, list) or not msgs:
+                    self.send_json({"status": "error", "message": "Tidak ada pesan"}, 400)
+                    return
+                results = [nlp_analyze(str(m.get("sender") or ""), str(m.get("text") or "")[:4000], grp, m.get("ts"), str(m.get("phone") or "")) for m in msgs[:40] if isinstance(m, dict)]
+                job = None
+                if data.get("ai") and nlp_ai_available():
+                    job = start_nlp_job([(i, r["text"]) for i, r in enumerate(results)])
+                self.send_json({"status": "ok", "results": results, "job": job, "ai_available": nlp_ai_available()})
 
             elif path == "/api/pic_action":
                 by = re.sub(r"\s+", " ", str(data.get("by") or "")).strip()[:60]

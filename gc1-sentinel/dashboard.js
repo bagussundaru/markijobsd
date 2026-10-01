@@ -561,9 +561,10 @@ async function fetchHelpdeskSnapshot() {
     updateTabBadges();
     renderActiveTab();
     renderBanners(data);
+    if (window.V3 && V3.onSnapshot) V3.onSnapshot(data);
 
     if (liveStatusText) {
-      liveStatusText.textContent = "100% SELARAS HELPDESK";
+      liveStatusText.textContent = "Terhubung ke Sentinel";
     }
     if (lastSyncTimeText) {
       lastSyncTimeText.textContent = data.last_sync || new Date().toLocaleTimeString("id-ID") + " WIB";
@@ -586,6 +587,7 @@ function updateKpiCards() {
 
 function updateTabBadges() {
   const s = state.snapshot;
+  if (window.V3 && V3.updateBadges && V3.updateBadges(s)) return;
   if (badgeGc1Assigned) badgeGc1Assigned.textContent = s.team_assigned_count ?? s.gc1_assigned_count ?? 0;
   if (badgeGc1Pending) badgeGc1Pending.textContent = s.team_pending_count ?? s.gc1_pending_count ?? 0;
   if (badgeTeamProgress) badgeTeamProgress.textContent = s.team_progress_count ?? 0;
@@ -705,6 +707,7 @@ function renderActiveTab() {
 
   // Exclude Telkom completely from list
   list = list.filter((t) => !t.isTelkom && !((t.assignmentGroup || "") + " " + (t.shortDesc || "")).toLowerCase().includes("telkom"));
+  if (window.V3 && V3.filterBySource) list = V3.filterBySource(list);
 
   // Apply Search
   if (query) {
@@ -1364,11 +1367,17 @@ function renderBanners(data) {
   const box = document.getElementById("statusBanners");
   if (!box) return;
   const parts = [];
-  parts.push(`<div class="banner banner-info">WhatsApp dicatat manual lewat kolom <strong>Input aduan WhatsApp</strong> di bawah. Sentinel tidak mengakses WhatsApp dan tidak mengirim pesan apa pun.</div>`);
+  parts.push(`<div class="banner banner-info">WhatsApp dicatat lewat menu <strong>Input Cepat</strong> di samping (Ctrl+V di mana saja). Sentinel tidak mengakses WhatsApp dan tidak mengirim pesan apa pun.</div>`);
   const esc = data.escalations || [];
   if (esc.length) {
-    const first = esc.slice(0, 3).map((t) => `${escapeHtml(t.ticketId)}: ${escapeHtml(t.escalationFlags[0])}`).join(" &nbsp;|&nbsp; ");
-    parts.push(`<div class="banner banner-danger" data-detail="${escapeHtml(esc[0].ticketId)}">⚠ ${esc.length} tiket perlu perhatian. ${first}</div>`);
+    // ringkas per jenis masalah: "Respons >15 menit (23) | Syarat dokumen belum lengkap (20)"
+    const groups = {};
+    esc.forEach((t) => (t.escalationFlags || []).forEach((f) => {
+      const key = f.replace(/\(.*?\)/g, "").replace(/:.*$/, "").replace(/\d+/g, "N").replace(/\s+/g, " ").trim().slice(0, 64);
+      groups[key] = (groups[key] || 0) + 1;
+    }));
+    const top = Object.entries(groups).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([k, n]) => `${escapeHtml(k)} (${n})`).join(" &nbsp;|&nbsp; ");
+    parts.push(`<div class="banner banner-danger" data-detail="${escapeHtml(esc[0].ticketId)}">⚠ ${esc.length} tiket perlu perhatian: ${top}. Klik untuk membuka yang pertama.</div>`);
   }
   box.innerHTML = parts.join("");
 }
@@ -1667,11 +1676,14 @@ document.getElementById("mwSubmit")?.addEventListener("click", async () => {
   for (const m of parsed.messages) {
     const sender = m.sender || (mwSender.value || "").trim() || "Pelapor (manual)";
     const ts = m.ts || (parsed.hadHeaders ? null : plainTs);
+    if (window.V3 && V3.skipMsg && V3.skipMsg(m.text)) { tally["dilewati (tidak dipilih)"] = (tally["dilewati (tidak dipilih)"] || 0) + 1; continue; }
+    const nl = window.V3 && V3.nlpFor ? V3.nlpFor(m.text) : null;
     const body = {
       sender, group, text: m.text, matchedKeyword: "GC 1", manual: true, enteredBy: by,
       msgId: "man|" + GC1Paste.hashKey([group, sender, m.text, ts || ""].join("|")),
       waTs: ts, tier: mwTier.value ? parseInt(mwTier.value, 10) : undefined,
-      phone: (!parsed.hadHeaders && (document.getElementById("mwPhone").value || "").trim()) || undefined
+      phone: (!parsed.hadHeaders && (document.getElementById("mwPhone").value || "").trim()) || undefined,
+      instansi: (nl && nl.instansi) || undefined, summary: (nl && nl.summary) || undefined
     };
     try {
       const r = await postJson("/api/add_wa_ticket", body);
@@ -1683,6 +1695,9 @@ document.getElementById("mwSubmit")?.addEventListener("click", async () => {
         group_ignored: "grup diabaikan"
       }[r.reason] || r.message || r.reason || "gagal");
       tally[key] = (tally[key] || 0) + 1;
+      if (r.status === "success" && nl) {
+        postJson("/api/ai_suggestion", { ticketId: r.ticket.ticketId, model: nl.engine, suggestion: { priority: nl.priority, summary: nl.summary, reason: nl.reason, is_peer_chatter: nl.chatter, needs_followup: nl.needsReply, has_image_only: nl.has_image_only } }).catch(() => {});
+      }
       if (r.status === "success") { lastId = r.ticket.ticketId; replyItems.push({ identity: r.identity, label: (r.identity && r.identity.name) || sender }); if (r.identity && r.identity.status !== "verified") tally["_baru"] = (tally["_baru"] || 0) + 1; }
     } catch (_) {
       tally["gagal (server tidak merespons)"] = (tally["gagal (server tidak merespons)"] || 0) + 1;
@@ -1696,7 +1711,7 @@ document.getElementById("mwSubmit")?.addEventListener("click", async () => {
   delete tally["_baru"];
   mwResult.textContent = Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(", ") + (lastId ? ` (terakhir: ${lastId})` : "") +
     (unverifiedNew ? `. ${unverifiedNew} dari pelapor yang nomornya belum terdaftar: buka tiketnya untuk verifikasi identitas.` : "");
-  if (tally["dibuat"]) { mwText.value = ""; mwPreview.textContent = ""; playAlertSound(); }
+  if (tally["dibuat"]) { mwText.value = ""; mwPreview.textContent = ""; if (window.V3 && V3.resetQuick) V3.resetQuick(); playAlertSound(); }
   await fetchHelpdeskSnapshot();
   mwLoadGroupList();
 });
@@ -1958,6 +1973,7 @@ document.addEventListener("paste", (e) => {
   const txt = (e.clipboardData && e.clipboardData.getData("text")) || "";
   if (!txt.trim()) return;
   e.preventDefault();
+  if (window.V3 && V3.showView) V3.showView("quick");
   const det = document.getElementById("manualWaDetails");
   if (det) det.open = true;
   mwText.value = txt;
