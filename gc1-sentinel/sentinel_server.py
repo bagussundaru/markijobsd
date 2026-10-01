@@ -83,6 +83,10 @@ DEFAULT_CONFIG = {
     "ai_external_approved": False,
     "ai_hermes_exe": "",
     "ai_hermes_home": "",
+    "itsm_lists": [
+        {"key": "request", "label": "Request", "match": ["request", "permohonan"]},
+        {"key": "assign", "label": "Assign", "match": ["assign", "penugasan"]}
+    ],
     "wa_reply_warn_minutes": 5,
     "wa_reply_breach_minutes": 10,
     "wa_ticket_open_target_minutes": 15,
@@ -115,6 +119,7 @@ HELPDESK_SNAPSHOT = []
 LAST_SYNC_TIME = ""
 TELKOM_SKIPPED = 0
 TICKET_ARCHIVE = {}
+HELPDESK_LISTS = {}   # satu entri per halaman/menu ITSM yang dibaca: {key: {label, tickets, synced_at, title, path}}
 PIC_REGISTRY = {}      # nomor HP TERVERIFIKASI -> data PIC (hanya yang sudah lolos verifikasi Komdigi)
 IDENTITY_CASES = {}    # nomor HP belum terverifikasi -> kasus verifikasi (belum disimpan sebagai PIC)
 SYNC_HOURS = set()
@@ -149,7 +154,7 @@ def save_config(cfg):
 
 
 def load_persisted_data():
-    global ALERTS, WA_TICKETS, TICKET_REGISTRY, SENT_RECAP_HASHES, WA_QUEUE, WA_HISTORY, HELPDESK_SNAPSHOT, LAST_SYNC_TIME, TICKET_ARCHIVE, SYNC_HOURS, MONITOR_START, PIC_REGISTRY, IDENTITY_CASES
+    global ALERTS, WA_TICKETS, TICKET_REGISTRY, SENT_RECAP_HASHES, WA_QUEUE, WA_HISTORY, HELPDESK_SNAPSHOT, LAST_SYNC_TIME, TICKET_ARCHIVE, SYNC_HOURS, MONITOR_START, PIC_REGISTRY, IDENTITY_CASES, HELPDESK_LISTS
     if DATA_FILE.exists():
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -161,6 +166,9 @@ def load_persisted_data():
                 WA_QUEUE = data.get("wa_queue", [])
                 WA_HISTORY = data.get("wa_history", [])
                 HELPDESK_SNAPSHOT = data.get("helpdesk_snapshot", [])
+                HELPDESK_LISTS = data.get("helpdesk_lists", {})
+                if not HELPDESK_LISTS and HELPDESK_SNAPSHOT:   # data lama (satu daftar)
+                    HELPDESK_LISTS = {"itsm": {"label": "ITSM", "tickets": HELPDESK_SNAPSHOT, "synced_at": time.time(), "title": "", "path": ""}}
                 LAST_SYNC_TIME = data.get("last_sync_time", "")
                 TICKET_ARCHIVE = data.get("ticket_archive", {})
                 PIC_REGISTRY = data.get("pic_registry", {})
@@ -183,6 +191,7 @@ def save_persisted_data():
                 "wa_queue": WA_QUEUE,
                 "wa_history": WA_HISTORY[:100],
                 "helpdesk_snapshot": HELPDESK_SNAPSHOT,
+                "helpdesk_lists": HELPDESK_LISTS,
                 "last_sync_time": LAST_SYNC_TIME,
                 "ticket_archive": TICKET_ARCHIVE,
                 "sync_hours": sorted(SYNC_HOURS)[-24 * 70:],
@@ -986,6 +995,49 @@ def apply_docs(t):
     return t
 
 
+def resolve_itsm_list(info):
+    """Tentukan daftar ITSM (Request/Assign/...) dari judul dan path halaman yang dibaca ekstensi."""
+    info = info if isinstance(info, dict) else {}
+    title = str(info.get("title") or "")[:160]
+    path = str(info.get("path") or "")[:200]
+    text = f"{title} {path}".lower()
+    if not text.strip():
+        return "itsm", "ITSM", title, path
+    for e in CONFIG.get("itsm_lists") or []:
+        if any(str(m).lower() in text for m in e.get("match", [])):
+            return e["key"], e.get("label", e["key"]), title, path
+    return "lainnya", "ITSM (halaman lain)", title, path
+
+
+def merge_itsm_lists():
+    """Gabung semua daftar ITSM jadi satu kolam tiket. Tiket yang muncul di beberapa daftar memuat semua keanggotaannya."""
+    merged = {}
+    for key, lst in sorted(HELPDESK_LISTS.items(), key=lambda kv: kv[1].get("synced_at", 0)):
+        for t in lst.get("tickets", []):
+            tid = t.get("ticketId")
+            if not tid:
+                continue
+            members = sorted(set((merged.get(tid) or {}).get("itsmLists", [])) | {key})
+            nt = dict(t)
+            nt["itsmLists"] = members
+            merged[tid] = nt
+    return list(merged.values())
+
+
+def itsm_lists_info():
+    now = time.time()
+    entries = [dict(e) for e in (CONFIG.get("itsm_lists") or [])]
+    known = {e["key"] for e in entries}
+    entries += [{"key": k, "label": v.get("label", k)} for k, v in HELPDESK_LISTS.items() if k not in known]
+    out = []
+    for e in entries:
+        lst = HELPDESK_LISTS.get(e["key"])
+        out.append({"key": e["key"], "label": e.get("label", e["key"]), "count": len(lst["tickets"]) if lst else 0,
+                    "synced_at": lst.get("synced_at") if lst else None, "age_sec": int(now - lst["synced_at"]) if lst else None,
+                    "title": (lst or {}).get("title", "")})
+    return out
+
+
 def archive_ticket(t):
     """Simpan ringkasan tiap tiket yang pernah terpantau, agar laporan periode tidak bergantung pada daftar layar saat ini."""
     tid = t.get("ticketId")
@@ -1010,6 +1062,7 @@ def archive_ticket(t):
         "respondedTs": e.get("responded_ts"),
         "waFirstReportAt": t.get("waFirstReportAt", "") or "",
         "waGroup": t.get("waGroup", "") or "",
+        "itsmLists": sorted(set(rec.get("itsmLists") or []) | set(t.get("itsmLists") or [])),   # akumulatif: riwayat daftar tempat tiket pernah muncul
         "serviceCategory": t.get("serviceCategory", "") or "",
         "slaHours": t.get("slaLimitHours"),
         "docsRule": (t.get("docs") or {}).get("rule", ""),
@@ -1055,11 +1108,13 @@ def sla_outcome(rec, now):
     return ("Lewat SLA (masih terbuka)" if now > deadline else "Dalam SLA (terbuka)"), deadline
 
 
-def compute_report(kind, day):
+def compute_report(kind, day, itsm_list=None):
     now = time.time()
     start, end, label = period_bounds(kind, day)
     all_rows = [r for r in TICKET_ARCHIVE.values() if start <= r.get("createdTs", 0) < end]
     rows = [r for r in all_rows if r.get("source") != "Pra-tiket WA"]   # SLA KAK: hanya tiket ITSM
+    if itsm_list:
+        rows = [r for r in rows if itsm_list in (r.get("itsmLists") or [])]
     pre_rows = [r for r in all_rows if r.get("source") == "Pra-tiket WA"]
     n = len(rows)
 
@@ -1310,7 +1365,7 @@ def _bucket_defs(rng, now):
     return start, 3600, 24, lambda ts: time.strftime("%H:00", time.localtime(ts))
 
 
-def compute_stats(rng):
+def compute_stats(rng, itsm_list=None):
     """Agregat untuk grafik dashboard: tren ITSM vs WA, distribusi status/prioritas/kategori, SLA, balasan WA."""
     now = time.time()
     tickets = build_team_tickets()
@@ -1324,6 +1379,8 @@ def compute_stats(rng):
         if not (start <= ts < start + n * step):
             continue
         is_wa = r.get("source") == "Pra-tiket WA"
+        if itsm_list and not is_wa and itsm_list not in (r.get("itsmLists") or []):
+            continue
         buckets[int((ts - start) // step)]["wa" if is_wa else "itsm"] += 1
         if is_wa:
             g = r.get("waGroup") or "(tanpa nama grup)"
@@ -1335,8 +1392,10 @@ def compute_stats(rng):
             elif not r.get("closedSeenTs"):
                 reply_buckets["Belum dibalas"] += 1
 
-    itsm = [t for t in tickets if not t.get("isFromWa")]
+    itsm_all = [t for t in tickets if not t.get("isFromWa")]
+    itsm = [t for t in itsm_all if itsm_list in (t.get("itsmLists") or [])] if itsm_list else itsm_all
     wa = [t for t in tickets if t.get("isFromWa")]
+    scope = itsm if itsm_list else tickets
 
     def group_state(t):
         sl = (t.get("requestState") or "").lower()
@@ -1369,11 +1428,11 @@ def compute_stats(rng):
 
     itsm_open = [t for t in itsm if not t.get("slaClosed")]
     wa_open = [t for t in wa if not t.get("slaClosed")]
-    open_all = [t for t in tickets if not t.get("slaClosed")]
+    open_all = [t for t in scope if not t.get("slaClosed")]
     sla_pool = [t for t in itsm_open]
     breached = [t for t in sla_pool if t.get("slaBreached")]
     kind = {"day": "daily", "week": "weekly", "month": "monthly"}.get(rng, "daily")
-    rep = compute_report(kind, time.strftime("%Y-%m-%d"))
+    rep = compute_report(kind, time.strftime("%Y-%m-%d"), itsm_list)
     waiting = [t for t in wa_open if wa_state(t) == "Menunggu balasan"]
     return {
         "range": rng,
@@ -1391,7 +1450,10 @@ def compute_stats(rng):
                 "health_pct": 100 if not sla_pool else int((len(sla_pool) - len(breached)) / len(sla_pool) * 100),
                 "breached": len(breached), "open": len(sla_pool),
                 "wa_reply_pct": rep["wa_reply_within_target_pct"], "wa_reply_target_min": rep["wa_reply_target_minutes"]},
+        "itsm_list": itsm_list,
+        "itsm_lists": itsm_lists_info(),
         "kpi": {
+            "itsm_by_list": {i["key"]: len([t for t in itsm_all if i["key"] in (t.get("itsmLists") or []) and not t.get("slaClosed")]) for i in itsm_lists_info()},
             "itsm_total": len(itsm), "itsm_open": len(itsm_open),
             "itsm_assigned": len([t for t in itsm if group_state(t) == "Assigned"]),
             "itsm_pending": len([t for t in itsm if group_state(t) == "Pending Approval"]),
@@ -1786,6 +1848,7 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     "escalation_count": len(escalations),
                     "telkom_count": TELKOM_SKIPPED,
                     "wa_count": len(wa_alerts),
+                    "itsm_lists": itsm_lists_info(),
                     "wa_outbound_enabled": outbound_enabled(),
                     "wa_monitored_groups": CONFIG.get("wa_monitored_groups", []),
                     "last_sync": LAST_SYNC_TIME or time.strftime("%H:%M:%S WIB"),
@@ -1844,7 +1907,9 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
             elif path == "/api/stats":
                 q = parse_qs(parsed.query)
                 rng = (q.get("range") or ["day"])[0]
-                self.send_json(compute_stats(rng if rng in ("day", "week", "month") else "day"))
+                lst = (q.get("list") or [""])[0]
+                lst = lst if lst in {i["key"] for i in itsm_lists_info()} else None
+                self.send_json(compute_stats(rng if rng in ("day", "week", "month") else "day", lst))
 
             elif path == "/api/nlp_job":
                 if not self._is_local():
@@ -1878,6 +1943,7 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 normalized_tickets = []
                 seen_sync_ids = set()
                 telkom_skipped = 0
+                list_key, list_label, list_title, list_path = resolve_itsm_list(data.get("list"))
                 for t in raw_tickets:
                     raw_id = t.get("ticketId") or t.get("number") or t.get("ticketNumber") or ""
                     tid = re.sub(r"[\r\n\t📋]", "", str(raw_id)).strip()
@@ -1945,7 +2011,8 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                         "isGc1": is_gc1,
                         "isTelkom": False,
                         "resolverLayer": resolver_layer,
-                        "category": cat
+                        "category": cat,
+                        "itsmLists": [list_key]
                     }
                     track_ticket(tid, state_val, grp_val)
                     norm_t = enrich_ticket_with_sop(norm_t)
@@ -1983,14 +2050,18 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                                         "created_at": time.time(),
                                         "hash": msg_hash
                                     })
-                HELPDESK_SNAPSHOT = normalized_tickets
+                # Tiap halaman ITSM mengganti DAFTARNYA SENDIRI; daftar lain tidak tersentuh (tidak saling menimpa)
+                HELPDESK_LISTS[list_key] = {"label": list_label, "tickets": normalized_tickets, "synced_at": time.time(), "title": list_title, "path": list_path}
+                if list_key != "itsm":
+                    HELPDESK_LISTS.pop("itsm", None)   # daftar format lama (tanpa nama halaman) digantikan begitu ekstensi baru membaca halaman bernama
+                HELPDESK_SNAPSHOT = merge_itsm_lists()
                 TELKOM_SKIPPED = telkom_skipped
                 SYNC_HOURS.add(time.strftime("%Y-%m-%d %H"))
                 if not MONITOR_START:
                     MONITOR_START = time.time()
                 LAST_SYNC_TIME = time.strftime("%H:%M:%S WIB")
                 save_persisted_data()
-                self.send_json({"status": "synced", "count": len(normalized_tickets), "last_sync": LAST_SYNC_TIME})
+                self.send_json({"status": "synced", "count": len(normalized_tickets), "list": list_key, "total": len(HELPDESK_SNAPSHOT), "last_sync": LAST_SYNC_TIME})
 
             elif path == "/api/alerts":
                 alert_data = data.get("data", data)

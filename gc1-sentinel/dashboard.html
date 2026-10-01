@@ -23,7 +23,7 @@
       <div class="sb-group open" id="sbMonitor">
         <button class="sb-item" id="sbMonitorToggle" title="Monitoring per sumber" aria-expanded="true"><span class="ic">🧭</span><span class="tx">Monitoring per sumber</span><span class="chev">&#9654;</span></button>
         <div class="sb-sub">
-          <button class="sb-item" data-view="itsm" title="Tiket dari ITSM Komdigi"><span class="ic">🏛️</span><span class="tx">Tiket ITSM</span><span class="sb-pill" id="sbPillItsm">0</span></button>
+          <div id="sbItsmItems"></div>
           <button class="sb-item" data-view="wa" title="Aduan dari WhatsApp (pra-tiket)"><span class="ic">💬</span><span class="tx">Aduan WhatsApp</span><span class="sb-pill" id="sbPillWa">0</span></button>
         </div>
       </div>
@@ -83,7 +83,7 @@
       <!-- ===== TIKET ITSM ===== -->
       <section class="v3-view" id="view-itsm" hidden>
         <div class="view-head">
-          <div><h2>Tiket ITSM</h2><p>Tiket resmi di portal pdn.layanan.go.id. SLA resmi (KAK 18.c) berjalan pada tiket ini.</p></div>
+          <div><h2 id="itsmHeading">Tiket ITSM</h2><p id="itsmDesc">Tiket resmi di portal pdn.layanan.go.id. SLA resmi (KAK 18.c) berjalan pada tiket ini.</p><div class="v3-syncinfo" id="itsmSyncInfo"></div></div>
           <div class="range-switch" data-range-switch><button data-range="day" class="active">24 jam</button><button data-range="week">7 hari</button><button data-range="month">30 hari</button></div>
         </div>
         <div class="v3-kpis" id="itsmKpis" style="--cols:5"></div>

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Show All Assign - Portal Helpdesk Kominfo PDN (Dummy Test)</title>
+<style>
+  body { font: 13px/1.4 "Segoe UI", Arial, sans-serif; margin: 0; background: #F1F5F9; color: #0F172A; }
+  header { background: #7C2D12; color: #fff; padding: 12px 18px; }
+  header small { opacity: .85; }
+  main { padding: 16px 18px; }
+  table { border-collapse: collapse; width: 100%; background: #fff; }
+  th { background: #7C2D12; color: #fff; text-align: left; padding: 8px 10px; }
+  td { border-bottom: 1px solid #E2E8F0; padding: 8px 10px; }
+  .st-Assigned { color: #166534; font-weight: 700; } .st-InProgress { color: #1D4ED8; font-weight: 700; }
+  button { padding: 6px 12px; border: 1px solid #CBD5E1; border-radius: 6px; background: #fff; cursor: pointer; }
+  #log { margin-top: 10px; color: #475569; }
+</style>
+</head>
+<body>
+<header><b>Show All Assign</b> &middot; <small>Menu penugasan di aplikasi ITSM yang sama (halaman dummy untuk pengujian). Daftar ini terpisah dari "Show All Request".</small></header>
+<main>
+  <p>Tiket yang ditugaskan ke kelompok kerja. Sebagian nomor sama dengan yang ada di "Show All Request", sebagian lain insiden (INC).
+    <button id="btnSync">Sinkron sekarang</button> <button id="btnAdd">Tambah tiket insiden</button></p>
+  <table>
+    <thead><tr><th></th><th>Number</th><th>Short Description</th><th>Requested For</th><th>Request State</th><th>Created Date</th><th>Location</th><th>Assignment Group</th></tr></thead>
+    <tbody id="body"></tbody>
+  </table>
+  <div id="log"></div>
+</main>
+<script>
+  const fmt = (d) => d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" }).replace(/\./g, "") + " " + d.toLocaleTimeString("id-ID", { hour12: false }).replace(/\./g, ":") + " WIB";
+  const ago = (min) => fmt(new Date(Date.now() - min * 60000));
+  let seq = 12010;
+  const rows = [
+    ["REQ-KMF-092026-0093996", "Permohonan Penambahan Core CPU dan RAM Server di Government Cloud 1", "Ahmad Faisal", "Assigned", 40, "Kementerian Kesehatan", "Helpdesk"],
+    ["REQ-KMF-092026-0093997", "Permohonan Reset Password Akun Email dan Penggantian Kabel LAN Lantai 3", "Dimas Setiawan", "In Progress", 55, "Bappenas", "EOS L1"],
+    ["INC0012001", "VM Jump Host tidak bisa diakses dari jaringan tenan di Government Cloud 1", "Rina Kartika", "Assigned", 12, "Kementerian Keuangan", "EOS L1"],
+    ["INC0012002", "Website tenan down error 500 sejak pagi", "Joko Prasetyo", "In Progress", 90, "Kabupaten Jombang", "EOS L2"],
+  ];
+  const body = document.getElementById("body");
+  function render() {
+    body.innerHTML = rows.map((r) => `<tr><td><input type="checkbox"></td><td><a href="#">${r[0]}</a></td><td>${r[1]}</td><td>${r[2]}</td>
+      <td class="st-${r[3].replace(" ", "")}">${r[3]}</td><td>${ago(r[4])}</td><td>${r[5]}</td><td>${r[6]}</td></tr>`).join("");
+  }
+  function sync() {
+    const tickets = [...body.querySelectorAll("tr")].map((tr) => {
+      const c = tr.querySelectorAll("td");
+      return { ticketId: c[1].textContent.trim(), shortDesc: c[2].textContent.trim(), requestedFor: c[3].textContent.trim(), requestState: c[4].textContent.trim(),
+               createdDate: c[5].textContent.trim(), location: c[6].textContent.trim(), assignmentGroup: c[7].textContent.trim() };
+    });
+    fetch("http://localhost:8765/api/sync_helpdesk", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tickets, list: { title: document.title, path: location.pathname } }) })
+      .then((r) => r.json()).then((j) => { document.getElementById("log").textContent = `Sinkron: ${tickets.length} tiket dikirim sebagai daftar "${j.list}" (gabungan di Sentinel: ${j.total}).`; })
+      .catch(() => { document.getElementById("log").textContent = "Sentinel tidak merespons."; });
+  }
+  document.getElementById("btnSync").onclick = sync;
+  document.getElementById("btnAdd").onclick = () => { rows.unshift([`INC00${seq++}`, "Koneksi VPN tenan terputus di Government Cloud 1", "Dewi Anggraini", "Assigned", 1, "Kementerian Keuangan", "NOC"]); render(); sync(); };
+  render();
+  setTimeout(sync, 300);
+  setInterval(sync, 15000);
+</script>
+</body>
+</html>

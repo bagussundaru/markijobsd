@@ -125,10 +125,30 @@ Menu **Input Cepat** (atau Ctrl+V di mana saja di dashboard, lalu Ctrl+Enter):
 2. Bila `ai_provider` = `ollama`, **AI lokal menyempurnakan di latar belakang** (prioritas dan ringkasan); hasil aturan tetap tampil lebih dulu sehingga operator tidak menunggu model. Teks disamarkan (telepon, email, IP, URL, kata sandi) sebelum diberikan ke model, dan model tidak pernah memegang akses ke apa pun.
 3. Pesan yang dipilih menjadi pra-tiket dengan instansi dan ringkasan dari NLP, dan hasil NLP menempel di tiket sebagai **saran** (Helpdesk menerima atau menolak).
 
+## Beberapa menu di ITSM (Request, Assign, ...)
+
+Aplikasi ITSM punya menu terpisah (mis. **Request** dan **Assign**) dengan tampilan masing-masing. Sentinel membacanya sebagai **daftar sendiri-sendiri**:
+
+- Ekstensi menyebut judul dan path halaman yang dibaca; server memetakannya ke daftar lewat `itsm_lists` di `config.json` (cocokkan kata kunci pada judul/path halaman):
+
+  ```json
+  "itsm_lists": [
+    {"key": "request", "label": "Request", "match": ["request", "permohonan"]},
+    {"key": "assign",  "label": "Assign",  "match": ["assign", "penugasan"]}
+  ]
+  ```
+- Tiap halaman hanya mengganti **daftarnya sendiri**. Dulu, membaca halaman Assign menimpa hasil halaman Request (dan sebaliknya); sekarang tidak.
+- Tiket yang muncul di dua menu dihitung **sekali** dan tercatat sebagai anggota kedua daftar. Total ITSM tidak dobel.
+- Di sidebar, grup Monitoring memuat **ITSM · Semua / Request / Assign** (sesuai `itsm_lists`) dan **Aduan WhatsApp**. Tiap item punya KPI, grafik, dan tabelnya sendiri; ringkasan menampilkan jumlah per daftar.
+- Di kepala tampilan ITSM ada status baca per halaman ("Request: 8 tiket, sinkron 2 menit lalu"); halaman yang belum pernah dibaca ditandai agar operator tahu menu mana yang perlu dibuka di ITSM.
+- Halaman yang judul/path-nya tidak cocok masuk daftar **"lainnya"**; ekstensi lama (tanpa info halaman) masuk daftar "ITSM" dan digantikan begitu ekstensi baru membaca halaman bernama. **Muat ulang ekstensi** setelah memperbarui berkas.
+- Pengujian: `dummy_helpdesk.html` (menu Request) dan `dummy_helpdesk_assign.html` (menu Assign, sebagian nomor sama dan ada insiden INC).
+- Batasan: Sentinel hanya membaca halaman yang **sedang terbuka** di Chrome. Bila tab sebuah menu ditutup, daftarnya berhenti diperbarui (dan ditandai basi di kepala tampilan).
+
 ## Pengujian
 
 ```
-python -B tests/run_all.py     # 92 uji otomatis; memakai salinan sementara, data asli tidak tersentuh
+python -B tests/run_all.py     # seluruh uji otomatis; memakai salinan sementara, data asli tidak tersentuh
 ```
 
 ## Dasar angka (apa yang resmi, apa yang internal)

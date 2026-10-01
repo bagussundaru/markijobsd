@@ -363,7 +363,7 @@
           fetch("http://localhost:8765/api/sync_helpdesk", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ tickets: scannedTickets })
+            body: JSON.stringify({ tickets: scannedTickets, list: { title: document.title, path: location.pathname } })
           }).catch(() => {});
         } catch (_) {}
 

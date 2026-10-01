@@ -22,7 +22,7 @@ ATURAN KERAS
 LANGKAH
 1. Prasyarat: laporkan versi Python (butuh 3.9+) dan Google Chrome. Ollama opsional (hanya untuk AI lokal).
 2. Jalankan uji otomatis: python -B tests/run_all.py
-   Harapan: baris akhir "TOTAL: 92 lulus, 0 gagal". Tiap uji memakai salinan sementara dan port sendiri; data asli tidak tersentuh.
+   Harapan: baris akhir "TOTAL: <jumlah> lulus, 0 gagal" (nol gagal). Tiap uji memakai salinan sementara dan port sendiri; data asli tidak tersentuh.
 3. Pastikan folder bersih untuk Chrome: find/Get-ChildItem nama berawalan "_" dan folder __pycache__ harus kosong.
 4. Jalankan server di jendela terpisah: python -B sentinel_server.py   (port 8765, 127.0.0.1)
 5. Verifikasi server:

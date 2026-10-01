@@ -16,7 +16,7 @@
     wa: { title: "Aduan WhatsApp", crumb: "Monitoring · pra-tiket dan komunikasi" },
     quick: { title: "Input Cepat", crumb: "Input · aduan WhatsApp dengan NLP" },
   };
-  const V3 = { view: "overview", range: "day", stats: null, lastStats: 0 };
+  const V3 = { view: "overview", range: "day", stats: null, lastStats: 0, itsmList: null, lists: [{ key: "request", label: "Request" }, { key: "assign", label: "Assign" }] };
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (_) { return d; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} },
@@ -39,18 +39,45 @@
   });
   document.addEventListener("click", (e) => {
     const nav = e.target.closest("[data-view]");
-    if (nav && nav.tagName === "BUTTON") showView(nav.dataset.view);
+    if (nav && nav.tagName === "BUTTON") showView(nav.dataset.view, nav.dataset.list || null);
   });
 
+  // ---- submenu ITSM: satu item per menu/daftar ITSM (Request, Assign, ...), sesuai config itsm_lists
+  function renderItsmMenu() {
+    const box = $("sbItsmItems");
+    if (!box) return;
+    const items = [{ key: "", label: "Semua" }].concat(V3.lists);
+    box.innerHTML = items.map((l) => `<button class="sb-item" data-view="itsm" data-list="${esc(l.key)}" title="Tiket ITSM: ${esc(l.label)}"><span class="ic">${l.key ? "🏛️" : "🗂️"}</span><span class="tx">ITSM · ${esc(l.label)}</span><span class="sb-pill" data-pill-list="${esc(l.key)}">0</span></button>`).join("");
+    markActive();
+  }
+  function markActive() {
+    document.querySelectorAll(".sb-item[data-view]").forEach((b) => {
+      const on = b.dataset.view === V3.view && (b.dataset.view !== "itsm" || (b.dataset.list || "") === (V3.itsmList || ""));
+      b.classList.toggle("active", on);
+    });
+  }
+  function listLabel(key) { const l = V3.lists.find((x) => x.key === key); return l ? l.label : key; }
+  function setLists(arr) {
+    if (!Array.isArray(arr) || !arr.length) return;
+    const next = arr.map((l) => ({ key: l.key, label: l.label }));
+    if (JSON.stringify(next) !== JSON.stringify(V3.lists)) { V3.lists = next; renderItsmMenu(); }
+  }
+
   // ------------------------------------------------------------------ tampilan
-  function showView(v) {
+  function showView(v, list) {
     if (!VIEWS[v]) v = "overview";
+    if (v === "itsm") V3.itsmList = list || null;
     if (v === "quick" && state.role === "team") v = "overview";
     V3.view = v;
     document.querySelectorAll(".v3-view").forEach((s) => { s.hidden = s.id !== "view-" + v; });
-    document.querySelectorAll(".sb-item[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
-    $("v3Title").textContent = VIEWS[v].title;
-    $("v3Crumb").textContent = VIEWS[v].crumb;
+    markActive();
+    const itsmName = V3.itsmList ? `Tiket ITSM · ${listLabel(V3.itsmList)}` : "Tiket ITSM · Semua";
+    $("v3Title").textContent = v === "itsm" ? itsmName : VIEWS[v].title;
+    $("v3Crumb").textContent = v === "itsm" ? "Monitoring · menu " + (V3.itsmList ? listLabel(V3.itsmList) : "ITSM (semua daftar)") : VIEWS[v].crumb;
+    if (v === "itsm") {
+      if ($("itsmHeading")) $("itsmHeading").textContent = itsmName;
+      if ($("itsmDesc")) $("itsmDesc").textContent = V3.itsmList ? `Tiket yang tampil di menu "${listLabel(V3.itsmList)}" pada aplikasi ITSM. SLA resmi (KAK 18.c) berjalan pada tiket ini.` : "Gabungan semua menu ITSM (satu tiket dihitung sekali walau muncul di beberapa menu).";
+    }
     const tb = $("tableBlock");
     if (v === "itsm" || v === "wa") {
       $(v === "itsm" ? "slotItsm" : "slotWa").appendChild(tb);
@@ -71,6 +98,7 @@
       tb.hidden = true;
     }
     store.set("gc1_view", v);
+    store.set("gc1_list", V3.itsmList || "");
     if (state.snapshot) onSnapshot(state.snapshot, true);
     loadStats(true);
     if (v === "quick") setTimeout(() => $("mwText") && $("mwText").focus(), 50);
@@ -79,7 +107,7 @@
   V3.showView = showView;
 
   V3.filterBySource = function (list) {
-    if (V3.view === "itsm") return list.filter((t) => !t.isFromWa);
+    if (V3.view === "itsm") return list.filter((t) => !t.isFromWa && (!V3.itsmList || (t.itsmLists || []).includes(V3.itsmList)));
     if (V3.view === "wa") return list.filter((t) => t.isFromWa);
     return list;
   };
@@ -114,7 +142,7 @@
   function snapKpis(s) {
     const all = s.all_tickets || [];
     const st = (t) => (t.requestState || "").toLowerCase();
-    const itsm = all.filter((t) => !t.isFromWa);
+    const itsm = all.filter((t) => !t.isFromWa && (V3.view !== "itsm" || !V3.itsmList || (t.itsmLists || []).includes(V3.itsmList)));
     const wa = all.filter((t) => t.isFromWa);
     const open = (l) => l.filter((t) => !t.slaClosed);
     const itsmOpen = open(itsm), waOpen = open(wa);
@@ -157,7 +185,7 @@
     const h = st.sla.health_pct;
     const tgt = st.sla.wa_reply_target_min || 10;
     $("ovKpis").innerHTML =
-      kpi("itsm link", "Tiket ITSM aktif", kk.itsm_open, "tiket", `${kk.itsm_assigned} Assigned · ${kk.itsm_pending} Pending · ${kk.itsm_progress} In Progress`, "view:itsm") +
+      kpi("itsm link", "Tiket ITSM aktif", kk.itsm_open, "tiket", Object.entries(kk.itsm_by_list || {}).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${listLabel(k)}`).join(" · ") || `${kk.itsm_assigned} Assigned · ${kk.itsm_pending} Pending`, "view:itsm") +
       kpi("wa link", "Aduan WhatsApp aktif", kk.wa_active, "aduan", `${kk.wa_unlinked} belum ber-tiket ITSM`, "view:wa") +
       kpi(kk.wa_late ? "danger" : kk.wa_waiting ? "warn" : "ok", "Menunggu balasan WA", kk.wa_waiting, "aduan", kk.wa_late ? `${kk.wa_late} lewat ${tgt} menit` : `semua dalam ${tgt} menit`, "view:wa") +
       kpi(h >= 95 ? "ok" : h >= 80 ? "warn" : "danger", "Kepatuhan SLA ITSM", h, "%", `${st.sla.breached} tiket lewat SLA · target > 95%`, "view:itsm") +
@@ -223,8 +251,7 @@
       C.gauge($("chWaGauge"), { value: s.sla.wa_reply_pct, label: `Dibalas ≤ ${s.sla.wa_reply_target_min} menit`, sub: s.wa_reply_avg_min === null ? "" : `Rata-rata ${s.wa_reply_avg_min} menit`, emptyText: "Belum ada balasan tercatat" });
       renderWaKpis(state.snapshot || {});
     }
-    const pillI = $("sbPillItsm"), pillW = $("sbPillWa");
-    if (pillI) pillI.textContent = s.kpi.itsm_open;
+    const pillW = $("sbPillWa");
     if (pillW) { pillW.textContent = s.kpi.wa_active; pillW.classList.toggle("hot", s.kpi.wa_late > 0); }
   }
 
@@ -233,7 +260,7 @@
     if (!force && now - V3.lastStats < 6000) return;
     V3.lastStats = now;
     try {
-      const r = await fetch(`${SERVER}/api/stats?range=${V3.range}`);
+      const r = await fetch(`${SERVER}/api/stats?range=${V3.range}${V3.view === "itsm" && V3.itsmList ? "&list=" + encodeURIComponent(V3.itsmList) : ""}`);
       if (!r.ok) return;
       V3.stats = await r.json();
       renderCharts();
@@ -249,12 +276,29 @@
     loadStats(true);
   });
 
+  function renderSyncInfo(lists) {
+    const box = $("itsmSyncInfo");
+    if (!box || !Array.isArray(lists)) return;
+    box.innerHTML = lists.map((l) => {
+      if (l.synced_at === null || l.synced_at === undefined) return `<span class="chip off" title="Halaman ini belum pernah dibaca ekstensi">${esc(l.label)}: belum dibaca. Buka menu ${esc(l.label)} di ITSM</span>`;
+      const mins = Math.round((l.age_sec || 0) / 60);
+      const stale = (l.age_sec || 0) > 900;
+      return `<span class="chip ${stale ? "stale" : ""}" title="${esc(l.title || "")}">${esc(l.label)}: ${l.count} tiket · sinkron ${mins < 1 ? "baru saja" : mins + " menit lalu"}</span>`;
+    }).join("");
+  }
+
   V3.onSnapshot = onSnapshot;
   function onSnapshot(data, immediate) {
     const k = snapKpis(data);
-    const pillI = $("sbPillItsm"), pillW = $("sbPillWa");
-    if (pillI) pillI.textContent = k.itsmOpen.length;
+    setLists(data.itsm_lists);
+    const pillW = $("sbPillWa");
+    const itsmAll = (data.all_tickets || []).filter((t) => !t.isFromWa && !t.slaClosed);
+    document.querySelectorAll("[data-pill-list]").forEach((p) => {
+      const key = p.dataset.pillList;
+      p.textContent = key ? itsmAll.filter((t) => (t.itsmLists || []).includes(key)).length : itsmAll.length;
+    });
     if (pillW) { pillW.textContent = k.waOpen.length; pillW.classList.toggle("hot", k.late.length > 0); }
+    renderSyncInfo(data.itsm_lists);
     if (V3.view === "itsm") renderItsmKpis(data);
     if (V3.view === "wa") renderWaKpis(data);
     const role = $("sbRole");
@@ -363,6 +407,7 @@
   const r0 = store.get("gc1_range", "day");
   V3.range = ["day", "week", "month"].includes(r0) ? r0 : "day";
   document.querySelectorAll("[data-range-switch] button").forEach((x) => x.classList.toggle("active", x.dataset.range === V3.range));
-  showView(store.get("gc1_view", "overview"));
+  renderItsmMenu();
+  showView(store.get("gc1_view", "overview"), store.get("gc1_list", "") || null);
   setInterval(() => loadStats(false), 15000);
 })();
