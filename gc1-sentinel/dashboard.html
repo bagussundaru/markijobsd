@@ -611,6 +611,21 @@
     </div>
   </div>
 
+  <!-- DAFTAR TIKET (dibuka dari kartu KPI) -->
+  <div id="listModal" class="modal-backdrop">
+    <div class="modal-box enterprise-modal" style="max-width: 1000px;">
+      <div class="modal-header enterprise-modal-header">
+        <div style="display:flex; align-items:center; gap:8px;"><span style="font-size:18px;">📋</span><h3 id="listModalTitle">Daftar tiket</h3></div>
+        <button id="closeListBtn" class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body enterprise-modal-body" id="listModalBody" style="padding:14px;"></div>
+      <div class="modal-footer enterprise-modal-footer">
+        <span id="listModalCount" style="font-size:12px;color:#64748B;"></span>
+        <button id="listCloseBtn" class="btn btn-primary btn-enterprise">Tutup</button>
+      </div>
+    </div>
+  </div>
+
   <audio id="alertAudio" src="sounds/alert.wav" preload="auto"></audio>
 <script src="wa_paste.js"></script>
 <script src="dashboard.js"></script>

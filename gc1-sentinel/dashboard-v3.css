@@ -201,3 +201,6 @@ body.app-v3 { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.
 .v3-syncinfo .chip.off { background: #FFF7ED; color: #9A3412; border-color: #FED7AA; }
 .v3-syncinfo .chip.stale { background: #FEF2F2; color: #991B1B; border-color: #FECACA; }
 .v3-shell.sb-min #sbItsmItems .sb-item .tx { display: none; }
+
+#listModalBody .report-table td, #listModalBody .report-table th { text-align: left; }
+#listModalBody .report-table tr[data-open]:hover { background: #F8FAFC; }

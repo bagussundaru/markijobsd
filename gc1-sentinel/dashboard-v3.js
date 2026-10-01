@@ -137,6 +137,7 @@
     if (kind === "view") showView(arg);
     else if (kind === "tab") switchTab(arg);
     else if (kind === "pic") { const b = $("btnPic"); if (b) b.click(); }
+    else if (kind === "list") showTicketList(arg);
   });
 
   function snapKpis(s) {
@@ -161,7 +162,7 @@
       kpi("itsm link", "Assigned", k.assigned, "tiket", "siap ditangani tim", "tab:team_assigned") +
       kpi("warn link", "Pending Approval", k.pending, "tiket", "menunggu persetujuan tenan/K/L", "tab:team_pending") +
       kpi("violet link", "In Progress", k.progress, "tiket", "sedang dikerjakan L1/L2/L3", "tab:team_progress") +
-      kpi(h >= 95 ? "ok" : h >= 80 ? "warn" : "danger", "Kepatuhan SLA", h, "%", `tiket aktif dalam SLA · target > 95%`) +
+      kpi(h >= 95 ? "ok" : h >= 80 ? "warn" : "danger", "Kepatuhan SLA", h, "%", `tiket aktif dalam SLA · target > 95% · klik: yang lewat SLA`, "list:sla") +
       kpi("itsm link", "Total ITSM", k.itsm.length, "tiket", `${k.itsmOpen.length} masih aktif`, "tab:all_tickets");
   }
 
@@ -174,7 +175,7 @@
       kpi("wa link", "Pra-tiket aktif", k.waOpen.length, "aduan", "belum selesai / ditolak", "tab:all_tickets") +
       kpi(k.late.length ? "danger" : k.waiting.length ? "warn" : "ok", "Menunggu balasan", k.waiting.length, "aduan", k.late.length ? `${k.late.length} lewat target balasan` : "dalam target", "tab:all_tickets") +
       kpi("wa", "Rata-rata balasan", num(avg), avg === null || avg === undefined ? "" : "menit", "pada periode terpilih") +
-      kpi("warn", "Belum ber-tiket ITSM", unlinked, "aduan", "minta pelapor membuka tiket di ITSM") +
+      kpi("warn", "Belum ber-tiket ITSM", unlinked, "aduan", "minta pelapor membuka tiket di ITSM", "list:unlinked") +
       kpi("violet link", "Pelapor belum terverifikasi", unver, "aduan", "nomor baru atau belum dicatat", "pic:open");
   }
 
@@ -189,7 +190,7 @@
       kpi("wa link", "Aduan WhatsApp aktif", kk.wa_active, "aduan", `${kk.wa_unlinked} belum ber-tiket ITSM`, "view:wa") +
       kpi(kk.wa_late ? "danger" : kk.wa_waiting ? "warn" : "ok", "Menunggu balasan WA", kk.wa_waiting, "aduan", kk.wa_late ? `${kk.wa_late} lewat ${tgt} menit` : `semua dalam ${tgt} menit`, "view:wa") +
       kpi(h >= 95 ? "ok" : h >= 80 ? "warn" : "danger", "Kepatuhan SLA ITSM", h, "%", `${st.sla.breached} tiket lewat SLA · target > 95%`, "view:itsm") +
-      kpi(kk.attention ? "danger" : "ok", "Perlu perhatian", kk.attention, "tiket", "memiliki penanda eskalasi") +
+      kpi(kk.attention ? "danger" : "ok", "Perlu perhatian", kk.attention, "tiket", "memiliki penanda eskalasi · klik untuk melihat", "list:attention") +
       kpi("violet link", "Pelapor belum terverifikasi", kk.wa_unverified, "aduan", "nomor baru atau belum dicatat", "pic:open");
   }
 
@@ -287,6 +288,40 @@
       return `<span class="chip ${stale ? "stale" : ""}" title="${esc(l.title || "")}">${esc(l.label)}: ${l.count} tiket · sinkron ${mins < 1 ? "baru saja" : mins + " menit lalu"}</span>`;
     }).join("");
   }
+
+  // ---- daftar tiket yang dibuka dari kartu KPI
+  const LISTS = {
+    attention: { title: "Tiket yang perlu perhatian", empty: "Tidak ada tiket dengan penanda eskalasi.", pred: (t) => !t.slaClosed && (t.escalationFlags || []).length > 0 },
+    sla: { title: "Tiket ITSM yang melewati SLA", empty: "Tidak ada tiket aktif yang melewati SLA.", pred: (t) => !t.isFromWa && !t.slaClosed && t.slaBreached && (!V3.itsmList || (t.itsmLists || []).includes(V3.itsmList)) },
+    unlinked: { title: "Pra-tiket yang belum punya tiket di ITSM", empty: "Semua pra-tiket aktif sudah punya tiket di ITSM.", pred: (t) => t.isFromWa && !t.slaClosed && !t.linkedPortalId },
+  };
+  const PRIO_ORDER = { Critical: 0, Major: 1, Minor: 2, "Service Request": 3 };
+
+  function showTicketList(name) {
+    const cfg = LISTS[name];
+    const snap = state.snapshot || {};
+    if (!cfg) return;
+    const rows = (snap.all_tickets || []).filter(cfg.pred)
+      .sort((a, b) => (PRIO_ORDER[a.priority] ?? 9) - (PRIO_ORDER[b.priority] ?? 9) || (a.createdTs || 0) - (b.createdTs || 0));
+    $("listModalTitle").textContent = cfg.title;
+    $("listModalCount").textContent = `${rows.length} tiket`;
+    $("listModalBody").innerHTML = rows.length ? `<table class="report-table" style="font-size:12.5px;">
+      <tr><th>Tiket</th><th>Sumber</th><th>Pemohon / instansi</th><th>Prioritas</th><th>Status</th><th>Alasan / SLA</th></tr>
+      ${rows.map((t) => `<tr data-open="${esc(t.ticketId)}" style="cursor:pointer;">
+        <td><b>${esc(t.ticketId)}</b></td>
+        <td>${t.isFromWa ? "WhatsApp" : "ITSM " + esc((t.itsmLists || []).filter((k) => V3.lists.some((l) => l.key === k)).map(listLabel).join("/"))}</td>
+        <td>${esc(t.requestedFor || "-")}<br><span style="color:#64748B">${esc(t.location || "")}</span></td>
+        <td>${esc(t.priority || "")}</td><td>${esc(t.requestState || "")}</td>
+        <td>${esc((t.escalationFlags || []).slice(0, 2).join(" | ") || t.slaStatusText || "")}</td></tr>`).join("")}</table>` : `<div class="ch-empty">${esc(cfg.empty)}</div>`;
+    $("listModal").classList.add("active");
+  }
+  V3.showTicketList = showTicketList;
+  ["closeListBtn", "listCloseBtn"].forEach((id) => $(id) && $(id).addEventListener("click", () => $("listModal").classList.remove("active")));
+  $("listModal").addEventListener("click", (e) => { if (e.target === $("listModal")) $("listModal").classList.remove("active"); });
+  $("listModalBody").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-open]");
+    if (tr && typeof window.openTicketActivityDetail === "function") { $("listModal").classList.remove("active"); window.openTicketActivityDetail(tr.dataset.open); }
+  });
 
   V3.onSnapshot = onSnapshot;
   function onSnapshot(data, immediate) {
