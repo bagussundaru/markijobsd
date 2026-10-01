@@ -19,10 +19,13 @@ STANDAR HELPDESK EXPERT:
 
 import datetime
 import hashlib
+import hmac
+import html as htmllib
 import http.server
 import json
 import os
 import re
+import secrets
 import sys
 import threading
 import time
@@ -73,6 +76,8 @@ DEFAULT_CONFIG = {
     "ai_external_approved": False,
     "ai_hermes_exe": "",
     "ai_hermes_home": "",
+    "team_view_enabled": False,
+    "team_view_token": "",
     "live_helpdesk_url": "https://pdn.layanan.go.id"
 }
 
@@ -94,6 +99,9 @@ WA_HISTORY = []
 HELPDESK_SNAPSHOT = []
 LAST_SYNC_TIME = ""
 TELKOM_SKIPPED = 0
+TICKET_ARCHIVE = {}
+SYNC_HOURS = set()
+MONITOR_START = 0
 CONFIG = dict(DEFAULT_CONFIG)
 
 
@@ -124,7 +132,7 @@ def save_config(cfg):
 
 
 def load_persisted_data():
-    global ALERTS, WA_TICKETS, TICKET_REGISTRY, SENT_RECAP_HASHES, WA_QUEUE, WA_HISTORY, HELPDESK_SNAPSHOT, LAST_SYNC_TIME
+    global ALERTS, WA_TICKETS, TICKET_REGISTRY, SENT_RECAP_HASHES, WA_QUEUE, WA_HISTORY, HELPDESK_SNAPSHOT, LAST_SYNC_TIME, TICKET_ARCHIVE, SYNC_HOURS, MONITOR_START
     if DATA_FILE.exists():
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -137,6 +145,9 @@ def load_persisted_data():
                 WA_HISTORY = data.get("wa_history", [])
                 HELPDESK_SNAPSHOT = data.get("helpdesk_snapshot", [])
                 LAST_SYNC_TIME = data.get("last_sync_time", "")
+                TICKET_ARCHIVE = data.get("ticket_archive", {})
+                SYNC_HOURS = set(data.get("sync_hours", []))
+                MONITOR_START = data.get("monitor_start", 0)
         except Exception as e:
             print(f"[Sentinel Server] Error loading data file: {e}")
 
@@ -153,7 +164,10 @@ def save_persisted_data():
                 "wa_queue": WA_QUEUE,
                 "wa_history": WA_HISTORY[:100],
                 "helpdesk_snapshot": HELPDESK_SNAPSHOT,
-                "last_sync_time": LAST_SYNC_TIME
+                "last_sync_time": LAST_SYNC_TIME,
+                "ticket_archive": TICKET_ARCHIVE,
+                "sync_hours": sorted(SYNC_HOURS)[-24 * 70:],
+                "monitor_start": MONITOR_START
             }, f, indent=2, ensure_ascii=False)
         os.replace(tmp, DATA_FILE)
     except Exception as e:
@@ -530,6 +544,7 @@ def convert_wa_message_to_ticket(sender, group, text, matched_kw="GC 1", msg_id=
         "status": "baru",
     })
     apply_sla(wa_ticket)
+    archive_ticket(wa_ticket)
     save_persisted_data()
     return wa_ticket
 
@@ -738,47 +753,204 @@ def build_daily_recap(day):
     }
 
 
-def build_export_csv(day=""):
-    """Ekspor tiket (portal + pra-tiket WA) untuk Excel Output Helpdesk."""
+def archive_ticket(t):
+    """Simpan ringkasan tiap tiket yang pernah terpantau, agar laporan periode tidak bergantung pada daftar layar saat ini."""
+    tid = t.get("ticketId")
+    if not tid:
+        return
+    e = TICKET_REGISTRY.get(tid, {})
+    rec = TICKET_ARCHIVE.get(tid) or {"ticketId": tid, "firstSeenTs": e.get("first_seen") or time.time()}
+    state = t.get("requestState", "") or ""
+    closed = any(k in state.lower() for k in CLOSED_STATES)
+    rec.update({
+        "source": "Pra-tiket WA" if t.get("isFromWa") else "Portal ITSM",
+        "linkedPortalId": t.get("linkedPortalId", "") or "",
+        "location": t.get("location", "") or "",
+        "requestedFor": t.get("requestedFor", "") or "",
+        "shortDesc": (t.get("shortDesc", "") or "")[:200],
+        "ticketType": t.get("ticketType", "") or "",
+        "priority": t.get("priority") or t.get("autoPriority") or "Minor",
+        "priorityOverridden": bool(t.get("priorityOverridden")),
+        "state": state,
+        "layer": t.get("resolverLayer", "") or "",
+        "createdTs": t.get("createdTs") or rec["firstSeenTs"],
+        "respondedTs": e.get("responded_ts"),
+        "waFirstReportAt": t.get("waFirstReportAt", "") or "",
+    })
+    if closed:
+        rec.setdefault("closedSeenTs", time.time())
+    else:
+        rec.pop("closedSeenTs", None)  # dibuka kembali
+    rec["maxEscalations"] = max(rec.get("maxEscalations", 0), len(t.get("escalationFlags") or []))
+    TICKET_ARCHIVE[tid] = rec
+
+
+def period_bounds(kind, day):
+    """(awal, akhir, label) untuk laporan harian / mingguan (Senin-Minggu) / bulanan."""
+    try:
+        d = datetime.datetime.strptime(day, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        d = datetime.datetime.now()
+    if kind == "weekly":
+        s = (d - datetime.timedelta(days=d.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        e = s + datetime.timedelta(days=7)
+        label = f"Minggu {s.strftime('%d %b %Y')} - {(e - datetime.timedelta(days=1)).strftime('%d %b %Y')}"
+    elif kind == "monthly":
+        s = d.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        e = (s.replace(year=s.year + 1, month=1) if s.month == 12 else s.replace(month=s.month + 1))
+        label = s.strftime("Bulan %B %Y")
+    else:
+        s = d.replace(hour=0, minute=0, second=0, microsecond=0)
+        e = s + datetime.timedelta(days=1)
+        label = s.strftime("Hari %d %b %Y")
+    return s.timestamp(), e.timestamp(), label
+
+
+def sla_outcome(rec, now):
+    hours = SLA_HOURS.get(rec.get("priority"), 24)
+    deadline = rec["createdTs"] + hours * 3600
+    closed = rec.get("closedSeenTs")
+    if closed:
+        return ("Tepat waktu" if closed <= deadline else "Terlambat"), deadline
+    return ("Lewat SLA (masih terbuka)" if now > deadline else "Dalam SLA (terbuka)"), deadline
+
+
+def compute_report(kind, day):
+    now = time.time()
+    start, end, label = period_bounds(kind, day)
+    rows = [r for r in TICKET_ARCHIVE.values() if start <= r.get("createdTs", 0) < end]
+    n = len(rows)
+
+    def count_by(key):
+        out = {}
+        for r in rows:
+            out[r.get(key) or "-"] = out.get(r.get(key) or "-", 0) + 1
+        return dict(sorted(out.items(), key=lambda kv: -kv[1]))
+
+    outcomes = {"Tepat waktu": 0, "Terlambat": 0, "Lewat SLA (masih terbuka)": 0, "Dalam SLA (terbuka)": 0}
+    for r in rows:
+        outcomes[sla_outcome(r, now)[0]] += 1
+    judged = outcomes["Tepat waktu"] + outcomes["Terlambat"] + outcomes["Lewat SLA (masih terbuka)"]
+    sla_pct = round(outcomes["Tepat waktu"] / judged * 100, 1) if judged else None
+
+    resp_known = [r for r in rows if r.get("respondedTs")]
+    resp_ok = [r for r in resp_known if r["respondedTs"] - r["createdTs"] <= RESPONSE_SLA_SECONDS]
+    resp_pct = round(len(resp_ok) / len(resp_known) * 100, 1) if resp_known else None
+
+    # tren: per jam (harian) atau per hari (mingguan/bulanan)
+    trend = {}
+    for r in rows:
+        dt = datetime.datetime.fromtimestamp(r["createdTs"])
+        key = dt.strftime("%H:00") if kind == "daily" else dt.strftime("%Y-%m-%d")
+        trend[key] = trend.get(key, 0) + 1
+
+    prev_s = start - (end - start) if kind != "monthly" else period_bounds("monthly", datetime.datetime.fromtimestamp(start - 86400).strftime("%Y-%m-%d"))[0]
+    prev_n = len([r for r in TICKET_ARCHIVE.values() if prev_s <= r.get("createdTs", 0) < start])
+
+    wa = [w for w in WA_TICKETS if start <= (w.get("createdTs") or 0) < end]
+    wa_linked = [w for w in wa if TICKET_REGISTRY.get(w["ticketId"], {}).get("linked_portal") or w.get("linkedPortalId")]
+
+    hours_total = max(1, int((min(end, now) - start) // 3600) + (1 if min(end, now) > start else 0))
+    hours_cov = 0
+    t = start
+    while t < min(end, now):
+        if time.strftime("%Y-%m-%d %H", time.localtime(t)) in SYNC_HOURS:
+            hours_cov += 1
+        t += 3600
+    hours_total = max(1, int(-(-(min(end, now) - start) // 3600)))
+
+    top_agencies = sorted(count_by("location").items(), key=lambda kv: -kv[1])[:5]
+    cm = [
+        {"ticketId": r["ticketId"], "location": r["location"], "priority": r["priority"], "state": r["state"],
+         "desc": r["shortDesc"], "sla": sla_outcome(r, now)[0]}
+        for r in rows if r.get("priority") in ("Critical", "Major")
+    ]
+
+    return {
+        "kind": kind, "label": label, "start": start, "end": end,
+        "generated": time.strftime("%d %b %Y %H:%M:%S WIB"),
+        "total": n, "previous_total": prev_n,
+        "by_source": count_by("source"), "by_type": count_by("ticketType"), "by_priority": count_by("priority"),
+        "open": len([r for r in rows if not r.get("closedSeenTs")]),
+        "closed": len([r for r in rows if r.get("closedSeenTs")]),
+        "sla_outcomes": outcomes, "sla_compliance_pct": sla_pct,
+        "response_within_15m_pct": resp_pct, "response_known": len(resp_known),
+        "response_unknown": n - len(resp_known),
+        "escalated_tickets": len([r for r in rows if r.get("maxEscalations")]),
+        "trend": dict(sorted(trend.items())),
+        "top_agencies": top_agencies,
+        "critical_major": cm,
+        "wa_total": len(wa), "wa_linked": len(wa_linked), "wa_unlinked": len(wa) - len(wa_linked),
+        "coverage_pct": round(hours_cov / hours_total * 100, 1),
+        "coverage_hours": f"{hours_cov} dari {hours_total} jam",
+        "monitor_start": time.strftime("%d %b %Y %H:%M", time.localtime(MONITOR_START)) if MONITOR_START else "-",
+        "telkom_skipped_last_sync": TELKOM_SKIPPED,
+        "notes": [
+            "DATA TERPANTAU Sentinel untuk pantauan bersama. BUKAN angka resmi: angka laporan KAK diambil dari portal ITSM (SOP 11.4).",
+            "Sentinel hanya melihat baris yang tampil di layar ITSM saat aplikasi aktif; lihat 'Cakupan pemantauan' untuk celahnya.",
+            "Waktu selesai = saat Sentinel pertama kali melihat status Resolved/Closed, bukan waktu resmi di portal.",
+            "SLA: Critical 4 jam, Major 8 jam, Minor 24 jam, Service Request 24 jam baku (katalog KAK 18.c belum dikonfirmasi BPO). Jam SLA tidak berhenti saat Pending.",
+            "Prioritas berasal dari usulan otomatis kecuali ditandai ditetapkan Helpdesk.",
+            "Respons pertama hanya dihitung bila terobservasi; yang tidak teramati dilaporkan terpisah.",
+        ],
+    }
+
+
+def build_report_html(rep):
+    e = htmllib.escape
+
+    def table(title, data):
+        rows = "".join(f"<tr><td>{e(str(k))}</td><td style='text-align:right'>{e(str(v))}</td></tr>" for k, v in data.items())
+        return f"<h3>{e(title)}</h3><table>{rows or '<tr><td colspan=2><em>Tidak ada data</em></td></tr>'}</table>"
+
+    cm = "".join(
+        f"<tr><td>{e(c['ticketId'])}</td><td>{e(c['location'])}</td><td>{e(c['priority'])}</td><td>{e(c['state'])}</td><td>{e(c['sla'])}</td><td>{e(c['desc'])}</td></tr>"
+        for c in rep["critical_major"])
+    pct = lambda v: "-" if v is None else f"{v}%"
+    kind_name = {"daily": "Harian", "weekly": "Mingguan", "monthly": "Bulanan"}[rep["kind"]]
+    return f"""<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Laporan {kind_name} GC 1 (data terpantau)</title>
+<style>body{{font:13px/1.45 Segoe UI,Arial,sans-serif;margin:24px;color:#0f172a}}h1{{font-size:20px;margin:0}}h3{{margin:18px 0 6px;font-size:14px}}
+table{{border-collapse:collapse;min-width:360px}}td,th{{border:1px solid #cbd5e1;padding:4px 10px;text-align:left}}th{{background:#f1f5f9}}
+.warn{{background:#fffbeb;border:1px solid #fde68a;padding:10px 14px;border-radius:6px;margin:12px 0}}@media print{{.noprint{{display:none}}}}</style></head><body>
+<h1>Laporan {kind_name} GC 1: {e(rep['label'])}</h1><div>Dibuat {e(rep['generated'])} oleh GC 1 Sentinel &middot; <strong>DATA TERPANTAU, bukan angka resmi</strong></div>
+<div class="warn"><strong>Cakupan pemantauan:</strong> {e(rep['coverage_hours'])} ({rep['coverage_pct']}%). Sentinel aktif sejak {e(rep['monitor_start'])}.<br>{'<br>'.join(e(n) for n in rep['notes'])}</div>
+<h3>Ringkasan</h3><table>
+<tr><td>Total tiket masuk (periode ini)</td><td>{rep['total']}</td></tr><tr><td>Periode sebelumnya</td><td>{rep['previous_total']}</td></tr>
+<tr><td>Terbuka / selesai (terpantau)</td><td>{rep['open']} / {rep['closed']}</td></tr>
+<tr><td>Kepatuhan SLA penyelesaian (target &gt; 95%)</td><td>{pct(rep['sla_compliance_pct'])}</td></tr>
+<tr><td>Respons pertama &lt; 15 menit</td><td>{pct(rep['response_within_15m_pct'])} (teramati {rep['response_known']}, tidak teramati {rep['response_unknown']})</td></tr>
+<tr><td>Tiket dengan penanda eskalasi</td><td>{rep['escalated_tickets']}</td></tr>
+<tr><td>Aduan WA / sudah bertiket / belum bertiket</td><td>{rep['wa_total']} / {rep['wa_linked']} / {rep['wa_unlinked']}</td></tr></table>
+{table('Hasil SLA', rep['sla_outcomes'])}{table('Per sumber', rep['by_source'])}{table('Per tipe', rep['by_type'])}{table('Per prioritas', rep['by_priority'])}
+{table('Tren', rep['trend'])}{table('Instansi terbanyak', dict(rep['top_agencies']))}
+<h3>Insiden Critical / Major</h3><table><tr><th>Tiket</th><th>Instansi</th><th>Prioritas</th><th>Status</th><th>SLA</th><th>Uraian</th></tr>{cm or '<tr><td colspan=6><em>Tidak ada</em></td></tr>'}</table>
+<p class="noprint"><button onclick="window.print()">Cetak / Simpan PDF</button></p></body></html>"""
+
+
+def build_export_csv(kind="daily", day=""):
+    """Ekspor baris tiket terarsip untuk periode (atau semua bila day kosong) ke CSV untuk Excel Output Helpdesk."""
     import csv
     import io
-    rows = []
-    pool = list(HELPDESK_SNAPSHOT) + [w for w in WA_TICKETS]
-    start = end = None
-    if day:
-        start, end = _day_bounds(day)
-    seen = set()
-    for t in pool:
-        tid = t.get("ticketId")
-        if not tid or tid in seen:
-            continue
-        seen.add(tid)
-        if t.get("isTelkom") or "telkom" in (t.get("assignmentGroup", "") + t.get("shortDesc", "")).lower():
-            continue
-        t = enrich_ticket_with_sop(dict(t))
-        if start is not None and not (start <= t.get("createdTs", 0) < end):
-            continue
-        e = TICKET_REGISTRY.get(tid, {})
-        resp = e.get("responded_ts")
-        rows.append([
-            "Pra-tiket WA" if t.get("isFromWa") else "Portal ITSM",
-            tid, t.get("linkedPortalId", ""), t.get("location", ""), t.get("requestedFor", ""),
-            t.get("shortDesc", ""), t.get("ticketType", ""), t.get("priority", ""),
-            "Ya" if t.get("priorityOverridden") else "Usulan otomatis",
-            t.get("requestState", ""), t.get("resolverLayer", ""), t.get("picRole", ""),
-            fmt_wib(t["createdTs"]),
-            t.get("waFirstReportAt", "") or (t.get("createdDate", "") if t.get("isFromWa") else ""),
-            fmt_wib(resp) if resp else "",
-            int((resp - t["createdTs"]) // 60) if resp else "",
-            fmt_wib(t["deadlineTs"]), t.get("slaStatusText", ""), "; ".join(t.get("escalationFlags", [])),
-        ])
+    now = time.time()
+    start, end = (0, float("inf")) if not day else period_bounds(kind, day)[:2]
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["Sumber", "No Tiket", "Tiket Portal Tertaut", "Instansi", "Pemohon", "Uraian", "Tipe",
-                "Prioritas", "Prioritas Diubah Helpdesk", "Status", "Resolver", "PIC (peran)",
-                "Waktu Masuk", "Waktu Aduan Pertama WA", "Waktu Respons Pertama", "Respons (menit)",
-                "Batas SLA", "Status SLA", "Catatan Eskalasi"])
-    w.writerows(rows)
+    w.writerow(["Sumber", "No Tiket", "Tiket Portal Tertaut", "Instansi", "Pemohon", "Uraian", "Tipe", "Prioritas",
+                "Prioritas Ditetapkan Helpdesk", "Status Terakhir Terpantau", "Resolver", "Waktu Masuk",
+                "Waktu Aduan Pertama WA", "Waktu Respons Pertama", "Respons (menit)", "Batas SLA", "Hasil SLA",
+                "Waktu Selesai Terpantau"])
+    for r in sorted(TICKET_ARCHIVE.values(), key=lambda x: x.get("createdTs", 0)):
+        if not (start <= r.get("createdTs", 0) < end):
+            continue
+        outcome, deadline = sla_outcome(r, now)
+        resp = r.get("respondedTs")
+        w.writerow([
+            r.get("source"), r["ticketId"], r.get("linkedPortalId"), r.get("location"), r.get("requestedFor"),
+            r.get("shortDesc"), r.get("ticketType"), r.get("priority"), "Ya" if r.get("priorityOverridden") else "Usulan otomatis",
+            r.get("state"), r.get("layer"), fmt_wib(r["createdTs"]), r.get("waFirstReportAt"),
+            fmt_wib(resp) if resp else "", int((resp - r["createdTs"]) // 60) if resp else "",
+            fmt_wib(deadline), outcome, fmt_wib(r["closedSeenTs"]) if r.get("closedSeenTs") else "",
+        ])
     return buf.getvalue()
 
 
@@ -807,8 +979,56 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
             return True
         return host in [h.lower() for h in (CONFIG.get("allowed_hosts", []) or [])]
 
+    def _is_local(self):
+        return self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+    def _team_token_ok(self):
+        tok = CONFIG.get("team_view_token") or ""
+        if not tok:
+            return False
+        given = self.headers.get("X-Team-Token", "")
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == "gc1_team":
+                given = given or v
+        return bool(given) and hmac.compare_digest(given.encode(), tok.encode())
+
+    def _team_guard(self):
+        """Klien non-lokal: hanya tampilan tim hanya-baca, dengan token. Tidak ada tulis sama sekali."""
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if not CONFIG.get("team_view_enabled"):
+            self.send_error(403, "Team view disabled")
+            return False
+        if self.command != "GET":
+            self.send_error(403, "Team view is read-only")
+            return False
+        if path == "/team":
+            token = (parse_qs(parsed.query).get("token") or [""])[0]
+            tok = CONFIG.get("team_view_token") or ""
+            if tok and hmac.compare_digest(token.encode(), tok.encode()):
+                self.send_response(302)
+                self.send_header("Set-Cookie", f"gc1_team={tok}; Path=/; HttpOnly; SameSite=Strict")
+                self.send_header("Location", "/dashboard.html")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            else:
+                self.send_error(403, "Invalid token")
+            return False
+        if not self._team_token_ok():
+            self.send_error(403, "Token required (buka /team?token=...)")
+            return False
+        api_ok = {"/api/helpdesk_snapshot", "/api/daily_recap", "/api/report", "/api/report.html", "/api/export.csv", "/api/whoami"}
+        static_ok = path in ("/dashboard.html", "/dashboard.js", "/dashboard.css") or path.startswith(("/sounds/", "/icons/"))
+        if path in api_ok or static_ok:
+            return True
+        self.send_error(403, "Not available in team view")
+        return False
+
     def _guard(self):
         """Tolak Host asing (DNS rebinding) dan Origin asing (situs lain yang memanggil API lokal)."""
+        if not self._is_local():
+            return self._team_guard()
         if not self._host_ok():
             self.send_error(403, "Host not allowed")
             return False
@@ -984,6 +1204,9 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     if not t.get("isTelkom") and "telkom" not in (t.get("assignmentGroup", "") + " " + t.get("shortDesc", "")).lower()
                 ]
 
+                for t in our_team_tickets:
+                    archive_ticket(t)
+
                 def st(t):
                     return (t.get("requestState") or "").lower()
 
@@ -1034,14 +1257,29 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
             elif path == "/api/export.csv":
                 params = parse_qs(parsed.query)
                 day = params.get("date", [""])[0]
-                self.send_bytes(build_export_csv(day).encode("utf-8-sig"), "text/csv; charset=utf-8",
-                                f"gc1_helpdesk_{day or time.strftime('%Y-%m-%d')}.csv")
+                kind = params.get("kind", ["daily"])[0]
+                kind = kind if kind in ("daily", "weekly", "monthly") else "daily"
+                self.send_bytes(build_export_csv(kind, day).encode("utf-8-sig"), "text/csv; charset=utf-8",
+                                f"gc1_{kind}_{day or 'semua'}.csv")
+
+            elif path in ("/api/report", "/api/report.html"):
+                params = parse_qs(parsed.query)
+                kind = params.get("kind", ["daily"])[0]
+                kind = kind if kind in ("daily", "weekly", "monthly") else "daily"
+                rep_data = compute_report(kind, params.get("date", [time.strftime("%Y-%m-%d")])[0])
+                if path == "/api/report":
+                    self.send_json(rep_data)
+                else:
+                    self.send_bytes(build_report_html(rep_data).encode("utf-8"), "text/html; charset=utf-8")
+
+            elif path == "/api/whoami":
+                self.send_json({"role": "operator" if self._is_local() else "team"})
 
             else:
                 self.send_error(404, "API route not found")
 
     def handle_api_post(self, path, data):
-        global ALERTS, WA_TICKETS, TICKET_REGISTRY, SENT_RECAP_HASHES, WA_QUEUE, WA_HISTORY, CONFIG, HELPDESK_SNAPSHOT, LAST_SYNC_TIME, TELKOM_SKIPPED
+        global ALERTS, WA_TICKETS, TICKET_REGISTRY, SENT_RECAP_HASHES, WA_QUEUE, WA_HISTORY, CONFIG, HELPDESK_SNAPSHOT, LAST_SYNC_TIME, TELKOM_SKIPPED, MONITOR_START
 
         with LOCK:
             if path == "/api/sync_helpdesk":
@@ -1128,6 +1366,7 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     }
                     track_ticket(tid, state_val, grp_val)
                     norm_t = enrich_ticket_with_sop(norm_t)
+                    archive_ticket(norm_t)
                     normalized_tickets.append(norm_t)
 
                     # Rekap WA hanya bila pengiriman keluar diaktifkan di config.json (default: mati)
@@ -1163,6 +1402,9 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                                     })
                 HELPDESK_SNAPSHOT = normalized_tickets
                 TELKOM_SKIPPED = telkom_skipped
+                SYNC_HOURS.add(time.strftime("%Y-%m-%d %H"))
+                if not MONITOR_START:
+                    MONITOR_START = time.time()
                 LAST_SYNC_TIME = time.strftime("%H:%M:%S WIB")
                 save_persisted_data()
                 self.send_json({"status": "synced", "count": len(normalized_tickets), "last_sync": LAST_SYNC_TIME})
@@ -1502,7 +1744,13 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 action = str(data.get("action") or "")
                 value = str(data.get("value") or "").strip()[:300]
                 note = str(data.get("note") or "").strip()[:500]
-                by = str(data.get("by") or "Operator Helpdesk")[:60]
+                by = re.sub(r"\s+", " ", str(data.get("by") or "")).strip()[:60]
+                if len(by) < 2 or by.lower() in ("operator helpdesk", "operator"):
+                    self.send_json({"status": "error", "message": "Nama petugas wajib diisi (satu akun satu orang, SOP bab 12)"}, 400)
+                    return
+                if not self._is_local():
+                    self.send_json({"status": "error", "message": "Hanya dari Mini PC operator"}, 403)
+                    return
                 known = {t.get("ticketId") for t in HELPDESK_SNAPSHOT} | {t.get("ticketId") for t in WA_TICKETS}
                 if tid not in known:
                     self.send_json({"status": "error", "message": "Tiket tidak ditemukan"}, 404)
@@ -1544,6 +1792,12 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 else:
                     self.send_json({"status": "error", "message": "Aksi tidak dikenal"}, 400)
                     return
+                rec = TICKET_ARCHIVE.get(tid)
+                if rec:
+                    rec["respondedTs"] = e.get("responded_ts")
+                    if e.get("priority_override"):
+                        rec["priority"] = e["priority_override"]
+                        rec["priorityOverridden"] = True
                 save_persisted_data()
                 self.send_json({"status": "ok"})
 
@@ -1594,12 +1848,18 @@ def main():
     load_persisted_data()
     port = CONFIG.get("server_port", 8765)
 
+    if CONFIG.get("team_view_enabled") and not CONFIG.get("team_view_token"):
+        save_config({**CONFIG, "team_view_token": secrets.token_urlsafe(18)})
     host = CONFIG.get("bind_host", "127.0.0.1")
     server = http.server.ThreadingHTTPServer((host, port), SentinelHandler)
     print("=" * 70)
     print(f"  [GC 1 SENTINEL] HELPDESK EXPERT SERVER AKTIF (PORT {port})")
     print(f"  Direktori: {APP_DIR}")
     print(f"  Alamat: {host}:{port} (hanya lokal bila 127.0.0.1)")
+    if CONFIG.get("team_view_enabled"):
+        if host == "127.0.0.1":
+            print("  PERINGATAN: team_view_enabled=true tetapi bind_host=127.0.0.1, tim tidak bisa mengakses. Set bind_host ke 0.0.0.0 atau IP LAN.")
+        print(f"  Tampilan tim (hanya-baca): http://<alamat-minipc>:{port}/team?token={CONFIG.get('team_view_token')}")
     print(f"  Kirim ke WhatsApp: {'AKTIF' if outbound_enabled() else 'NONAKTIF (hanya membaca grup WA)'}")
     groups = CONFIG.get("wa_monitored_groups") or []
     print(f"  Grup WA dipantau: {', '.join(groups) if groups else 'BELUM DIATUR (isi wa_monitored_groups di config.json)'}")

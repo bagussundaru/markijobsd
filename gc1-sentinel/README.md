@@ -87,6 +87,28 @@ Jalankan: `python hermes_agent.py` (uji penyamaran tanpa model: `python hermes_a
 
 **AgentRouter**: akun yang diuji menolak teks bahasa Indonesia (`content-blocked`), jadi pesan WA tidak bisa diproses lewat jalur ini. Agen berhenti sendiri saat ditolak dan klasifikasi aturan SOP tetap berjalan. Untuk bahasa Indonesia gunakan `ollama` atau penyedia lain.
 
+## Laporan periodik (data terpantau)
+
+Tombol **Laporan** di dashboard: harian, mingguan (Senin-Minggu), bulanan. Isi: tiket masuk dan perbandingan periode sebelumnya, terbuka/selesai, kepatuhan SLA, respons pertama <15 menit, eskalasi, aduan WA vs tiket portal, tren, instansi terbanyak, insiden Critical/Major. Ada cetak/PDF dan CSV.
+
+- Ini **data terpantau, bukan angka resmi.** Angka laporan KAK/SOP 11.4 tetap dari portal ITSM. Setiap laporan memuat **cakupan pemantauan** (jam Sentinel aktif dari total jam periode) dan definisi hitungnya.
+- Bagian yang tidak bisa dihitung Sentinel (kapasitas, IP, keamanan, kondisi perangkat untuk laporan bulanan 14 item KAK 8.5.f) tidak ada di sini.
+- Sebelum dipakai sebagai bahan laporan, bandingkan satu minggu dengan ekspor portal.
+
+## Nama petugas pada setiap tindakan
+
+Tindakan (catat respons, tetapkan prioritas, tautkan tiket, catatan, terima/tolak saran AI) wajib atas nama petugas (SOP bab 12: satu akun satu orang). Nama diminta sekali per browser dan dicatat di riwayat tiket. Ini **pencatatan nama, bukan autentikasi**: untuk akuntabilitas penuh perlu login per orang.
+
+## Tampilan tim (hanya-baca)
+
+Agar rekan satu tim bisa memantau dashboard dari komputer lain:
+
+1. `config.json`: `"team_view_enabled": true` dan `"bind_host": "0.0.0.0"` (atau IP LAN Mini PC). Token dibuat otomatis saat server mulai dan dicetak di konsol.
+2. Buka firewall Windows untuk port 8765 hanya dari jaringan kantor.
+3. Rekan membuka `http://<alamat-minipc>:8765/team?token=<token>` sekali (token disimpan sebagai cookie).
+
+Tampilan tim hanya bisa membaca dashboard, laporan, dan CSV. Semua tindakan, pengaturan, dan data mentah ditolak (403); tombol operator disembunyikan. Catatan: lewat HTTP biasa, pakai hanya di jaringan internal yang dipercaya, dan siapa pun yang memegang token dapat melihat data tiket.
+
 ## Batasan yang perlu diketahui
 
 - Prioritas otomatis hanyalah **usulan** dari kata kunci SOP 3.3. Helpdesk menetapkan prioritas final berdasarkan dampak terverifikasi.

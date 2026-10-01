@@ -32,5 +32,7 @@
   "ai_base_url": "https://api.deepseek.com",
   "ai_external_approved": false,
   "ai_hermes_exe": "",
-  "ai_hermes_home": ""
+  "ai_hermes_home": "",
+  "team_view_enabled": false,
+  "team_view_token": ""
 }

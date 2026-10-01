@@ -4,7 +4,10 @@
  * Telkom sepenuhnya dikecualikan dari ruang lingkup GC 1 Sentinel
  */
 
+const SERVER = location.protocol.startsWith("http") ? location.origin : "http://localhost:8765";
+
 let state = {
+  role: "operator",
   activeTab: "team_assigned", // "team_assigned", "team_pending", "team_progress", "wa_alerts", "all_tickets"
   snapshot: {
     total_helpdesk: 0,
@@ -277,8 +280,6 @@ updateClock();
 // ----------------------------------------------------
 // SERVER & DELEGATED ACTIONS (tanpa inline onclick: teks dari WhatsApp tidak pernah menjadi kode)
 // ----------------------------------------------------
-const SERVER = "http://localhost:8765";
-
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-detail],[data-copy],[data-copytext],[data-recap]");
   if (!el) return;
@@ -287,6 +288,18 @@ document.addEventListener("click", (e) => {
   else if (el.dataset.copytext !== undefined) window.copyText(el.dataset.copytext, el);
   else if (el.dataset.copy !== undefined) window.copyText(el.dataset.copy, el);
 });
+
+function getOperator(forcePrompt) {
+  let name = "";
+  try { name = localStorage.getItem("gc1_operator") || ""; } catch (_) {}
+  if (!name || forcePrompt) {
+    const v = prompt("Nama petugas (dicatat pada setiap tindakan, satu akun satu orang):", name);
+    if (!v || v.trim().length < 2) return "";
+    name = v.trim().slice(0, 60);
+    try { localStorage.setItem("gc1_operator", name); } catch (_) {}
+  }
+  return name;
+}
 
 async function postJson(path, body) {
   const res = await fetch(`${SERVER}${path}`, {
@@ -519,7 +532,7 @@ let lastKnownEscalationCount = -1;
 
 async function fetchHelpdeskSnapshot() {
   try {
-    const res = await fetch(`http://localhost:8765/api/helpdesk_snapshot?t=${Date.now()}`);
+    const res = await fetch(`${SERVER}/api/helpdesk_snapshot?t=${Date.now()}`);
     if (!res.ok) return;
 
     const data = await res.json();
@@ -1024,7 +1037,7 @@ btnClearData?.addEventListener("click", async () => {
     return;
   }
   try {
-    const res = await fetch("http://localhost:8765/api/clear_data", { method: "POST" });
+    const res = await fetch(`${SERVER}/api/clear_data`, { method: "POST" });
     if (res.ok) {
       state.snapshot = {
         total_helpdesk: 0,
@@ -1076,7 +1089,7 @@ toggleMarkijoBtn?.addEventListener("click", async () => {
   }
 
   try {
-    await fetch("http://localhost:8765/api/config", {
+    await fetch(`${SERVER}/api/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ markijo_auto_mode: markijoActive })
@@ -1139,7 +1152,7 @@ saveSettingsBtn?.addEventListener("click", async () => {
   markijoActive = settingMarkijoAuto.checked;
 
   try {
-    await fetch("http://localhost:8765/api/config", {
+    await fetch(`${SERVER}/api/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1292,7 +1305,7 @@ submitWaSimulateBtn?.addEventListener("click", async () => {
   submitWaSimulateBtn.innerHTML = "<span>⏳ Mengonversi...</span>";
 
   try {
-    const res = await fetch("http://localhost:8765/api/add_wa_ticket", {
+    const res = await fetch(`${SERVER}/api/add_wa_ticket`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1435,20 +1448,27 @@ function renderTicketExtra(ticket) {
         <button class="btn btn-secondary btn-sm" id="actPrio">Tetapkan prioritas</button>
         ${ticket.isFromWa ? '<button class="btn btn-secondary btn-sm" id="actLink">Tautkan tiket portal</button>' : ""}
         <button class="btn btn-secondary btn-sm" id="actNote">Tambah catatan</button>
+        <button class="btn btn-secondary btn-sm" id="actWho" title="Nama petugas yang tercatat pada tindakan">Petugas: ${escapeHtml((() => { try { return localStorage.getItem("gc1_operator") || "belum diisi"; } catch (_) { return "belum diisi"; } })())}</button>
       </div>
     </div>
     <div class="extra-box"><h4>Riwayat tiket</h4>${hist || "<em>Belum ada riwayat.</em>"}</div>`;
 
+  if (state.role === "team") {
+    box.querySelectorAll(".action-row").forEach((el) => el.remove());
+  }
   const reopen = async () => {
     await fetchHelpdeskSnapshot();
     window.openTicketActivityDetail(id);
   };
   const act = async (body) => {
-    const r = await postJson("/api/ticket_action", { ticketId: id, ...body });
+    const by = getOperator(false);
+    if (!by) { alert("Nama petugas wajib diisi."); return; }
+    const r = await postJson("/api/ticket_action", { ticketId: id, by, ...body });
     if (r.status !== "ok") alert(r.message || "Gagal menyimpan tindakan.");
     else await reopen();
   };
   document.getElementById("actAck")?.addEventListener("click", () => act({ action: "ack" }));
+  document.getElementById("actWho")?.addEventListener("click", () => { getOperator(true); reopen(); });
   document.getElementById("actAiAccept")?.addEventListener("click", () => act({ action: "ai_accept" }));
   document.getElementById("actAiReject")?.addEventListener("click", () => {
     const note = prompt("Alasan menolak saran AI (opsional):") || "";
@@ -1470,3 +1490,73 @@ function renderTicketExtra(ticket) {
     if (note) act({ action: "note", note });
   });
 }
+
+
+// ----------------------------------------------------
+// PERAN: operator (Mini PC) atau tim (tampilan hanya-baca lewat jaringan)
+// ----------------------------------------------------
+(async () => {
+  try {
+    const r = await (await fetch(`${SERVER}/api/whoami`)).json();
+    state.role = r.role || "operator";
+  } catch (_) {}
+  if (state.role === "team") {
+    document.body.classList.add("team-view");
+    const pill = document.getElementById("liveSyncPill");
+    if (pill) pill.insertAdjacentHTML("afterend", '<span class="team-badge">TAMPILAN TIM (hanya-baca)</span>');
+  }
+})();
+
+// ----------------------------------------------------
+// LAPORAN PERIODIK (data terpantau)
+// ----------------------------------------------------
+const reportModal = document.getElementById("reportModal");
+const reportKind = document.getElementById("reportKind");
+const reportDate = document.getElementById("reportDate");
+const reportBody = document.getElementById("reportBody");
+
+function reportTable(title, obj) {
+  const rows = Object.entries(obj || {}).map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(String(v))}</td></tr>`).join("");
+  return `<h4 style="margin:10px 0 2px;font-size:12.5px;">${escapeHtml(title)}</h4><table class="report-table">${rows || '<tr><td colspan="2"><em>Tidak ada data</em></td></tr>'}</table>`;
+}
+
+async function loadReport() {
+  const date = reportDate.value || new Date().toISOString().slice(0, 10);
+  try {
+    const r = await (await fetch(`${SERVER}/api/report?kind=${reportKind.value}&date=${encodeURIComponent(date)}`)).json();
+    const pct = (v) => (v === null || v === undefined ? "-" : `${v}%`);
+    reportBody.innerHTML = `
+      <div class="banner banner-warn">${escapeHtml(r.label)} &middot; <strong>DATA TERPANTAU, bukan angka resmi.</strong>
+        Cakupan pemantauan ${escapeHtml(r.coverage_hours)} (${r.coverage_pct}%). Angka laporan KAK tetap dari portal ITSM.</div>
+      <table class="report-table" style="margin-top:10px;">
+        <tr><td>Tiket masuk (periode sebelumnya)</td><td>${r.total} (${r.previous_total})</td></tr>
+        <tr><td>Terbuka / selesai (terpantau)</td><td>${r.open} / ${r.closed}</td></tr>
+        <tr><td>Kepatuhan SLA penyelesaian (target &gt; 95%)</td><td>${pct(r.sla_compliance_pct)}</td></tr>
+        <tr><td>Respons pertama &lt; 15 menit (teramati ${r.response_known}, tidak teramati ${r.response_unknown})</td><td>${pct(r.response_within_15m_pct)}</td></tr>
+        <tr><td>Tiket dengan penanda eskalasi</td><td>${r.escalated_tickets}</td></tr>
+        <tr><td>Aduan WA / sudah bertiket / belum bertiket</td><td>${r.wa_total} / ${r.wa_linked} / ${r.wa_unlinked}</td></tr>
+      </table>
+      ${reportTable("Hasil SLA", r.sla_outcomes)}${reportTable("Per prioritas", r.by_priority)}${reportTable("Per tipe", r.by_type)}
+      ${reportTable("Per sumber", r.by_source)}${reportTable("Tren", r.trend)}${reportTable("Instansi terbanyak", Object.fromEntries(r.top_agencies || []))}
+      <h4 style="margin:10px 0 2px;font-size:12.5px;">Insiden Critical / Major</h4>
+      <table class="report-table">${(r.critical_major || []).map((c) => `<tr><td>${escapeHtml(c.ticketId)} &middot; ${escapeHtml(c.location)} &middot; ${escapeHtml(c.priority)} &middot; ${escapeHtml(c.sla)}<br><span style="color:#64748B;">${escapeHtml(c.desc)}</span></td><td>${escapeHtml(c.state)}</td></tr>`).join("") || '<tr><td colspan="2"><em>Tidak ada</em></td></tr>'}</table>
+      <details><summary style="cursor:pointer;font-size:12px;">Definisi dan batasan</summary><ul style="font-size:12px;">${(r.notes || []).map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul></details>`;
+  } catch (_) {
+    reportBody.innerHTML = "<p>Gagal memuat laporan. Cek server Sentinel.</p>";
+  }
+}
+
+document.getElementById("btnReports")?.addEventListener("click", () => {
+  const now = new Date();
+  reportDate.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  reportModal?.classList.add("active");
+  loadReport();
+});
+reportKind?.addEventListener("change", loadReport);
+reportDate?.addEventListener("change", loadReport);
+["closeReportBtn", "reportCloseBtn"].forEach((id) =>
+  document.getElementById(id)?.addEventListener("click", () => reportModal?.classList.remove("active")));
+document.getElementById("reportPrintBtn")?.addEventListener("click", () =>
+  window.open(`${SERVER}/api/report.html?kind=${reportKind.value}&date=${encodeURIComponent(reportDate.value || "")}`, "_blank"));
+document.getElementById("reportCsvBtn")?.addEventListener("click", () =>
+  window.open(`${SERVER}/api/export.csv?kind=${reportKind.value}&date=${encodeURIComponent(reportDate.value || "")}`, "_blank"));

@@ -61,7 +61,7 @@
             <span class="btn-icon">🔄</span> Sync
           </button>
 
-          <button id="openSettingsBtn" class="btn btn-secondary btn-enterprise" title="Pengaturan Sistem & Port Sentinel">
+          <button id="openSettingsBtn" data-operator-only="1" class="btn btn-secondary btn-enterprise" title="Pengaturan Sistem & Port Sentinel">
             <span class="btn-icon">⚙️</span> Konfigurasi
           </button>
         </div>
@@ -268,6 +268,11 @@
           <span>Salin Rekap</span>
         </button>
 
+        <button id="btnReports" class="btn btn-enterprise btn-secondary" title="Laporan harian, mingguan, bulanan (data terpantau)">
+          <span>📑</span>
+          <span>Laporan</span>
+        </button>
+
         <button id="btnDailyRecap" class="btn btn-enterprise btn-secondary" title="Rekap harian aduan WhatsApp vs tiket portal (SOP 4.4)">
           <span>📊</span>
           <span>Rekap Harian</span>
@@ -278,7 +283,7 @@
           <span>Ekspor CSV</span>
         </button>
 
-        <button id="btnSimulateWaMsg" class="btn btn-enterprise btn-simulate-wa" title="Input manual aduan dari grup WhatsApp (untuk uji coba atau pesan yang tidak terbaca otomatis)">
+        <button id="btnSimulateWaMsg" data-operator-only="1" class="btn btn-enterprise btn-simulate-wa" title="Input manual aduan dari grup WhatsApp (untuk uji coba atau pesan yang tidak terbaca otomatis)">
           <span>💬</span>
           <span>+ Aduan WA Baru</span>
         </button>
@@ -288,7 +293,7 @@
           <span>Reset Filter</span>
         </button>
 
-        <button id="btnClearData" class="btn btn-enterprise btn-clear-danger" title="Kosongkan seluruh data tiket & alert di GC 1 Dashboard untuk keperluan pengujian">
+        <button id="btnClearData" data-operator-only="1" class="btn btn-enterprise btn-clear-danger" title="Kosongkan seluruh data tiket & alert di GC 1 Dashboard untuk keperluan pengujian">
           <span>🗑️</span>
           <span>Clear Data</span>
         </button>
@@ -624,6 +629,35 @@
       <div class="modal-footer enterprise-modal-footer">
         <button id="dailyRecapExportBtn" class="btn btn-secondary btn-enterprise">📥 Ekspor CSV Hari Ini</button>
         <button id="dailyRecapCloseBtn" class="btn btn-primary btn-enterprise">Tutup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LAPORAN PERIODIK -->
+  <div id="reportModal" class="modal-backdrop">
+    <div class="modal-box enterprise-modal" style="max-width: 880px;">
+      <div class="modal-header enterprise-modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:18px;">📑</span>
+          <h3>Laporan GC 1 (data terpantau)</h3>
+        </div>
+        <button id="closeReportBtn" class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body enterprise-modal-body">
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">
+          <select id="reportKind" class="form-select-enterprise">
+            <option value="daily">Harian</option>
+            <option value="weekly">Mingguan</option>
+            <option value="monthly">Bulanan</option>
+          </select>
+          <input type="date" id="reportDate" class="form-control-enterprise" style="max-width:180px;">
+        </div>
+        <div id="reportBody"></div>
+      </div>
+      <div class="modal-footer enterprise-modal-footer">
+        <button id="reportPrintBtn" class="btn btn-secondary btn-enterprise">🖨️ Cetak / PDF</button>
+        <button id="reportCsvBtn" class="btn btn-secondary btn-enterprise">📥 CSV</button>
+        <button id="reportCloseBtn" class="btn btn-primary btn-enterprise">Tutup</button>
       </div>
     </div>
   </div>
