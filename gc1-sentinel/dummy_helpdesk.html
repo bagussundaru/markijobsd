@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Show All Request - Portal Helpdesk Kominfo PDN (Dummy Test)</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+    body {
+      background-color: #f0f4f8;
+      color: #334155;
+      font-size: 13px;
+    }
+
+    /* SIMULATION CONTROL FLOATING BAR */
+    .sim-bar {
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #38bdf8;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .sim-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .sim-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    .sim-btn-group {
+      display: flex;
+      gap: 8px;
+    }
+    .btn-sim {
+      padding: 6px 12px;
+      border-radius: 4px;
+      border: none;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-sim-assign {
+      background: #ef4444;
+      color: white;
+    }
+    .btn-sim-assign:hover {
+      background: #dc2626;
+    }
+    .btn-sim-new {
+      background: #f59e0b;
+      color: #1e293b;
+    }
+    .btn-sim-new:hover {
+      background: #d97706;
+      color: white;
+    }
+    .btn-sim-dash {
+      background: #2563eb;
+      color: white;
+    }
+    .btn-sim-dash:hover {
+      background: #1d4ed8;
+    }
+
+    /* SCREENSHOT BANNER */
+    .banner-header {
+      background-color: #014f86;
+      color: #ffffff;
+      padding: 12px 20px;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+
+    .main-wrapper {
+      padding: 14px 20px;
+      background: #ffffff;
+      min-height: 85vh;
+    }
+
+    /* FILTER BUTTON */
+    .filter-btn-row {
+      margin-bottom: 12px;
+    }
+    .btn-data-filter {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      background-color: #ffffff;
+      border: 1px solid #0284c7;
+      color: #0284c7;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* ACTION BUTTONS ROW */
+    .action-toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .tool-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      background: #ffffff;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid #cbd5e1;
+    }
+    .tool-btn.btn-search {
+      border-color: #38bdf8;
+      color: #0284c7;
+    }
+    .tool-btn.btn-clear {
+      border-color: #f59e0b;
+      color: #d97706;
+    }
+    .tool-btn.btn-add {
+      border-color: #0284c7;
+      color: #0284c7;
+    }
+    .tool-btn.btn-delete {
+      border-color: #ef4444;
+      color: #ef4444;
+    }
+    .tool-btn.btn-print {
+      border-color: #0284c7;
+      color: #0284c7;
+    }
+
+    /* TABLE */
+    .table-container {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid #cbd5e1;
+      border-radius: 2px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    thead th {
+      background-color: #004b79;
+      color: #ffffff;
+      text-align: left;
+      padding: 9px 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      border-right: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    tbody tr {
+      border-bottom: 1px solid #e2e8f0;
+      transition: background-color 0.2s;
+    }
+    tbody tr:hover {
+      background-color: #f8fafc;
+    }
+    tbody tr.selected-row {
+      background-color: #bfdbfe !important;
+    }
+    tbody td {
+      padding: 10px 12px;
+      vertical-align: middle;
+      color: #1e293b;
+      border-right: 1px solid #f1f5f9;
+    }
+    .ticket-link {
+      color: #0284c7;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .ticket-link:hover {
+      text-decoration: underline;
+    }
+
+    /* PAGINATION */
+    .pagination-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 6px;
+      font-size: 12px;
+      color: #64748b;
+    }
+    .pagination-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .page-input {
+      width: 32px;
+      padding: 3px 6px;
+      text-align: center;
+      border: 1px solid #cbd5e1;
+      border-radius: 3px;
+    }
+    .page-arrow {
+      cursor: pointer;
+      color: #64748b;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- SIMULATION TOP TOOLBAR -->
+  <div class="sim-bar">
+    <div class="sim-bar-left">
+      <span class="sim-title">🧪 SIMULASI REAL-TIME (TIAP 1 MENIT):</span>
+      <span style="font-size: 12px; color: #a7f3d0;">
+        ⏱️ Tiket Otomatis Berikutnya: <strong id="autoGenCountdown">01:00</strong>
+      </span>
+      <span id="autoGenStatusBadge" style="background:#374151; color:#9ca3af; font-size:11px; padding:2px 8px; border-radius:10px; font-weight:bold;">
+        ○ AUTO-GEN: PAUSED (Klik tombol untuk mulai)
+      </span>
+    </div>
+    <div class="sim-btn-group">
+      <button id="toggleAutoGenBtn" class="btn-sim" style="background:#059669; color:#fff;" title="Mulai generator otomatis tiap 1 menit">
+        ▶️ Mulai Auto-Simulasi
+      </button>
+      <button id="btnAssignFirstRow" class="btn-sim btn-sim-assign" title="Simulasi tiket baris 1 di-assign">
+        ⚡ Ubah Baris #1 Jadi "Assigned"
+      </button>
+      <button id="btnAddNewGcTicket" class="btn-sim btn-sim-new" title="Simulasi tiket baru masuk">
+        🚨 Tambah Tiket GC 1
+      </button>
+      <button id="btnSimWaChat" class="btn-sim" style="background:#10b981; color:#fff;" title="Simulasi chat WhatsApp">
+        💬 Chat WA GC 1
+      </button>
+      <button id="btnOpenDashboardTab" class="btn-sim btn-sim-dash">
+        🖥️ Layar Monitor GC 1
+      </button>
+      <button id="btnResetDummyBaseline" class="btn-sim" style="background:#e11d48; color:#fff;" title="Reset data ITSM dan bersihkan data GC 1 Dashboard">
+        🔄 Reset Data ITSM & GC 1
+      </button>
+    </div>
+  </div>
+
+  <!-- LIVE SIMULATION LOG BANNER -->
+  <div id="simLogBanner" style="background:#1e293b; color:#cbd5e1; padding:7px 20px; font-size:12px; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
+    <div>
+      <span style="color:#38bdf8; font-weight:bold;">📢 Status Generator:</span>
+      <span id="simLogText">Sistem siap. Tiket baru akan masuk otomatis setiap 60 detik secara bergantian (berbagai skenario).</span>
+    </div>
+    <span style="font-size:11px; color:#94a3b8;">100% Read-Only Helpdesk</span>
+  </div>
+
+  <!-- SCREENSHOT HELPDESK BANNER -->
+  <div class="banner-header">
+    Show All Request
+  </div>
+
+  <div class="main-wrapper">
+    <!-- DATA FILTER -->
+    <div class="filter-btn-row">
+      <button class="btn-data-filter">
+        <span>🔻</span> Data Filter
+      </button>
+    </div>
+
+    <!-- ACTION BUTTONS -->
+    <div class="action-toolbar">
+      <button class="tool-btn btn-search">🔍 Search</button>
+      <button class="tool-btn btn-clear">🔄 Clear</button>
+      <button class="tool-btn btn-add">➕ Add</button>
+      <button class="tool-btn btn-delete">➖ Delete</button>
+      <button class="tool-btn btn-print">🖨️ Print Page</button>
+    </div>
+
+    <!-- TICKET TABLE (Identik dengan Screenshot Pengguna) -->
+    <div class="table-container">
+      <table id="mainHelpdeskTable">
+        <thead>
+          <tr>
+            <th style="width: 25px;"><input type="checkbox"></th>
+            <th>Number</th>
+            <th>Short Description</th>
+            <th>Requested For</th>
+            <th>Request State</th>
+            <th>Created Date</th>
+            <th>Location</th>
+            <th>Assignment Group</th>
+          </tr>
+        </thead>
+        <tbody id="helpdeskTableBody">
+          <!-- Row 1: REQ-KMF-092026-0093998 (GC 1 Pending Pipeline) -->
+          <tr id="rowGc1Pending_998">
+            <td><input type="checkbox"></td>
+            <td><a class="ticket-link" href="#">REQ-KMF-092026-0093998</a></td>
+            <td>Permohonan Pembuatan Akun Akses Manajemen Backup di Government Cloud 1</td>
+            <td>Dewi Anggraini</td>
+            <td id="rowGc1StateText_998" style="color:#d97706; font-weight:600;">Pending Approval</td>
+            <td>29 Sep 2026 16:24:30 WIB</td>
+            <td>Kementerian Keuangan</td>
+            <td>Helpdesk</td>
+          </tr>
+
+          <!-- Row 2: REQ-KMF-092026-0093997 (Unit Lain / Non-GC) -->
+          <tr>
+            <td><input type="checkbox"></td>
+            <td><a class="ticket-link" href="#">REQ-KMF-092026-0093997</a></td>
+            <td>Permohonan Reset Password Akun Email dan Penggantian Kabel LAN Lantai 3</td>
+            <td>Dimas Setiawan</td>
+            <td style="color:#16a34a; font-weight:600;">Assigned</td>
+            <td>29 Sep 2026 16:23:30 WIB</td>
+            <td>Bappenas</td>
+            <td>EOS L1</td>
+          </tr>
+
+          <!-- Row 3: REQ-KMF-092026-0093996 (GC 1 Assigned - Prioritas Eksekusi) -->
+          <tr style="background:#fef2f2;">
+            <td><input type="checkbox"></td>
+            <td><a class="ticket-link" href="#">REQ-KMF-092026-0093996</a></td>
+            <td>Permohonan Penambahan Core CPU dan RAM Server di Government Cloud 1</td>
+            <td>Ahmad Faisal</td>
+            <td style="color:#dc2626; font-weight:bold;">Assigned</td>
+            <td>29 Sep 2026 16:22:30 WIB</td>
+            <td>Kementerian Kesehatan</td>
+            <td>Helpdesk</td>
+          </tr>
+
+          <!-- Row 4: REQ-KMF-092026-0093991 (GC 1 Assigned - Prioritas Eksekusi) -->
+          <tr id="rowGc1_991" style="background:#fef2f2;">
+            <td><input type="checkbox"></td>
+            <td><a class="ticket-link" href="#">REQ-KMF-092026-0093991</a></td>
+            <td>Permohonan Resource untuk VM Jump Host di Government Cloud 1</td>
+            <td>BONOVA SUHARKO</td>
+            <td id="rowGc1StateText" style="color:#dc2626; font-weight:bold;">Assigned</td>
+            <td>29 Sep 2026 14:52:06 WIB</td>
+            <td>Kementerian Komunikasi dan Informatika</td>
+            <td>Helpdesk</td>
+          </tr>
+
+          <!-- Row 5: REQ-KMF-092026-0093994 (Unit Lain / Non-GC) -->
+          <tr>
+            <td><input type="checkbox"></td>
+            <td><a class="ticket-link" href="#">REQ-KMF-092026-0093994</a></td>
+            <td>Permohonan Pemasangan Web Application Firewall (WAF)</td>
+            <td>Muhammad Yusha Pratama</td>
+            <td style="color:#16a34a; font-weight:600;">Assigned</td>
+            <td>29 Sep 2026 15:25:57 WIB</td>
+            <td>Kementerian Komunikasi dan Informatika</td>
+            <td>Helpdesk</td>
+          </tr>
+
+          <!-- Row 6: REQ-KMF-092026-0093993 (Internal GC 1 Scope) -->
+          <tr class="selected-row">
+            <td><input type="checkbox" checked></td>
+            <td><a class="ticket-link" href="#">REQ-KMF-092026-0093993</a></td>
+            <td>Permohonan Diskusi Teknis Terkait Lokal Akses Aplikasi SKM Online</td>
+            <td>achmat prayogo Mukti</td>
+            <td style="color:#16a34a; font-weight:600;">Assigned</td>
+            <td>29 Sep 2026 15:18:29 WIB</td>
+            <td>Kementerian Pendayagunaan Aparatur Negara dan Reformasi Birokrasi</td>
+            <td>Helpdesk</td>
+          </tr>
+
+          <!-- Row 7: REQ-KMF-092026-0093988 (Internal GC 1 Scope) -->
+          <tr>
+            <td><input type="checkbox"></td>
+            <td><a class="ticket-link" href="#">REQ-KMF-092026-0093988</a></td>
+            <td>Permohonan Pengaktifkan Kembali / Pembuatan Ulang Akun</td>
+            <td>R WITCAKSONO SETYO PUTRO, S.Si., M.Eng.</td>
+            <td style="color:#2563eb; font-weight:600;">In Progress</td>
+            <td>29 Sep 2026 10:27:55 WIB</td>
+            <td>Kabupaten Jombang</td>
+            <td>EOS L1</td>
+          </tr>
+
+          <!-- Row 9: REQ-KMF-092026-0093987 (Unit Lain / Non-GC) -->
+          <tr>
+            <td><input type="checkbox"></td>
+            <td><a class="ticket-link" href="#">REQ-KMF-092026-0093987</a></td>
+            <td>Permohonan Video Conference (Zoom) Pembahasan VDC Pemkab Jombang</td>
+            <td>R WITCAKSONO SETYO PUTRO, S.Si., M.Eng.</td>
+            <td style="color:#d97706; font-weight:600;">Pending Approval</td>
+            <td>29 Sep 2026 10:26:04 WIB</td>
+            <td>Kabupaten Jombang</td>
+            <td>EOS L1</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- PAGINATION -->
+    <div class="pagination-bar">
+      <div class="pagination-controls">
+        <span class="page-arrow">&laquo;</span>
+        <span class="page-arrow">&lt;</span>
+        <input type="text" class="page-input" value="1" readonly>
+        <span>/ 967</span>
+        <span class="page-arrow">&gt;</span>
+        <span class="page-arrow">&raquo;</span>
+      </div>
+      <div>
+        [ 1 - 20 / 19331 ]
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let newTicketSeq = 94000;
+    const tableBody = document.getElementById("helpdeskTableBody");
+
+    function getNowWib(offsetMinutes = 0) {
+      const d = new Date(Date.now() - offsetMinutes * 60000);
+      const months = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${pad(d.getDate())} ${months[d.getMonth()]} ${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} WIB`;
+    }
+
+    function initBaselineDates() {
+      const rows = document.querySelectorAll("#helpdeskTableBody tr");
+      const offsets = [15, 20, 25, 35, 45, 60, 120, 150];
+      rows.forEach((tr, i) => {
+        const cells = tr.querySelectorAll("td");
+        if (cells.length >= 6) {
+          const offset = offsets[i % offsets.length];
+          cells[5].textContent = getNowWib(offset);
+        }
+      });
+    }
+
+    let bus = null;
+    try {
+      bus = new BroadcastChannel("gc1_sentinel_bus");
+    } catch (_) {}
+
+    function sendBusAlert(alertData) {
+      if (bus) {
+        bus.postMessage({ type: "NEW_ALERT", data: alertData });
+      }
+      if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({ type: "NEW_ALERT", data: alertData }).catch(() => {});
+      }
+      try {
+        fetch("http://localhost:8765/api/alerts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "NEW_ALERT", data: alertData })
+        }).catch(() => {});
+      } catch (_) {}
+    }
+
+    function syncAllTableRows() {
+      const rows = document.querySelectorAll("#helpdeskTableBody tr");
+      const tickets = [];
+      const seenIds = new Set();
+      rows.forEach(tr => {
+        const cells = tr.querySelectorAll("td");
+        if (cells.length < 8) return;
+        const ticketId = cells[1].textContent.trim();
+        if (!ticketId || seenIds.has(ticketId)) return;
+        seenIds.add(ticketId);
+        const shortDesc = cells[2].textContent.trim();
+        const requestedFor = cells[3].textContent.trim();
+        const requestState = cells[4].textContent.trim();
+        const createdDate = cells[5].textContent.trim();
+        const location = cells[6].textContent.trim();
+        const assignmentGroup = cells[7].textContent.trim();
+        const full = `${ticketId} ${shortDesc} ${requestedFor} ${location} ${assignmentGroup}`;
+        const isGc1 = full.toLowerCase().includes("government cloud 1") || full.toLowerCase().includes("gc 1");
+        let category = "other_helpdesk";
+        if (isGc1 && (requestState.toLowerCase() === "assigned" || requestState.toLowerCase().includes("assign"))) {
+          category = "gc1_assigned";
+        } else if (isGc1) {
+          category = "gc1_pending";
+        }
+        tickets.push({
+          ticketId,
+          shortDesc,
+          requestedFor,
+          requestState,
+          createdDate,
+          location,
+          assignmentGroup,
+          isGc1,
+          category
+        });
+      });
+
+      if (bus) {
+        bus.postMessage({ type: "SYNC_HELPDESK_TICKETS", tickets: tickets, count: tickets.length });
+      }
+      try {
+        fetch("http://localhost:8765/api/sync_helpdesk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tickets })
+        }).catch(() => {});
+      } catch (_) {}
+    }
+
+    // Inisialisasi tanggal dan panggil sync pertama kali saat halaman dimuat
+    initBaselineDates();
+    setTimeout(syncAllTableRows, 300);
+
+    // 1. Tombol ubah baris 1 (VM Jump Host di Government Cloud 1) menjadi "Assigned"
+    document.getElementById("btnAssignFirstRow").addEventListener("click", () => {
+      const stateCell = document.getElementById("rowGc1StateText");
+      if (stateCell) {
+        stateCell.textContent = "Assigned";
+        stateCell.style.color = "#dc2626";
+        stateCell.style.fontWeight = "bold";
+      }
+
+      syncAllTableRows();
+
+      sendBusAlert({
+        source: "helpdesk",
+        ticketId: "REQ-KMF-092026-0093991",
+        sender: "BONOVA SUHARKO (Kemenkominfo)",
+        text: "[ASSIGNED] Permohonan Resource untuk VM Jump Host di Government Cloud 1 | Lokasi: Kementerian Komunikasi dan Informatika | Group: Helpdesk",
+        matchedKeyword: "Government Cloud 1",
+        requestState: "Assigned",
+        createdDate: "29 Sep 2026 14:52:06 WIB"
+      });
+
+      alert("Status Baris #1 diubah jadi 'Assigned'!\nTiket langsung dikirim ke Layar Monitor GC 1.");
+    });
+
+    // 2. Tombol tambah tiket baru GC 1 dengan status Assigned
+    document.getElementById("btnAddNewGcTicket").addEventListener("click", () => {
+      newTicketSeq++;
+      const tr = document.createElement("tr");
+      const ticketId = `REQ-KMF-092026-00${newTicketSeq}`;
+      const desc = "Permintaan Restart & Provisioning Resource Server Government Cloud 1 (GC 1)";
+      const nowStr = getNowWib();
+
+      tr.innerHTML = `
+        <td><input type="checkbox"></td>
+        <td><a class="ticket-link" href="#">${ticketId}</a></td>
+        <td>${desc}</td>
+        <td>Budi Santoso</td>
+        <td style="color:#dc2626; font-weight:bold;">Assigned</td>
+        <td>${nowStr}</td>
+        <td>Kementerian Komunikasi dan Informatika</td>
+        <td>Helpdesk</td>
+      `;
+      tableBody.prepend(tr);
+      syncAllTableRows();
+
+      sendBusAlert({
+        source: "helpdesk",
+        ticketId: ticketId,
+        sender: "Budi Santoso (Kemenkominfo)",
+        text: `[ASSIGNED] ${desc} | Lokasi: Kementerian Komunikasi dan Informatika | Group: Helpdesk`,
+        matchedKeyword: "GC 1",
+        requestState: "Assigned",
+        createdDate: nowStr
+      });
+
+      alert("Tiket baru Government Cloud 1 (Assigned) berhasil ditambahkan!\nTiket langsung tercatat di Layar Monitor.");
+    });
+
+    // 3. Tombol simulasikan Chat WA Masuk
+    document.getElementById("btnSimWaChat")?.addEventListener("click", async () => {
+      const waSenders = ["Dr. Irwan Setiawan (Kemenkes)", "Dimas Prasetyo (Bappenas)", "Dewi Anggraini (Kemenkeu)", "Hadi (Ops Kominfo)"];
+      const waTexts = [
+        "Mohon izin tim Helpdesk GC 1, VM Portal Data Kemenkes di Government Cloud 1 lambat diakses, mohon penambahan core CPU dan RAM segera. Terima kasih.",
+        "Aplikasi SIM-Perencanaan Bappenas di Government Cloud 1 mengalami kendala koneksi firewall/WAF. Mohon dibantu perbaikan aksesnya.",
+        "Selamat siang, permohonan pembuatan akun akses manajemen backup snapshot VM di Government Cloud 1 untuk instansi Kementerian Keuangan.",
+        "Tolong bantuan teknisi EOS L1, restart service jump host VM di Government Cloud 1 karena service ssh hang."
+      ];
+      const randomSender = waSenders[Math.floor(Math.random() * waSenders.length)];
+      const randomText = waTexts[Math.floor(Math.random() * waTexts.length)];
+
+      try {
+        const res = await fetch("http://localhost:8765/api/add_wa_ticket", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sender: randomSender,
+            group: "Grup Koordinasi Teknis GC 1 Komdigi",
+            text: randomText,
+            matchedKeyword: "GC 1",
+            manual: true
+          })
+        });
+        const result = await res.json();
+        if (result && result.status === "success") {
+          alert(`Simulasi aduan WhatsApp dari [${randomSender}] berhasil masuk!\n\nNomor Tiket: ${result.ticket?.ticketId}\nStatus: Assigned\nTiket langsung masuk ke Dashboard Monitor GC 1.`);
+        } else {
+          alert(`Simulasi aduan WA terkirim! Cek Layar Monitor GC 1.`);
+        }
+      } catch (_) {
+        alert(`Simulasi chat WA dari [${randomSender}] terkirim!\nCek Layar Monitor GC 1.`);
+      }
+    });
+
+    // 4. Buka Dashboard Monitor
+    document.getElementById("btnOpenDashboardTab")?.addEventListener("click", () => {
+      window.open("http://localhost:8765/dashboard.html", "_blank");
+    });
+
+    // Reset Data ITSM & GC 1
+    document.getElementById("btnResetDummyBaseline")?.addEventListener("click", async () => {
+      if (!confirm("Reset seluruh data tiket ITSM ke 8 tiket internal awal dan kosongkan data GC 1 Dashboard?")) return;
+      try {
+        await fetch("http://localhost:8765/api/clear_data", { method: "POST" });
+        location.reload();
+      } catch (e) {
+        alert("Gagal reset data: " + e.message);
+      }
+    });
+
+    // 5. AUTOMATED 1-MINUTE SCENARIO GENERATOR
+    const simLogText = document.getElementById("simLogText");
+    const autoGenCountdown = document.getElementById("autoGenCountdown");
+    const autoGenStatusBadge = document.getElementById("autoGenStatusBadge");
+    const toggleAutoGenBtn = document.getElementById("toggleAutoGenBtn");
+
+    let isAutoGenActive = false;
+    let autoGenTimerSec = 60; // 60 detik = 1 menit
+    let scenarioStep = 0;
+
+    function updateSimLog(msg, color) {
+      if (simLogText) {
+        simLogText.innerHTML = `<span style="color:${color || '#38bdf8'}; font-weight:bold;">${msg}</span>`;
+      }
+    }
+
+    // Koleksi data skenario realistis
+    const SCENARIOS = [
+      // Skenario 1: Target Utama (GC 1 + Assigned) -> HARUS TERDETEKSI
+      () => {
+        newTicketSeq++;
+        const ticketId = `REQ-KMF-092026-00${newTicketSeq}`;
+        const desc = "Permohonan Penambahan Core CPU dan RAM Server di Government Cloud 1";
+        const requester = "Ahmad Faisal";
+        const loc = "Kementerian Kesehatan";
+        const nowStr = getNowWib();
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><input type="checkbox"></td>
+          <td><a class="ticket-link" href="#">${ticketId}</a></td>
+          <td>${desc}</td>
+          <td>${requester}</td>
+          <td style="color:#16a34a; font-weight:bold;">Assigned</td>
+          <td>${nowStr}</td>
+          <td>${loc}</td>
+          <td>Helpdesk</td>
+        `;
+        tableBody.prepend(tr);
+        syncAllTableRows();
+
+        sendBusAlert({
+          source: "helpdesk",
+          ticketId: ticketId,
+          sender: `${requester} (${loc})`,
+          text: `[ASSIGNED] ${desc} | Lokasi: ${loc} | Group: Helpdesk`,
+          matchedKeyword: "Government Cloud 1",
+          requestState: "Assigned",
+          createdDate: nowStr
+        });
+
+        updateSimLog(`[${nowStr.slice(12)}] 🟢 Skenario 1: Tiket Baru GC 1 Status ASSIGNED (${ticketId}) -> TERDETEKSI & ALARM BERBUNYI!`, "#4ade80");
+      },
+
+      // Skenario 2: Bukan GC 1 tapi Assigned -> DISINKRONKAN SEBAGAI NON-GC
+      () => {
+        newTicketSeq++;
+        const ticketId = `REQ-KMF-092026-00${newTicketSeq}`;
+        const desc = "Permohonan Reset Password Akun Email dan Penggantian Kabel LAN Lantai 3";
+        const requester = "Dimas Setiawan";
+        const loc = "Bappenas";
+        const nowStr = getNowWib();
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><input type="checkbox"></td>
+          <td><a class="ticket-link" href="#">${ticketId}</a></td>
+          <td>${desc}</td>
+          <td>${requester}</td>
+          <td style="color:#0f172a; font-weight:bold;">Assigned</td>
+          <td>${nowStr}</td>
+          <td>${loc}</td>
+          <td>EOS L1</td>
+        `;
+        tableBody.prepend(tr);
+        syncAllTableRows();
+
+        updateSimLog(`[${nowStr.slice(12)}] 🏢 Skenario 2: Tiket Baru Unit Lain (${ticketId}) -> TERCATAT DI MONITOR KATEGORI NON-GC.`, "#94a3b8");
+      },
+
+      // Skenario 3: GC 1 tapi Status PENDING APPROVAL -> DISINKRONKAN SEBAGAI PIPELINE PENDING
+      () => {
+        newTicketSeq++;
+        const ticketId = `REQ-KMF-092026-00${newTicketSeq}`;
+        const desc = "Permohonan Pembuatan Akun Akses Manajemen Backup di Government Cloud 1";
+        const requester = "Dewi Anggraini";
+        const loc = "Kementerian Keuangan";
+        const nowStr = getNowWib();
+
+        const tr = document.createElement("tr");
+        tr.id = `pendingRow_${ticketId}`;
+        tr.innerHTML = `
+          <td><input type="checkbox"></td>
+          <td><a class="ticket-link" href="#">${ticketId}</a></td>
+          <td>${desc}</td>
+          <td>${requester}</td>
+          <td class="state-cell" style="color:#64748b;">Pending Approval</td>
+          <td>${nowStr}</td>
+          <td>${loc}</td>
+          <td>Helpdesk</td>
+        `;
+        tableBody.prepend(tr);
+        syncAllTableRows();
+
+        updateSimLog(`[${nowStr.slice(12)}] ⏳ Skenario 3: Tiket GC 1 (${ticketId}) Pending Approval -> TERCATAT DI PIPELINE PENDING.`, "#facc15");
+      },
+
+      // Skenario 4: Transisi Tiket GC 1 yang tadinya Pending Approval berubah menjadi ASSIGNED!
+      () => {
+        const pendingCell = document.querySelector("#rowGc1StateText") || document.querySelector(".state-cell");
+        const nowStr = getNowWib();
+        if (pendingCell && pendingCell.textContent.includes("Pending")) {
+          pendingCell.textContent = "Assigned";
+          pendingCell.style.color = "#16a34a";
+          pendingCell.style.fontWeight = "bold";
+          syncAllTableRows();
+
+          sendBusAlert({
+            source: "helpdesk",
+            ticketId: "REQ-KMF-092026-0093991",
+            sender: "BONOVA SUHARKO (Kemenkominfo)",
+            text: "[ASSIGNED] Permohonan Resource untuk VM Jump Host di Government Cloud 1 | Lokasi: Kementerian Komunikasi dan Informatika | Group: Helpdesk",
+            matchedKeyword: "Government Cloud 1",
+            requestState: "Assigned",
+            createdDate: nowStr
+          });
+
+          updateSimLog(`[${nowStr.slice(12)}] 🚨 Skenario 4: Tiket GC 1 Pending Approval sekarang TELAH DI-ASSIGN -> TERDETEKSI & ALARM BERBUNYI!`, "#f87171");
+        } else {
+          // Fallback buat tiket assigned baru
+          SCENARIOS[0]();
+        }
+      },
+
+      // Skenario 5: Aduan WhatsApp masuk menyebut GC 1
+      () => {
+        const waSenders = ["Hadi (Ops Kominfo)", "Rian Support L2", "Siti PDN", "Koordinator Shift"];
+        const waTexts = [
+          "Tolong cek server di GC 1 dong, ada request masuk belum di-approve nih.",
+          "Halo tim helpdesk, VM Government Cloud 1 ada alert traffic tinggi mohon dipantau.",
+          "Tiket GC 1 baru sudah di-assign, tolong segera dieksekusi ya rekan-rekan."
+        ];
+        const randomSender = waSenders[Math.floor(Math.random() * waSenders.length)];
+        const randomText = waTexts[Math.floor(Math.random() * waTexts.length)];
+        const nowStr = getNowWib();
+
+        sendBusAlert({
+          source: "whatsapp",
+          sender: randomSender,
+          group: "Grup Operasional Helpdesk Kominfo",
+          text: randomText,
+          matchedKeyword: randomText.includes("Government Cloud 1") ? "Government Cloud 1" : "GC 1"
+        });
+
+        try {
+          fetch("http://localhost:8765/api/add_wa_ticket", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sender: randomSender,
+              group: "Grup Operasional Helpdesk Kominfo",
+              text: randomText,
+              matchedKeyword: "GC 1",
+              manual: true
+            })
+          }).catch(() => {});
+        } catch (_) {}
+
+        updateSimLog(`[${nowStr.slice(12)}] 💬 Skenario 5: Aduan WhatsApp masuk dari [${randomSender}] -> OTOMATIS JADI TIKET DI DASHBOARD & ALARM BERBUNYI!`, "#38bdf8");
+      }
+    ];
+
+    function executeNextScenario() {
+      const fn = SCENARIOS[scenarioStep % SCENARIOS.length];
+      scenarioStep++;
+      fn();
+    }
+
+    // Countdown 60 Detik (1 Menit)
+    setInterval(() => {
+      if (!isAutoGenActive) return;
+
+      autoGenTimerSec--;
+      if (autoGenTimerSec <= 0) {
+        autoGenTimerSec = 60;
+        executeNextScenario();
+      }
+
+      if (autoGenCountdown) {
+        const s = String(autoGenTimerSec % 60).padStart(2, '0');
+        autoGenCountdown.textContent = `00:${s}`;
+      }
+    }, 1000);
+
+    // Tombol Toggle Pause / Resume
+    toggleAutoGenBtn?.addEventListener("click", () => {
+      isAutoGenActive = !isAutoGenActive;
+      if (isAutoGenActive) {
+        toggleAutoGenBtn.textContent = "⏸️ Pause Auto";
+        toggleAutoGenBtn.style.background = "#0284c7";
+        autoGenStatusBadge.textContent = "● AUTO-GEN: ON";
+        autoGenStatusBadge.style.background = "#065f46";
+        autoGenStatusBadge.style.color = "#a7f3d0";
+      } else {
+        toggleAutoGenBtn.textContent = "▶️ Resume Auto";
+        toggleAutoGenBtn.style.background = "#059669";
+        autoGenStatusBadge.textContent = "○ AUTO-GEN: PAUSED";
+        autoGenStatusBadge.style.background = "#374151";
+        autoGenStatusBadge.style.color = "#9ca3af";
+      }
+    });
+  </script>
+</body>
+</html>

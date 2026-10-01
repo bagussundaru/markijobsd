@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "GC 1 Sentinel - Helpdesk & WA Monitor",
+  "version": "2.0.0",
+  "description": "Pemantau tiket helpdesk GC 1 dan pembaca grup WhatsApp (hanya membaca) untuk Mini PC. Tidak mengirim pesan.",
+  "permissions": [
+    "storage",
+    "notifications",
+    "tabs",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://web.whatsapp.com/*",
+    "https://pdn.layanan.go.id/*",
+    "http://localhost:8765/*",
+    "http://127.0.0.1:8765/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "GC 1 Sentinel Monitor"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://web.whatsapp.com/*"
+      ],
+      "js": [
+        "content_whatsapp.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://pdn.layanan.go.id/*",
+        "http://localhost:8765/*",
+        "http://127.0.0.1:8765/*"
+      ],
+      "js": [
+        "content_helpdesk.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "sounds/alert.wav",
+        "icons/icon48.png"
+      ],
+      "matches": [
+        "http://localhost:8765/*",
+        "http://127.0.0.1:8765/*"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

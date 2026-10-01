@@ -1,0 +1,36 @@
+{
+  "target_contact": "mimi Sandora",
+  "keywords": [
+    "GC 1",
+    "GC1",
+    "Government Cloud 1",
+    "Government Cloud-1",
+    "Gov Cloud 1",
+    "GovCloud 1",
+    "Gedung C 1",
+    "Gedung C1"
+  ],
+  "target_status": "Assigned",
+  "poll_interval_seconds": 30,
+  "wa_outbound_enabled": false,
+  "auto_send_wa": false,
+  "markijo_auto_mode": true,
+  "server_port": 8765,
+  "bind_host": "127.0.0.1",
+  "live_helpdesk_url": "https://pdn.layanan.go.id",
+  "allowed_origins": [],
+  "wa_monitored_groups": [
+    "*"
+  ],
+  "wa_ignored_groups": [],
+  "wa_team_senders": [],
+  "wa_verified_senders": [],
+  "wa_max_age_hours": 24,
+  "pic_roster": {},
+  "ai_provider": "off",
+  "ai_model": "deepseek-chat",
+  "ai_base_url": "https://api.deepseek.com",
+  "ai_external_approved": false,
+  "ai_hermes_exe": "",
+  "ai_hermes_home": ""
+}

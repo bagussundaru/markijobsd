@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Show All Request - Simulasi Helpdesk GC 1 Sentinel</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    body {
+      background: #f1f5f9;
+      color: #1e293b;
+      padding: 20px;
+    }
+    .header-banner {
+      background-color: #0369a1;
+      color: white;
+      padding: 12px 20px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 4px 4px 0 0;
+    }
+    .toolbar-container {
+      background: #fff;
+      padding: 12px 20px;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .btn-tool {
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      padding: 6px 12px;
+      font-size: 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      color: #334155;
+      font-weight: 500;
+    }
+    .simulation-control-box {
+      background: #f8fafc;
+      border: 2px dashed #0284c7;
+      padding: 14px 20px;
+      margin: 15px 0;
+      border-radius: 8px;
+    }
+    .simulation-control-box h3 {
+      font-size: 14px;
+      color: #0369a1;
+      margin-bottom: 8px;
+    }
+    .btn-sim {
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: bold;
+      border-radius: 6px;
+      cursor: pointer;
+      border: none;
+      margin-right: 8px;
+      margin-bottom: 6px;
+    }
+    .btn-sim-alert {
+      background: #dc2626;
+      color: white;
+    }
+    .btn-sim-alert:hover {
+      background: #b91c1c;
+    }
+    .btn-sim-warn {
+      background: #d97706;
+      color: white;
+    }
+    .btn-sim-neutral {
+      background: #475569;
+      color: white;
+    }
+    .table-responsive {
+      background: white;
+      overflow-x: auto;
+      border-radius: 0 0 6px 6px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th {
+      background-color: #0369a1;
+      color: #ffffff;
+      text-align: left;
+      padding: 10px 12px;
+      font-weight: bold;
+      white-space: nowrap;
+    }
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #f1f5f9;
+      color: #334155;
+      vertical-align: middle;
+    }
+    tr:nth-child(even) {
+      background-color: #f8fafc;
+    }
+    .ticket-link {
+      color: #0284c7;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .ticket-link:hover {
+      text-decoration: underline;
+    }
+    .state-assigned {
+      color: #0f172a;
+      font-weight: bold;
+    }
+    .state-pending {
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Test Simulation Control Box -->
+  <div class="simulation-control-box">
+    <h3>🧪 Panel Uji Coba Simulasi Ekstensi GC 1 Sentinel:</h3>
+    <p style="font-size: 12px; color: #475569; margin-bottom: 10px;">
+      Gunakan tombol-tombol di bawah untuk menguji respon ekstensi terhadap tiket baru:
+    </p>
+    <div>
+      <button id="btnSimGcAssigned" class="btn-sim btn-sim-alert">
+        🚨 1. Tambah Tiket Baru: GC 1 Status ASSIGNED (Harus Ada Notif & Alarm!)
+      </button>
+      <button id="btnSimGcPending" class="btn-sim btn-sim-warn">
+        ⏳ 2. Tambah Tiket: GC 1 Status Pending Approval (Diabaikan, Belum Assigned)
+      </button>
+      <button id="btnSimOtherAssigned" class="btn-sim btn-sim-neutral">
+        ℹ️ 3. Tambah Tiket: Non-GC Status Assigned (Diabaikan, Bukan GC 1)
+      </button>
+    </div>
+  </div>
+
+  <div class="header-banner">Show All Request</div>
+
+  <div class="toolbar-container">
+    <button class="btn-tool">🔻 Data Filter</button>
+    <button class="btn-tool">🔍 Search</button>
+    <button class="btn-tool">🔄 Clear</button>
+    <button class="btn-tool">➕ Add</button>
+    <button class="btn-tool">➖ Delete</button>
+    <button class="btn-tool">🖨️ Print Page</button>
+  </div>
+
+  <div class="table-responsive">
+    <table id="requestTable">
+      <thead>
+        <tr>
+          <th style="width: 30px;"><input type="checkbox"></th>
+          <th>Number</th>
+          <th>Short Description</th>
+          <th>Requested For</th>
+          <th>Request State</th>
+          <th>Created Date</th>
+          <th>Location</th>
+          <th>Assignment Group</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <tr>
+          <td><input type="checkbox"></td>
+          <td><a class="ticket-link" href="#">REQ-KMF-092026-0093991</a></td>
+          <td>Permohonan Resource untuk VM Jump Host di Government Cloud 1</td>
+          <td>BONOVA SUHARKO</td>
+          <td class="state-pending">Pending Approval</td>
+          <td>29 Sep 2026 14:52:06 WIB</td>
+          <td>Kementerian Komunikasi dan Informatika</td>
+          <td>Helpdesk</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox"></td>
+          <td><a class="ticket-link" href="#">REQ-KMF-092026-0093994</a></td>
+          <td>Permohonan Pemasangan Web Application Firewall (WAF)</td>
+          <td>Muhammad Yusha Pratama</td>
+          <td class="state-assigned">Assigned</td>
+          <td>29 Sep 2026 15:25:57 WIB</td>
+          <td>Kementerian Komunikasi dan Informatika</td>
+          <td>Helpdesk</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox"></td>
+          <td><a class="ticket-link" href="#">REQ-KMF-092026-0093993</a></td>
+          <td>Permohonan Diskusi Teknis Terkait Lokal Akses Aplikasi SKM Online</td>
+          <td>achmat prayogo Mukti</td>
+          <td class="state-assigned">Assigned</td>
+          <td>29 Sep 2026 15:18:29 WIB</td>
+          <td>Kementerian Pendayagunaan Aparatur Negara dan Reformasi Birokrasi</td>
+          <td>Helpdesk</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox"></td>
+          <td><a class="ticket-link" href="#">REQ-KMF-092026-0093990</a></td>
+          <td>Permohonan Restore VM pada Pusat Data Nasional Sementara</td>
+          <td>Halomoan Pardamean Hutagalung, S.E.</td>
+          <td class="state-pending">Pending Approval</td>
+          <td>29 Sep 2026 14:37:39 WIB</td>
+          <td>Kota Padangsidempuan</td>
+          <td>EOS L1 TELKOM</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    let seq = 93995;
+    const tbody = document.getElementById("tableBody");
+
+    function getNowString() {
+      const d = new Date();
+      return `29 Sep 2026 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')} WIB`;
+    }
+
+    // 1. Simulasikan tiket GC 1 yang statusnya Assigned
+    document.getElementById("btnSimGcAssigned").addEventListener("click", () => {
+      seq++;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><input type="checkbox"></td>
+        <td><a class="ticket-link" href="#">REQ-KMF-092026-00${seq}</a></td>
+        <td>Permintaan Penambahan CPU dan RAM di Server <strong>Government Cloud 1 (GC 1)</strong></td>
+        <td>Ir. Hendra Wijaya</td>
+        <td class="state-assigned" style="font-weight:bold; color:#dc2626;">Assigned</td>
+        <td>${getNowString()}</td>
+        <td>Kementerian Komunikasi dan Informatika</td>
+        <td>Helpdesk</td>
+      `;
+      tbody.prepend(tr);
+    });
+
+    // 2. Simulasikan tiket GC 1 tapi masih Pending Approval
+    document.getElementById("btnSimGcPending").addEventListener("click", () => {
+      seq++;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><input type="checkbox"></td>
+        <td><a class="ticket-link" href="#">REQ-KMF-092026-00${seq}</a></td>
+        <td>Permohonan Akun Akses Konsol Government Cloud 1</td>
+        <td>Ratna Sari</td>
+        <td class="state-pending">Pending Approval</td>
+        <td>${getNowString()}</td>
+        <td>Kementerian Keuangan</td>
+        <td>Helpdesk</td>
+      `;
+      tbody.prepend(tr);
+    });
+
+    // 3. Simulasikan tiket Non-GC yang Assigned
+    document.getElementById("btnSimOtherAssigned").addEventListener("click", () => {
+      seq++;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><input type="checkbox"></td>
+        <td><a class="ticket-link" href="#">REQ-KMF-092026-00${seq}</a></td>
+        <td>Permohonan Penggantian Tinta Printer Lantai 4</td>
+        <td>Bambang Soeroso</td>
+        <td class="state-assigned">Assigned</td>
+        <td>${getNowString()}</td>
+        <td>Kementerian Perhubungan</td>
+        <td>EOS L1</td>
+      `;
+      tbody.prepend(tr);
+    });
+  </script>
+</body>
+</html>

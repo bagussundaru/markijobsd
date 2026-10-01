@@ -1,0 +1,13 @@
+GC 1 SENTINEL v2 - PANDUAN SINGKAT MINI PC
+==========================================
+1. Pasang Python 3.9+ dan Google Chrome.
+2. Edit config.json:
+   - wa_monitored_groups : nama grup WhatsApp koordinasi GC 1 (WAJIB, kosong = WA tidak dibaca)
+   - wa_verified_senders : nama PIC tenan yang dikenal (opsional)
+   - pic_roster          : nama petugas per peran (opsional)
+3. Klik ganda 1-JALANKAN_SEMUA.bat. Chrome terbuka dengan ekstensi, WhatsApp Web, dashboard, dan portal.
+4. Login WhatsApp Web (scan QR) dan buka portal helpdesk. Biarkan tab tetap terbuka.
+5. Dashboard: http://localhost:8765/dashboard.html
+
+Sentinel TIDAK mengirim pesan ke WhatsApp. Ia hanya membaca grup yang didaftarkan.
+Detail lengkap: README.md

@@ -1,0 +1,1617 @@
+"""
+GC 1 Sentinel - Enhanced Server with REST API & Static File Serving (Helpdesk Expert Edition)
+Port: 8765
+Directly serves GC 1 Dashboard, Helpdesk Dummy, and Markijo Automation IPC.
+
+VERSI 2 (SOP v0.2):
+- Pengiriman rekap ke WhatsApp DIMATIKAN (wa_outbound_enabled=false). WhatsApp hanya dibaca
+  (grup -> pra-tiket di dashboard); SOP 5.7 melarang meneruskan data tenan ke WA di luar sistem resmi.
+- Prioritas/SLA mengikuti SOP 3.2 (Critical 4j, Major 8j, Minor 24j, respons <15 menit).
+- SLA dihitung hidup dari waktu aduan/tiket sebenarnya, riwayat tiap tiket dilacak.
+- Server hanya mendengarkan 127.0.0.1 dan menolak Origin/Host asing.
+
+STANDAR HELPDESK EXPERT:
+1. State Machine per Tiket: Tiket dilacak siklus hidupnya (Pending -> Assigned -> In Progress -> Selesai).
+2. Anti-Spam Mutlak: Tiket yang sudah pernah dilaporkan dalam status Assigned TIDAK PERNAH dikirim ulang.
+3. Notifikasi HANYA jika ada tiket baru atau UPDATE status (misal: Pending Approval berubah jadi Assigned).
+4. Atomic Queue Claiming: Mencegah race condition yang menyebabkan pesan terkirim ganda ke WhatsApp.
+"""
+
+import datetime
+import hashlib
+import http.server
+import json
+import os
+import re
+import sys
+import threading
+import time
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
+APP_DIR = Path(__file__).resolve().parent
+CONFIG_PATH = APP_DIR / "config.json"
+DATA_FILE = APP_DIR / "sentinel_data.json"
+
+DEFAULT_CONFIG = {
+    "target_contact": "mimi Sandora",
+    "keywords": [
+        "GC 1",
+        "GC1",
+        "Government Cloud 1",
+        "Government Cloud-1",
+        "Gov Cloud 1",
+        "GovCloud 1",
+        "Gedung C 1",
+        "Gedung C1"
+    ],
+    "target_status": "Assigned",
+    "poll_interval_seconds": 60,
+    "auto_send_wa": True,
+    "wa_outbound_enabled": False,
+    "markijo_auto_mode": True,
+    "server_port": 8765,
+    "bind_host": "127.0.0.1",
+    "allowed_origins": [],
+    "wa_monitored_groups": [],
+    "wa_ignored_groups": [],
+    "wa_team_senders": [],
+    "wa_verified_senders": [],
+    "wa_max_age_hours": 24,
+    "pic_roster": {},
+    "ai_provider": "off",
+    "ai_model": "deepseek-chat",
+    "ai_base_url": "https://api.deepseek.com",
+    "ai_external_approved": False,
+    "ai_hermes_exe": "",
+    "ai_hermes_home": "",
+    "live_helpdesk_url": "https://pdn.layanan.go.id"
+}
+
+# Kunci config yang boleh diubah lewat API (kunci keamanan hanya lewat config.json)
+CONFIG_API_KEYS = {
+    "keywords", "target_contact", "poll_interval_seconds", "markijo_auto_mode",
+    "wa_monitored_groups", "wa_ignored_groups", "wa_team_senders", "wa_verified_senders",
+    "wa_max_age_hours", "pic_roster",
+}
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
+
+LOCK = threading.Lock()
+ALERTS = []
+WA_TICKETS = []
+TICKET_REGISTRY = {}
+SENT_RECAP_HASHES = set()
+WA_QUEUE = []
+WA_HISTORY = []
+HELPDESK_SNAPSHOT = []
+LAST_SYNC_TIME = ""
+TELKOM_SKIPPED = 0
+CONFIG = dict(DEFAULT_CONFIG)
+
+
+def outbound_enabled():
+    return bool(CONFIG.get("wa_outbound_enabled", False))
+
+
+def load_config():
+    global CONFIG
+    if CONFIG_PATH.exists():
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                CONFIG = {**DEFAULT_CONFIG, **json.load(f)}
+        except Exception as e:
+            print(f"[Sentinel Server] Error loading config: {e}")
+    else:
+        save_config(DEFAULT_CONFIG)
+
+
+def save_config(cfg):
+    global CONFIG
+    CONFIG = cfg
+    try:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(CONFIG, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"[Sentinel Server] Error saving config: {e}")
+
+
+def load_persisted_data():
+    global ALERTS, WA_TICKETS, TICKET_REGISTRY, SENT_RECAP_HASHES, WA_QUEUE, WA_HISTORY, HELPDESK_SNAPSHOT, LAST_SYNC_TIME
+    if DATA_FILE.exists():
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                ALERTS = data.get("alerts", [])
+                WA_TICKETS = data.get("wa_tickets", [])
+                TICKET_REGISTRY = data.get("ticket_registry", {})
+                SENT_RECAP_HASHES = set(data.get("sent_hashes", []))
+                WA_QUEUE = data.get("wa_queue", [])
+                WA_HISTORY = data.get("wa_history", [])
+                HELPDESK_SNAPSHOT = data.get("helpdesk_snapshot", [])
+                LAST_SYNC_TIME = data.get("last_sync_time", "")
+        except Exception as e:
+            print(f"[Sentinel Server] Error loading data file: {e}")
+
+
+def save_persisted_data():
+    try:
+        tmp = DATA_FILE.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({
+                "alerts": ALERTS[:500],
+                "wa_tickets": WA_TICKETS[:5000],
+                "ticket_registry": TICKET_REGISTRY,
+                "sent_hashes": list(SENT_RECAP_HASHES)[-500:],
+                "wa_queue": WA_QUEUE,
+                "wa_history": WA_HISTORY[:100],
+                "helpdesk_snapshot": HELPDESK_SNAPSHOT,
+                "last_sync_time": LAST_SYNC_TIME
+            }, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, DATA_FILE)
+    except Exception as e:
+        print(f"[Sentinel Server] Error saving data file: {e}")
+
+
+# ---------------------------------------------------------------------------
+# SOP v0.2 - klasifikasi, prioritas, SLA, pelacakan
+# ---------------------------------------------------------------------------
+PRIORITY_CHOICES = ("Critical", "Major", "Minor", "Service Request")
+# SOP 3.2: Critical 4 jam, Major 8 jam, Minor 24 jam. Service request: baku 24 jam
+# (katalog KAK 18.c belum dikonfirmasi BPO Komdigi, lihat SOP 3.4).
+SLA_HOURS = {"Critical": 4, "Major": 8, "Minor": 24, "Service Request": 24}
+RESPONSE_SLA_SECONDS = 15 * 60  # SOP 3.2: respons < 15 menit untuk semua aduan/tiket
+UPDATE_INTERVAL_MIN = {"Critical": 30, "Major": 60, "Minor": 240, "Service Request": 240}
+ESCALATE_L2_MINUTES = {"Critical": 15, "Major": 60, "Minor": 240}  # SOP 6.6
+CLOSED_STATES = ("resolved", "closed", "complete", "selesai")
+
+CRITICAL_KW = [
+    "ransomware", "kebocoran data", "data bocor", "akses tidak sah", "diretas", "hacked",
+    "semua tenan", "seluruh tenan", "banyak tenan", "cluster down", "storage utama",
+    "core network", "link internet utama", "mati total", "down total", "kehilangan data",
+]
+MAJOR_KW = [
+    "down", "mati", "tidak bisa diakses", "tidak dapat diakses", "tidak bisa akses",
+    "error 500", "unreachable", "sangat lambat", "lambat parah", "ddos", "putus",
+    "rusak", "cpu 100", "ram penuh", "disk penuh",
+]
+SERVICE_REQUEST_KW = [
+    "permohonan", "penambahan", "pembuatan", "buat akun", "reset password", "unlock",
+    "aktivasi", "restore", "ip public", "ip publik", "pendaftaran", "perpanjangan",
+    "mohon dibuatkan", "request", "pertanyaan", "konfigurasi", "pengajuan",
+]
+INFO_KW = ["status tiket", "cara ", "bagaimana", "persyaratan", "informasi"]
+
+_ID_MONTHS = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "mei": 5, "may": 5, "jun": 6, "jul": 7,
+    "agu": 8, "agt": 8, "aug": 8, "sep": 9, "okt": 10, "oct": 10, "nov": 11, "des": 12, "dec": 12,
+}
+
+
+def classify_ticket(text):
+    """
+    Usulan klasifikasi otomatis memakai kamus SOP 3.3. Hanya usulan: prioritas final
+    ditetapkan Helpdesk berdasarkan dampak terverifikasi (bisa diubah lewat ticket_action).
+    Return (priority, ticket_type, reason).
+    """
+    t = (text or "").lower()
+
+    def first(words):
+        return next((w for w in words if w in t), None)
+
+    hit = first(CRITICAL_KW)
+    if hit:
+        return "Critical", "Insiden", f"Kata kunci kritis '{hit.strip()}' (SOP 3.3)"
+    hit = first(MAJOR_KW)
+    if hit:
+        return "Major", "Insiden", f"Kata kunci gangguan '{hit.strip()}' (SOP 3.3)"
+    hit = first(SERVICE_REQUEST_KW)
+    if hit:
+        return "Service Request", "Service request", f"Permintaan layanan '{hit.strip()}' (SOP 3.1/3.4)"
+    hit = first(INFO_KW)
+    if hit:
+        return "Minor", "Informasi", f"Pertanyaan informasi '{hit.strip()}'"
+    return "Minor", "Insiden", "Default Minor, dampak belum terverifikasi oleh Helpdesk"
+
+
+def parse_itsm_date(s):
+    """'29 Sep 2026 14:52:06 WIB' -> epoch (zona waktu lokal Mini PC = WIB). None jika gagal."""
+    m = re.search(r"(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?", s or "")
+    if not m:
+        return None
+    mon = _ID_MONTHS.get(m.group(2)[:3].lower())
+    if not mon:
+        return None
+    try:
+        return time.mktime((int(m.group(3)), mon, int(m.group(1)),
+                            int(m.group(4) or 0), int(m.group(5) or 0), int(m.group(6) or 0), 0, 0, -1))
+    except (ValueError, OverflowError):
+        return None
+
+
+def fmt_wib(ts):
+    return time.strftime("%d %b %Y %H:%M:%S WIB", time.localtime(ts))
+
+
+def fmt_hm(seconds):
+    seconds = max(0, int(seconds))
+    return f"{seconds // 3600}j {(seconds % 3600) // 60}m"
+
+
+def add_history(entry, event, detail="", actor="Sentinel"):
+    hist = entry.setdefault("history", [])
+    hist.append({
+        "ts": time.time(),
+        "time": time.strftime("%d %b %Y %H:%M:%S"),
+        "event": event,
+        "detail": detail,
+        "actor": actor,
+    })
+    if len(hist) > 100:
+        del hist[:-100]
+
+
+def track_ticket(tid, state, group=""):
+    """Catat siklus hidup tiket: pertama terdeteksi, perubahan status, perpindahan group, respons pertama."""
+    now = time.time()
+    state = state or ""
+    e = TICKET_REGISTRY.get(tid)
+    if e is None:
+        e = {
+            "ticket_id": tid, "current_state": state, "reported_state": None,
+            "first_seen": now, "last_seen": now, "group": group, "history": [],
+            "seen_other_state": state.lower() != "assigned",
+        }
+        TICKET_REGISTRY[tid] = e
+        add_history(e, "Terdeteksi Sentinel", f"Status {state or '-'} | Group {group or '-'}")
+        return e
+
+    e["last_seen"] = now
+    e.setdefault("history", [])
+    prev = e.get("current_state") or ""
+    if state and prev.lower() != state.lower():
+        add_history(e, "Status berubah", f"{prev or '-'} -> {state}")
+        e["current_state"] = state
+        if prev.lower() != "assigned":
+            e["seen_other_state"] = True
+        if not e.get("responded_ts") and any(k in state.lower() for k in ("progress", "pending", "resolved", "closed", "complete")):
+            e["responded_ts"] = now
+            add_history(e, "Respons pertama terdeteksi", f"Status beralih dari {prev or 'Assigned'}")
+    if group and e.get("group") != group:
+        if e.get("group"):
+            add_history(e, "Assignment group berubah", f"{e['group']} -> {group}")
+        e["group"] = group
+    return e
+
+
+def pic_for(layer, state):
+    """PIC berdasarkan peran. Nama orang diambil dari config.pic_roster, bukan dikarang."""
+    roster = CONFIG.get("pic_roster", {}) or {}
+    sl = (state or "").lower()
+    ll = (layer or "").lower()
+    if "pending" in sl:
+        role = "Tenan Approver"
+        milestone = "Menunggu persetujuan/jawaban tenan (status Pending)"
+        step = 2
+    elif "l3" in ll:
+        role = "EOS L3 (Expert)"
+        milestone = "Analisis dan penanganan Expert L3"
+        step = 4
+    elif "l2" in ll:
+        role = "EOS L2 (Engineer)"
+        milestone = "Analisis dan perubahan oleh L2 Engineer"
+        step = 4 if "progress" in sl else 3
+    elif "eos" in ll:
+        role = "EOS L1"
+        milestone = "Penanganan teknis oleh EOS L1" if "progress" in sl else "Diterima EOS L1, menunggu diambil petugas"
+        step = 4 if "progress" in sl else 3
+    elif "noc" in ll:
+        role = "NOC"
+        milestone = "Penanganan jaringan oleh NOC" if "progress" in sl else "Diterima NOC, menunggu diambil petugas"
+        step = 4 if "progress" in sl else 3
+    elif "soc" in ll:
+        role = "SOC"
+        milestone = "Triase keamanan oleh SOC" if "progress" in sl else "Diterima SOC, menunggu diambil petugas"
+        step = 4 if "progress" in sl else 3
+    else:
+        role = "Helpdesk L0"
+        milestone = "Verifikasi tiket, klasifikasi, dan penugasan resolver"
+        step = 3
+    return roster.get(role) or role, role, milestone, step
+
+
+def apply_sla(t, now=None):
+    """Hitung SLA hidup (selalu dari waktu nyata, tidak dari angka yang dibekukan saat tiket dibuat)."""
+    now = now or time.time()
+    tid = t.get("ticketId", "")
+    e = TICKET_REGISTRY.get(tid, {})
+
+    prio = e.get("priority_override") or t.get("autoPriority") or "Minor"
+    if prio not in SLA_HOURS:
+        prio = "Minor"
+    hours = SLA_HOURS[prio]
+    created_ts = t.get("createdTs") or e.get("first_seen") or now
+    state = (t.get("requestState") or "").lower()
+    closed = any(k in state for k in CLOSED_STATES)
+
+    deadline = created_ts + hours * 3600
+    remaining = int(deadline - now)
+    total = hours * 3600
+    elapsed_pct = max(0, int((now - created_ts) / total * 100))
+    pct_left = max(0, min(100, 100 - elapsed_pct))
+
+    if closed:
+        badge, text = "sla-safe", "Selesai"
+    elif remaining <= 0:
+        badge, text = "sla-breached", f"SLA lewat {fmt_hm(-remaining)}"
+    elif pct_left < 25:
+        badge, text = "sla-danger", f"Sisa {fmt_hm(remaining)}"
+    elif pct_left < 50:
+        badge, text = "sla-warning", f"Sisa {fmt_hm(remaining)}"
+    else:
+        badge, text = "sla-safe", f"Sisa {fmt_hm(remaining)}"
+
+    # Respons pertama (SOP 3.2: < 15 menit)
+    responded_ts = e.get("responded_ts")
+    resp_deadline = created_ts + RESPONSE_SLA_SECONDS
+    if responded_ts:
+        late = responded_ts > resp_deadline
+        resp_status = "late" if late else "ok"
+        resp_text = f"Direspons {int((responded_ts - created_ts) // 60)} menit" + (" (terlambat)" if late else "")
+    elif closed or "progress" in state or "pending" in state:
+        resp_status, resp_text = "unknown", "Respons tidak teramati (tiket sudah berjalan saat terdeteksi)"
+    elif now > resp_deadline:
+        resp_status = "late"
+        resp_text = f"Belum direspons ({int((now - created_ts) // 60)} menit)"
+    else:
+        resp_status = "due"
+        resp_text = f"Respons dalam {int((resp_deadline - now) // 60) + 1} menit"
+
+    flags = []
+    if not closed:
+        if resp_status == "late" and not responded_ts:
+            flags.append("Respons >15 menit")
+        if elapsed_pct >= 50 and "progress" not in state and "pending" not in state:
+            flags.append("Lewat 50% SLA tanpa aktivitas resolver: laporkan ke Lead L0-L1 (SOP 5.6)")
+        layer = (t.get("resolverLayer") or "").lower()
+        if "eos l1" in layer or layer.startswith("helpdesk"):
+            minutes_limit = ESCALATE_L2_MINUTES.get(prio, int(hours * 60 * 0.25))
+            if (now - created_ts) / 60 >= minutes_limit and "l2" not in layer:
+                flags.append(f"Batas eskalasi ke L2 ({minutes_limit} menit) terlewati (SOP 6.6)")
+        if remaining <= 0:
+            flags.append("SLA penyelesaian terlewati")
+
+    t.update({
+        "priority": prio,
+        "priorityOverridden": bool(e.get("priority_override")),
+        "slaLimitHours": hours,
+        "createdTs": created_ts,
+        "deadlineTs": deadline,
+        "slaTargetTime": time.strftime("%d %b %Y %H:%M WIB", time.localtime(deadline)),
+        "slaRemainingSeconds": max(0, remaining),
+        "slaRemainingFormatted": fmt_hm(max(0, remaining)),
+        "slaPercentRemaining": pct_left,
+        "slaBadgeClass": badge,
+        "slaStatusText": text,
+        "slaClosed": closed,
+        "slaBreached": (not closed) and remaining <= 0,
+        "responseStatus": resp_status,
+        "responseText": resp_text,
+        "updateEveryMin": UPDATE_INTERVAL_MIN.get(prio, 240),
+        "escalationFlags": flags,
+        "ai": e.get("ai"),
+        "aiDecision": e.get("ai_decision"),
+        "linkedPortalId": e.get("linked_portal") or t.get("linkedPortalId") or "",
+        "history": e.get("history", []),
+    })
+    return t
+
+
+def convert_wa_message_to_ticket(sender, group, text, matched_kw="GC 1", msg_id="", wa_ts=None, verified=None):
+    """
+    Konversi aduan grup WhatsApp menjadi pra-tiket di Dashboard GC 1 (SOP bab 4).
+    Waktu aduan pertama (wa_ts) dipakai sebagai dasar SLA agar laporan sesuai fakta (SOP 4.4).
+    """
+    sender_clean = re.sub(r"[\r\n\t]+", " ", str(sender or "Member Grup WA")).strip()
+    group_clean = re.sub(r"[\r\n\t]+", " ", str(group or "Grup Koordinasi Teknis GC 1")).strip()
+    text_clean = re.sub(r"[\r\n\t]+", " ", str(text or "")).strip()
+    if not text_clean:
+        return None
+
+    now = time.time()
+    created_ts = float(wa_ts) if wa_ts else now
+    created_ts = min(created_ts, now)
+
+    # Nomor pra-tiket: counter harian berdasarkan nomor tertinggi yang ada (aman setelah data dipangkas)
+    prefix = time.strftime("WA-GC1-%m%d", time.localtime(now))
+    used = [int(m.group(1)) for w in WA_TICKETS
+            for m in [re.match(re.escape(prefix) + r"-(\d+)$", w.get("ticketId", ""))] if m]
+    tid = f"{prefix}-{(max(used) + 1 if used else 1):04d}"
+
+    # Nomor tiket portal yang disebut tenan: ditautkan, bukan menggantikan nomor pra-tiket (SOP 4.2 Kondisi A)
+    m_portal = re.search(r"(REQ-[A-Z0-9-]+|INC[0-9]+|TKT-[0-9]+)", text_clean, re.IGNORECASE)
+    linked_portal = m_portal.group(1).upper() if m_portal else ""
+
+    known_agencies = [
+        "Kementerian Kesehatan", "Kemenkes", "Kementerian Keuangan", "Kemenkeu", "Bappenas",
+        "Kementerian Komunikasi dan Digital", "Kominfo", "Komdigi", "KemenpanRB", "Kementerian PANRB",
+        "Badan Pusat Statistik", "BPS", "BMKG", "Setneg", "Kemendagri", "Kemendikbud",
+        "Pemprov", "Pemkab", "Pemkot",
+    ]
+    loc = "Instansi Pengguna PDN"
+    search_scope = f"{sender_clean} {group_clean} {text_clean}".lower()
+    for agency in known_agencies:
+        if agency.lower() in search_scope:
+            loc = agency
+            break
+
+    cleaned_desc = re.sub(
+        r"^(selamat\s+(pagi|siang|sore|malam)|halo|dear\s+all|assalamu['a-z]+|mohon\s+izin|permisi)[,\.\s-]*",
+        "", text_clean, flags=re.IGNORECASE).strip()
+    short_desc = f"[Aduan WA] {cleaned_desc[:127]}..." if len(cleaned_desc) > 130 else f"[Aduan WA] {cleaned_desc}"
+
+    prio, ttype, reason = classify_ticket(text_clean)
+    hours = SLA_HOURS[prio]
+
+    wa_ticket = {
+        "ticketId": tid,
+        "shortDesc": short_desc,
+        "requestedFor": sender_clean,
+        "requestState": "Assigned",
+        "createdDate": fmt_wib(created_ts),
+        "createdTs": created_ts,
+        "detectedTs": now,
+        "location": loc,
+        "assignmentGroup": "Helpdesk",
+        "resolverLayer": "Helpdesk (L0)",
+        "isGc1": True,
+        "isTelkom": False,
+        "category": "team_assigned",
+        "source": "WhatsApp Group",
+        "isFromWa": True,
+        "isPreTicket": True,
+        "waGroup": group_clean,
+        "waMsgId": str(msg_id or ""),
+        "rawWaText": text_clean,
+        "senderVerified": verified,
+        "autoPriority": prio,
+        "ticketType": ttype,
+        "priorityReason": reason,
+        "linkedPortalId": linked_portal,
+        "activityMilestone": "Pra-tiket WA: verifikasi pelapor, cek tiket di portal, klasifikasi",
+        "picName": (CONFIG.get("pic_roster", {}) or {}).get("Helpdesk L0") or "Helpdesk L0",
+        "picRole": "Helpdesk L0",
+        "workflowStep": 1,
+        "slaLimitHours": hours,
+        "timeline": [
+            {"step": 1, "title": "Aduan diterima di grup WhatsApp",
+             "desc": f"Pesan dari {sender_clean} di grup [{group_clean}].",
+             "status": "completed", "actor": "WhatsApp Observer", "time": fmt_wib(created_ts)},
+            {"step": 2, "title": "Verifikasi pelapor dan cek tiket di portal",
+             "desc": "SOP 4.1-4.2: cocokkan pelapor dengan PIC instansi, cari tiket di pdn.layanan.go.id.",
+             "status": "in_progress", "actor": "Helpdesk L0", "time": "Dalam proses"},
+            {"step": 3, "title": "Tiket portal terbit / penanganan awal paralel",
+             "desc": "Arahkan tenan membuat tiket resmi; Critical/Major langsung hubungi resolver (SOP 4.3).",
+             "status": "pending", "actor": "Helpdesk L0", "time": "-"},
+            {"step": 4, "title": "Penanganan oleh resolver L1/L2",
+             "desc": "Mengikuti matriks RACI SOP.", "status": "pending", "actor": "Lead L0-L1", "time": "-"},
+            {"step": 5, "title": "Konfirmasi balik ke tenan di grup WA",
+             "desc": f"Helpdesk mengabari {sender_clean} dan meminta konfirmasi (SOP 5.6).",
+             "status": "pending", "actor": "Helpdesk L0", "time": "-"},
+        ],
+    }
+
+    WA_TICKETS.insert(0, wa_ticket)
+    e = track_ticket(tid, "Assigned", "Helpdesk")
+    e["first_seen"] = created_ts
+    add_history(e, "Aduan pertama di WhatsApp", f"{sender_clean} @ {group_clean}", actor="WhatsApp Observer")
+    if linked_portal:
+        e["linked_portal"] = linked_portal
+        add_history(e, "Nomor tiket portal disebut tenan", linked_portal, actor="WhatsApp Observer")
+    ALERTS.insert(0, {
+        "id": f"alt_{int(now * 1000)}",
+        "sig": f"wa_ticket|{tid}|{sender_clean}",
+        "source": "whatsapp",
+        "ticketId": tid,
+        "sender": sender_clean,
+        "group": group_clean,
+        "text": text_clean,
+        "requestState": "Assigned",
+        "matchedKeyword": matched_kw,
+        "timestamp": int(created_ts * 1000),
+        "dateString": time.strftime("%H:%M:%S", time.localtime(created_ts)),
+        "status": "baru",
+    })
+    apply_sla(wa_ticket)
+    save_persisted_data()
+    return wa_ticket
+
+
+def enrich_ticket_with_sop(t):
+    """Lengkapi tiket dengan klasifikasi, PIC per peran, timeline, dan SLA hidup (SOP v0.2)."""
+    if t.get("isFromWa"):
+        return apply_sla(t)
+
+    tid = t.get("ticketId", "")
+    desc = t.get("shortDesc", "")
+    state_val = t.get("requestState", "Assigned")
+    resolver_layer = t.get("resolverLayer", "Helpdesk (L0)")
+    req_for = t.get("requestedFor", "")
+    created_date = t.get("createdDate", "")
+
+    # Waktu masuk: dari portal; jika tidak terbaca, waktu pertama kali Sentinel melihat tiket (tidak dikarang)
+    e = TICKET_REGISTRY.get(tid, {})
+    parsed = parse_itsm_date(created_date)
+    t["createdTs"] = parsed or e.get("first_seen") or time.time()
+    t["createdTsEstimated"] = parsed is None
+
+    prio, ttype, reason = classify_ticket(desc)
+    t["autoPriority"] = prio
+    t["ticketType"] = ttype
+    t["priorityReason"] = reason
+
+    pic_name, pic_role, milestone, step_num = pic_for(resolver_layer, state_val)
+    t["picName"] = pic_name
+    t["picRole"] = pic_role
+    t["activityMilestone"] = milestone
+    t["workflowStep"] = step_num
+
+    sl = state_val.lower()
+    done = any(k in sl for k in CLOSED_STATES)
+    pending = "pending" in sl
+    progress = "progress" in sl
+    t["timeline"] = [
+        {"step": 1, "title": "Registrasi dan triase portal PDN",
+         "desc": "Tiket tercatat di ITSM pdn.layanan.go.id dan identitas tenan diverifikasi.",
+         "status": "completed", "actor": "Helpdesk L0", "time": created_date or "-"},
+        {"step": 2, "title": "Verifikasi administrasi dan approval",
+         "desc": "Pemeriksaan persetujuan pejabat instansi tenan K/L.",
+         "status": "in_progress" if pending else "completed",
+         "actor": req_for or "Pejabat K/L", "time": "Menunggu approval" if pending else "Telah disetujui"},
+        {"step": 3, "title": "Assignment ke resolver (L1/L2)",
+         "desc": f"Penugasan teknis ke {resolver_layer} sesuai matriks RACI SOP.",
+         "status": "completed" if (progress or done) else ("in_progress" if not pending else "pending"),
+         "actor": "Lead L0-L1", "time": "Aktif" if not (progress or done or pending) else ("Selesai" if (progress or done) else "-")},
+        {"step": 4, "title": "Eksekusi teknis",
+         "desc": "Konfigurasi sistem, compute/storage hypervisor, atau jaringan.",
+         "status": "completed" if done else ("in_progress" if progress else "pending"),
+         "actor": pic_name, "time": "Sedang berjalan" if progress else ("Selesai" if done else "Antrean teknis")},
+        {"step": 5, "title": "Validasi tenan dan penutupan tiket",
+         "desc": "Konfirmasi hasil pengerjaan dengan tenan (SOP 5.6).",
+         "status": "completed" if done else "pending", "actor": "Helpdesk L0 dan tenan", "time": "Selesai" if done else "-"},
+    ]
+    return apply_sla(t)
+
+
+def should_report_ticket(ticket_data):
+    """
+    Standar Expert Helpdesk:
+    1. Tiket baru Assigned -> Laporkan (True)
+    2. Tiket lama yang berubah dari non-Assigned ke Assigned -> Laporkan sebagai UPDATE (True)
+    3. Tiket yang SUDAH dilaporkan dalam status Assigned -> JANGAN LAPORKAN ULANG (False)
+    """
+    tid = ticket_data.get("ticketId", "").strip()
+    if not tid:
+        return False, "no_ticket_id", "none"
+
+    # SOP: Tiket Telkom hanya diteruskan, BUKAN beban kerja tim kita -> jangan laporkan ke WA
+    if ticket_data.get("isTelkom") or "telkom" in (ticket_data.get("text", "") + " " + ticket_data.get("sender", "")).lower():
+        return False, "telkom_ticket_excluded", "none"
+
+    raw_state = ticket_data.get("requestState", "").strip()
+    raw_text = ticket_data.get("text", "")
+    current_state = "Assigned" if (raw_state.lower() == "assigned" or "[assigned]" in raw_text.lower()) else raw_state
+
+    # Jika tiket bukan Assigned, catat statusnya di registry (misal: Pending Approval) tapi jangan laporkan
+    if current_state.lower() != "assigned":
+        if tid in TICKET_REGISTRY:
+            TICKET_REGISTRY[tid]["current_state"] = current_state
+            TICKET_REGISTRY[tid]["last_seen"] = time.time()
+        else:
+            TICKET_REGISTRY[tid] = {
+                "ticket_id": tid,
+                "current_state": current_state,
+                "reported_state": None,
+                "first_seen": time.time(),
+                "last_seen": time.time()
+            }
+        save_persisted_data()
+        return False, f"status_is_{current_state}", "none"
+
+    # Status adalah ASSIGNED
+    entry = TICKET_REGISTRY.get(tid)
+    if not entry or (entry.get("reported_state") is None and not entry.get("seen_other_state")):
+        entry = entry or {}
+        # 1. Tiket baru sama sekali berstatus Assigned
+        TICKET_REGISTRY[tid] = {
+            **entry,
+            "ticket_id": tid,
+            "current_state": "Assigned",
+            "reported_state": "Assigned",
+            "first_seen": entry.get("first_seen", time.time()),
+            "last_seen": time.time(),
+            "reported_at": time.time()
+        }
+        save_persisted_data()
+        return True, "new_assigned_ticket", "NEW"
+
+    # Tiket sudah pernah tercatat
+    prev_reported = entry.get("reported_state")
+    prev_state = entry.get("current_state")
+
+    if prev_reported == "Assigned":
+        # ANTI-SPAM: Sudah pernah dilaporkan sebagai Assigned! Jangan spam.
+        entry["last_seen"] = time.time()
+        save_persisted_data()
+        return False, "already_reported_in_assigned_state", "none"
+
+    # 2. Update status: sebelumnya bukan Assigned (misal: Pending), sekarang menjadi Assigned!
+    entry["current_state"] = "Assigned"
+    entry["reported_state"] = "Assigned"
+    entry["last_seen"] = time.time()
+    entry["reported_at"] = time.time()
+    save_persisted_data()
+    return True, f"state_changed_from_{prev_state}_to_assigned", "UPDATE"
+
+
+def build_wa_summary_text(ticket_list, update_type="NEW"):
+    """Format official recap strictly matching user's operational specifications."""
+    if not ticket_list:
+        return None
+
+    now_str = time.strftime("%d %b %Y %H:%M WIB", time.localtime())
+    header_tag = "UPDATE STATUS TIKET GC 1" if update_type == "UPDATE" else "REKAP TIKET BARU GC 1"
+
+    lines = [
+        f"🚨 *{header_tag} - KOMINFO HELPDESK*",
+        f"📅 *Waktu:* {now_str}",
+        "📌 *Status:* Assigned (Siap Ditindaklanjuti)",
+        "━━━━━━━━━━━━━━━━━━━━\n"
+    ]
+
+    for idx, item in enumerate(ticket_list, 1):
+        tid = item.get("ticketId") or "REQ-TIKET"
+        sender = item.get("sender") or "Pemohon"
+        created = item.get("createdDate") or item.get("dateString") or "-"
+        desc = item.get("text", "")
+        clean_desc = desc.replace("[ASSIGNED]", "").strip()
+        if "|" in clean_desc:
+            clean_desc = clean_desc.split("|")[0].strip()
+
+        lines.append(f"{idx}️⃣ *No. Tiket:* `{tid}`")
+        lines.append(f"   • *Pemohon:* {sender}")
+        lines.append(f"   • *Tanggal:* {created}")
+        lines.append(f"   • *Permohonan:* {clean_desc}\n")
+
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
+    lines.append(f"📊 *Jumlah Tiket:* {len(ticket_list)} tiket")
+    lines.append("ℹ️ *Catatan:* Tiket berstatus Assigned untuk Government Cloud 1 siap ditindaklanjuti.")
+    lines.append("_Dibuat otomatis oleh Markijo Autonomous Sentinel_")
+
+    return "\n".join(lines)
+
+
+def _day_bounds(day):
+    try:
+        start = time.mktime(time.strptime(day, "%Y-%m-%d"))
+    except ValueError:
+        start = time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d"))
+    return start, start + 86400
+
+
+def build_daily_recap(day):
+    """Rekap harian aduan WA vs tiket portal (SOP 4.4) untuk ditindaklanjuti Lead L0-L1."""
+    start, end = _day_bounds(day)
+    wa_today = [w for w in WA_TICKETS if start <= (w.get("createdTs") or 0) < end]
+    itsm_ids = {(t.get("ticketId") or "").strip() for t in HELPDESK_SNAPSHOT}
+    itsm_today = [t for t in HELPDESK_SNAPSHOT
+                  if start <= (parse_itsm_date(t.get("createdDate", "")) or 0) < end]
+
+    def linked(w):
+        lid = TICKET_REGISTRY.get(w["ticketId"], {}).get("linked_portal") or w.get("linkedPortalId") or ""
+        return lid
+
+    wa_linked = [w for w in wa_today if linked(w)]
+    wa_unlinked = [w for w in wa_today if not linked(w)]
+    return {
+        "date": day,
+        "wa_total": len(wa_today),
+        "wa_linked": len(wa_linked),
+        "wa_unlinked": len(wa_unlinked),
+        "wa_linked_found_in_portal": len([w for w in wa_linked if linked(w) in itsm_ids]),
+        "portal_total": len(itsm_today),
+        "gap": len(wa_unlinked),
+        "unlinked_items": [
+            {"ticketId": w["ticketId"], "sender": w.get("requestedFor"), "group": w.get("waGroup"),
+             "text": (w.get("rawWaText") or "")[:140], "time": w.get("createdDate")}
+            for w in wa_unlinked
+        ],
+        "telkom_skipped_last_sync": TELKOM_SKIPPED,
+        "note": "Aduan WA tanpa tiket portal wajib dimintakan tiketnya ke tenan (SOP 4.4).",
+    }
+
+
+def build_export_csv(day=""):
+    """Ekspor tiket (portal + pra-tiket WA) untuk Excel Output Helpdesk."""
+    import csv
+    import io
+    rows = []
+    pool = list(HELPDESK_SNAPSHOT) + [w for w in WA_TICKETS]
+    start = end = None
+    if day:
+        start, end = _day_bounds(day)
+    seen = set()
+    for t in pool:
+        tid = t.get("ticketId")
+        if not tid or tid in seen:
+            continue
+        seen.add(tid)
+        if t.get("isTelkom") or "telkom" in (t.get("assignmentGroup", "") + t.get("shortDesc", "")).lower():
+            continue
+        t = enrich_ticket_with_sop(dict(t))
+        if start is not None and not (start <= t.get("createdTs", 0) < end):
+            continue
+        e = TICKET_REGISTRY.get(tid, {})
+        resp = e.get("responded_ts")
+        rows.append([
+            "Pra-tiket WA" if t.get("isFromWa") else "Portal ITSM",
+            tid, t.get("linkedPortalId", ""), t.get("location", ""), t.get("requestedFor", ""),
+            t.get("shortDesc", ""), t.get("ticketType", ""), t.get("priority", ""),
+            "Ya" if t.get("priorityOverridden") else "Usulan otomatis",
+            t.get("requestState", ""), t.get("resolverLayer", ""), t.get("picRole", ""),
+            fmt_wib(t["createdTs"]),
+            t.get("waFirstReportAt", "") or (t.get("createdDate", "") if t.get("isFromWa") else ""),
+            fmt_wib(resp) if resp else "",
+            int((resp - t["createdTs"]) // 60) if resp else "",
+            fmt_wib(t["deadlineTs"]), t.get("slaStatusText", ""), "; ".join(t.get("escalationFlags", [])),
+        ])
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Sumber", "No Tiket", "Tiket Portal Tertaut", "Instansi", "Pemohon", "Uraian", "Tipe",
+                "Prioritas", "Prioritas Diubah Helpdesk", "Status", "Resolver", "PIC (peran)",
+                "Waktu Masuk", "Waktu Aduan Pertama WA", "Waktu Respons Pertama", "Respons (menit)",
+                "Batas SLA", "Status SLA", "Catatan Eskalasi"])
+    w.writerows(rows)
+    return buf.getvalue()
+
+
+class SentinelHandler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(APP_DIR), **kwargs)
+
+    def _allowed_origins(self):
+        port = CONFIG.get("server_port", 8765)
+        allowed = {
+            f"http://localhost:{port}", f"http://127.0.0.1:{port}",
+            "https://web.whatsapp.com",
+        }
+        live = urlparse(CONFIG.get("live_helpdesk_url", "") or "")
+        if live.scheme and live.netloc:
+            allowed.add(f"{live.scheme}://{live.netloc}")
+        allowed.update(CONFIG.get("allowed_origins", []) or [])
+        return allowed
+
+    def _origin_ok(self, origin):
+        return origin.startswith("chrome-extension://") or origin in self._allowed_origins()
+
+    def _host_ok(self):
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip().lower()
+        if host in LOCAL_HOSTS:
+            return True
+        return host in [h.lower() for h in (CONFIG.get("allowed_hosts", []) or [])]
+
+    def _guard(self):
+        """Tolak Host asing (DNS rebinding) dan Origin asing (situs lain yang memanggil API lokal)."""
+        if not self._host_ok():
+            self.send_error(403, "Host not allowed")
+            return False
+        origin = self.headers.get("Origin")
+        if origin and not self._origin_ok(origin):
+            print(f"[Sentinel Server] Ditolak: Origin asing {origin}. Tambahkan ke allowed_origins di config.json bila sah.")
+            self.send_error(403, "Origin not allowed")
+            return False
+        return True
+
+    def _set_cors(self):
+        origin = self.headers.get("Origin")
+        if origin and self._origin_ok(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+
+    def do_OPTIONS(self):
+        if not self._guard():
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def send_bytes(self, body, content_type, filename=None):
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        if filename:
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if not self._guard():
+            return
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path.startswith("/api/"):
+            self.handle_api_get(path, parsed)
+        elif Path(path).name in {"sentinel_data.json", "config.json", "markijo_reported.json"} or path.endswith(".py"):
+            self.send_error(404, "Not found")
+        else:
+            super().do_GET()
+
+    def do_POST(self):
+        if not self._guard():
+            return
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path.startswith("/api/"):
+            content_len = min(int(self.headers.get("Content-Length", 0) or 0), 2_000_000)
+            body = self.rfile.read(content_len) if content_len > 0 else b"{}"
+            try:
+                data = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                data = {}
+            self.handle_api_post(path, data)
+        else:
+            self.send_error(404, "Endpoint not found")
+
+    def end_headers(self):
+        self._set_cors()
+        super().end_headers()
+
+    def send_json(self, payload, code=200):
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def handle_api_get(self, path, parsed):
+        with LOCK:
+            if path == "/api/status":
+                assigned_gc1 = [
+                    v for v in TICKET_REGISTRY.values()
+                    if v.get("current_state") == "Assigned"
+                ]
+                self.send_json({
+                    "status": "online",
+                    "app": "GC 1 Sentinel (Helpdesk Expert Edition)",
+                    "markijo_auto_mode": CONFIG.get("markijo_auto_mode", True),
+                    "total_alerts": len(ALERTS),
+                    "tracked_tickets_count": len(TICKET_REGISTRY),
+                    "assigned_gc1_count": len(assigned_gc1),
+                    "wa_outbound_enabled": outbound_enabled(),
+                    "wa_monitored_groups": CONFIG.get("wa_monitored_groups", []),
+                    "wa_queue_len": len([m for m in WA_QUEUE if m.get("status") == "pending"]),
+                    "target_contact": CONFIG.get("target_contact", "mimi Sandora"),
+                    "server_time": time.strftime("%Y-%m-%d %H:%M:%S")
+                })
+
+            elif path == "/api/alerts":
+                self.send_json({"alerts": ALERTS})
+
+            elif path == "/api/config":
+                self.send_json(CONFIG)
+
+            elif path == "/api/wa_queue":
+                # SINGLE-DELIVERY POP: Pesan langsung dipindahkan ke history saat diambil
+                # JANGAN PERNAH me-reclaim atau mengirim ulang otomatis setiap 60 detik!
+                pending = [m for m in WA_QUEUE if m.get("status") == "pending"] if outbound_enabled() else []
+                if pending:
+                    item = pending[0]
+                    item["status"] = "dispatched"
+                    item["dispatched_at"] = time.time()
+                    WA_HISTORY.insert(0, item)
+                    WA_QUEUE.remove(item)
+                    save_persisted_data()
+                    print(f"[Sentinel Server] Pesan {item['id']} diambil oleh WhatsApp Web (Single Delivery Pop).")
+                    self.send_json({"has_message": True, "message": item})
+                else:
+                    self.send_json({"has_message": False, "outbound_enabled": outbound_enabled()})
+
+            elif path == "/api/wa_status" or path == "/api/wa_done":
+                params = parse_qs(parsed.query)
+                msg_id = params.get("id", [""])[0]
+                status = params.get("status", ["sent"])[0]
+                for item in WA_HISTORY:
+                    if item.get("id") == msg_id:
+                        item["status"] = status
+                        item["confirmed_at"] = time.time()
+                        break
+                save_persisted_data()
+                self.send_json({"status": "acknowledged"})
+
+            elif path == "/api/wa_history":
+                self.send_json({"history": WA_HISTORY})
+
+            elif path == "/api/ticket_registry":
+                self.send_json({"registry": TICKET_REGISTRY})
+
+            elif path == "/api/helpdesk_snapshot":
+                # ITSM adalah sumber resmi. Pra-tiket WA yang sudah tertaut ke tiket portal
+                # tidak ditampilkan dua kali: tiket portal diberi anotasi waktu aduan pertama WA.
+                itsm_ids = {(t.get("ticketId") or "").strip() for t in HELPDESK_SNAPSHOT}
+                wa_by_portal = {}
+                for w in WA_TICKETS:
+                    lid = TICKET_REGISTRY.get(w.get("ticketId"), {}).get("linked_portal") or w.get("linkedPortalId") or ""
+                    if lid:
+                        wa_by_portal.setdefault(lid, w)
+
+                pool, seen_ids = [], set()
+                for t in HELPDESK_SNAPSHOT:
+                    tid = (t.get("ticketId") or "").strip()
+                    if not tid or tid in seen_ids:
+                        continue
+                    seen_ids.add(tid)
+                    w = wa_by_portal.get(tid)
+                    if w:
+                        t["waTicketId"] = w.get("ticketId")
+                        t["waFirstReportAt"] = w.get("createdDate")
+                        t["waFirstTs"] = w.get("createdTs")
+                        t["waGroup"] = w.get("waGroup")
+                    pool.append(t)
+                for w in WA_TICKETS:
+                    tid = (w.get("ticketId") or "").strip()
+                    lid = TICKET_REGISTRY.get(tid, {}).get("linked_portal") or w.get("linkedPortalId") or ""
+                    if not tid or tid in seen_ids or (lid and lid in itsm_ids):
+                        continue
+                    seen_ids.add(tid)
+                    pool.append(w)
+
+                # Ruang lingkup: hanya GC 1. Tiket/aduan Telkom (GC 2) diabaikan.
+                our_team_tickets = [
+                    enrich_ticket_with_sop(t) for t in pool
+                    if not t.get("isTelkom") and "telkom" not in (t.get("assignmentGroup", "") + " " + t.get("shortDesc", "")).lower()
+                ]
+
+                def st(t):
+                    return (t.get("requestState") or "").lower()
+
+                team_assigned = [t for t in our_team_tickets if "assign" in st(t)]
+                team_pending = [t for t in our_team_tickets if "pending" in st(t)]
+                team_progress = [t for t in our_team_tickets if "progress" in st(t)]
+
+                open_tickets = [t for t in our_team_tickets if not t.get("slaClosed")]
+                breached = [t for t in open_tickets if t.get("slaBreached")]
+                sla_health_pct = 100 if not open_tickets else int(((len(open_tickets) - len(breached)) / len(open_tickets)) * 100)
+                escalations = [t for t in open_tickets if t.get("escalationFlags")]
+
+                wa_alerts = [a for a in ALERTS if a.get("source") == "whatsapp"]
+
+                self.send_json({
+                    "total_helpdesk": len(our_team_tickets),
+                    "team_assigned_count": len(team_assigned),
+                    "team_pending_count": len(team_pending),
+                    "team_progress_count": len(team_progress),
+                    "sla_health_percent": sla_health_pct,
+                    "sla_safe_count": len(open_tickets) - len(breached),
+                    "sla_breached_count": len(breached),
+                    "escalation_count": len(escalations),
+                    "telkom_count": TELKOM_SKIPPED,
+                    "wa_count": len(wa_alerts),
+                    "wa_outbound_enabled": outbound_enabled(),
+                    "wa_monitored_groups": CONFIG.get("wa_monitored_groups", []),
+                    "last_sync": LAST_SYNC_TIME or time.strftime("%H:%M:%S WIB"),
+                    "team_assigned": team_assigned,
+                    "team_pending": team_pending,
+                    "team_progress": team_progress,
+                    "escalations": escalations,
+                    "wa_alerts": wa_alerts,
+                    "all_tickets": our_team_tickets,
+                    # Backward-compatibility alias
+                    "gc1_assigned": team_assigned,
+                    "gc1_assigned_count": len(team_assigned),
+                    "gc1_pending": team_pending,
+                    "gc1_pending_count": len(team_pending)
+                })
+
+            elif path == "/api/daily_recap":
+                # SOP 4.4: Lead L0-L1 merekap harian aduan WA vs tiket portal yang terbit
+                params = parse_qs(parsed.query)
+                day = params.get("date", [time.strftime("%Y-%m-%d")])[0]
+                self.send_json(build_daily_recap(day))
+
+            elif path == "/api/export.csv":
+                params = parse_qs(parsed.query)
+                day = params.get("date", [""])[0]
+                self.send_bytes(build_export_csv(day).encode("utf-8-sig"), "text/csv; charset=utf-8",
+                                f"gc1_helpdesk_{day or time.strftime('%Y-%m-%d')}.csv")
+
+            else:
+                self.send_error(404, "API route not found")
+
+    def handle_api_post(self, path, data):
+        global ALERTS, WA_TICKETS, TICKET_REGISTRY, SENT_RECAP_HASHES, WA_QUEUE, WA_HISTORY, CONFIG, HELPDESK_SNAPSHOT, LAST_SYNC_TIME, TELKOM_SKIPPED
+
+        with LOCK:
+            if path == "/api/sync_helpdesk":
+                referer = self.headers.get("Referer", "")
+                if "dashboard" in referer.lower():
+                    self.send_json({"status": "ignored", "reason": "sync_from_dashboard_forbidden"})
+                    return
+
+                raw_tickets = data.get("tickets") or []
+                if not isinstance(raw_tickets, list):
+                    raw_tickets = []
+                raw_tickets = [t for t in raw_tickets if isinstance(t, dict)]
+                normalized_tickets = []
+                seen_sync_ids = set()
+                telkom_skipped = 0
+                for t in raw_tickets:
+                    raw_id = t.get("ticketId") or t.get("number") or t.get("ticketNumber") or ""
+                    tid = re.sub(r"[\r\n\t📋]", "", str(raw_id)).strip()
+                    if not tid or tid in seen_sync_ids:
+                        continue
+                    seen_sync_ids.add(tid)
+
+                    desc = re.sub(r"\s+", " ", str(t.get("shortDesc") or t.get("desc") or "")).strip()
+                    req_for = re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(t.get("requestedFor") or ""))).strip()
+                    state_val = re.sub(r"[●•\r\n\t]", "", str(t.get("requestState") or t.get("state") or "")).strip()
+                    date_val = re.sub(r"\s+", " ", str(t.get("createdDate") or t.get("date") or "")).strip()
+                    loc_val = re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(t.get("location") or ""))).strip()
+                    grp_val = re.sub(r"\s+", " ", str(t.get("assignmentGroup") or t.get("group") or "")).strip()
+
+                    # Filter out corrupted rows from dashboard button scraping
+                    if "salin" in loc_val.lower() or loc_val in ["📋 Salin", "Salin"] or loc_val == "📲 WA":
+                        continue
+                    if "helpdesk" in date_val.lower() or "l0" in date_val.lower() or "eos" in date_val.lower():
+                        continue
+
+                    # Check GC 1 match & SOP Team Rules
+                    full_text = f"{tid} {desc} {req_for} {loc_val} {grp_val}"
+                    is_gc1 = any(k.lower() in full_text.lower() for k in CONFIG.get("keywords", []))
+
+                    # SOP OPERASIONAL: Yang di luar ruang lingkup HANYA Telkom (Abaikan sepenuhnya)
+                    is_telkom = "telkom" in grp_val.lower() or "telkom" in full_text.lower()
+                    if is_telkom:
+                        telkom_skipped += 1
+                        continue  # Abaikan tiket Telkom (GC 2), tidak masuk ke GC 1 Sentinel
+
+                    is_assigned = (state_val.lower() == "assigned" or "assign" in state_val.lower())
+                    is_pending = "pending" in state_val.lower()
+                    is_progress = "progress" in state_val.lower()
+
+                    if is_assigned:
+                        cat = "team_assigned"
+                    elif is_pending:
+                        cat = "team_pending"
+                    elif is_progress:
+                        cat = "team_progress"
+                    else:
+                        cat = "team_assigned"
+
+                    if "eos l1" in grp_val.lower():
+                        resolver_layer = "EOS L1"
+                    elif "eos l2" in grp_val.lower():
+                        resolver_layer = "EOS L2 (Engineer)"
+                    elif "eos l3" in grp_val.lower():
+                        resolver_layer = "EOS L3 (Expert)"
+                    elif "noc" in grp_val.lower():
+                        resolver_layer = "NOC"
+                    elif "soc" in grp_val.lower():
+                        resolver_layer = "SOC"
+                    else:
+                        resolver_layer = "Helpdesk (L0)"
+
+                    norm_t = {
+                        "ticketId": tid,
+                        "shortDesc": desc,
+                        "requestedFor": req_for,
+                        "requestState": state_val,
+                        "createdDate": date_val,
+                        "location": loc_val,
+                        "assignmentGroup": grp_val,
+                        "isGc1": is_gc1,
+                        "isTelkom": False,
+                        "resolverLayer": resolver_layer,
+                        "category": cat
+                    }
+                    track_ticket(tid, state_val, grp_val)
+                    norm_t = enrich_ticket_with_sop(norm_t)
+                    normalized_tickets.append(norm_t)
+
+                    # Rekap WA hanya bila pengiriman keluar diaktifkan di config.json (default: mati)
+                    if is_assigned and not is_telkom and outbound_enabled():
+                        alert_data = {
+                            "source": "helpdesk",
+                            "ticketId": tid,
+                            "sender": f"{req_for} ({loc_val})",
+                            "text": f"[{state_val.upper()}] {desc} | Lokasi: {loc_val} | Group: {grp_val} ({resolver_layer})",
+                            "matchedKeyword": "GC 1" if is_gc1 else grp_val,
+                            "requestState": state_val,
+                            "createdDate": date_val,
+                            "resolverLayer": resolver_layer
+                        }
+                        should_notify, reason, update_type = should_report_ticket(alert_data)
+                        if should_notify and CONFIG.get("markijo_auto_mode", True) and tid:
+                            print(f"[Sentinel Server] [SYNC TRIGGER] {tid} ({reason})")
+                            recap_msg = build_wa_summary_text([alert_data], update_type=update_type)
+                            if recap_msg:
+                                msg_hash = hashlib.md5(recap_msg.encode("utf-8")).hexdigest()
+                                if msg_hash not in SENT_RECAP_HASHES:
+                                    SENT_RECAP_HASHES.add(msg_hash)
+                                    msg_id = f"wa_{int(time.time()*1000)}"
+                                    WA_QUEUE.append({
+                                        "id": msg_id,
+                                        "target": CONFIG.get("target_contact", "mimi Sandora"),
+                                        "text": recap_msg,
+                                        "auto_send": CONFIG.get("auto_send_wa", True),
+                                        "ticketIds": [tid],
+                                        "status": "pending",
+                                        "created_at": time.time(),
+                                        "hash": msg_hash
+                                    })
+                HELPDESK_SNAPSHOT = normalized_tickets
+                TELKOM_SKIPPED = telkom_skipped
+                LAST_SYNC_TIME = time.strftime("%H:%M:%S WIB")
+                save_persisted_data()
+                self.send_json({"status": "synced", "count": len(normalized_tickets), "last_sync": LAST_SYNC_TIME})
+
+            elif path == "/api/alerts":
+                alert_data = data.get("data", data)
+                source = alert_data.get("source", "unknown")
+                raw_tid = alert_data.get("ticketId", "")
+                tid = re.sub(r"[\r\n\t📋]", "", str(raw_tid)).strip()
+                text = re.sub(r"\s+", " ", str(alert_data.get("text", ""))).strip()
+                sender = re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(alert_data.get("sender", "")))).strip()
+                req_state = re.sub(r"[●•\r\n\t]", "", str(alert_data.get("requestState", ""))).strip()
+                kw = alert_data.get("matchedKeyword", "GC 1")
+
+                # Aduan WhatsApp dicatat lewat /api/add_wa_ticket (menghindari entri ganda di feed)
+                if source == "whatsapp":
+                    self.send_json({"status": "ignored", "reason": "use_add_wa_ticket"})
+                    return
+
+                # Filter GC 1
+                is_gc1 = any(k.lower() in (text + " " + kw).lower() for k in CONFIG["keywords"])
+                if not is_gc1 and source == "helpdesk":
+                    self.send_json({"status": "ignored", "reason": "not_gc1"})
+                    return
+
+                # Deduplikasi alert di dashboard feed (hindari baris berulang untuk tiket & status yang sama)
+                if source == "helpdesk" and tid:
+                    exists = any(a.get("source") == "helpdesk" and a.get("ticketId") == tid and a.get("requestState", "").lower() == req_state.lower() for a in ALERTS)
+                else:
+                    sig = f"{source}|{tid}|{sender}|{text[:100]}"
+                    exists = any(a.get("sig") == sig for a in ALERTS)
+                if not exists:
+                    new_alert = {
+                        "id": f"alt_{int(time.time()*1000)}",
+                        "sig": sig,
+                        "source": source,
+                        "ticketId": tid,
+                        "sender": sender,
+                        "text": text,
+                        "requestState": req_state or ("Assigned" if "[assigned]" in text.lower() else "Baru"),
+                        "matchedKeyword": kw,
+                        "timestamp": int(time.time() * 1000),
+                        "dateString": time.strftime("%H:%M:%S"),
+                        "status": "baru"
+                    }
+                    ALERTS.insert(0, new_alert)
+                    save_persisted_data()
+                    print(f"[Sentinel Server] Data aduan dicatat: {tid} - {text[:60]}")
+
+                # STANDAR HELPDESK EXPERT: Evaluasi apakah tiket harus memicu notifikasi WA
+                if outbound_enabled():
+                    should_notify, reason, update_type = should_report_ticket(alert_data)
+                else:
+                    should_notify, reason, update_type = False, "outbound_disabled", "none"
+
+                if should_notify and CONFIG.get("markijo_auto_mode", True) and tid:
+                    print(f"[Sentinel Server] [TRIGGER LAPORAN] {tid} ({reason})")
+                    recap_msg = build_wa_summary_text([alert_data], update_type=update_type)
+                    if recap_msg:
+                        msg_hash = hashlib.md5(recap_msg.encode("utf-8")).hexdigest()
+                        if msg_hash not in SENT_RECAP_HASHES:
+                            SENT_RECAP_HASHES.add(msg_hash)
+                            msg_id = f"wa_{int(time.time()*1000)}"
+                            WA_QUEUE.append({
+                                "id": msg_id,
+                                "target": CONFIG.get("target_contact", "mimi Sandora"),
+                                "text": recap_msg,
+                                "auto_send": CONFIG.get("auto_send_wa", True),
+                                "ticketIds": [tid],
+                                "status": "pending",
+                                "created_at": time.time(),
+                                "hash": msg_hash
+                            })
+                            save_persisted_data()
+                            print(f"[Sentinel Server] Rekap {tid} berhasil dimasukkan ke antrean WA mimi Sandora.")
+                        else:
+                            print(f"[Sentinel Server] Anti-Spam: Rekap dengan hash {msg_hash[:8]} sudah pernah dikirim.")
+
+                self.send_json({
+                    "status": "ok",
+                    "recorded": not exists,
+                    "notified": should_notify,
+                    "reason": reason
+                })
+
+            elif path == "/api/trigger_recap":
+                # Manual trigger: ambil semua tiket Assigned tim kita yang belum dilaporkan
+                # atau jika diminta paksa, ambil tiket Assigned terbaru
+                if not outbound_enabled():
+                    self.send_json({"status": "disabled", "message": "Pengiriman ke WhatsApp dinonaktifkan (wa_outbound_enabled=false)."})
+                    return
+                force = data.get("force", False)
+
+                # Prioritaskan HELPDESK_SNAPSHOT (tim kita sendiri yang non-Telkom)
+                assigned_tickets = []
+                for t in HELPDESK_SNAPSHOT:
+                    if (t.get("requestState", "").lower() == "assigned" or "assign" in t.get("requestState", "").lower()) and not t.get("isTelkom"):
+                        assigned_tickets.append({
+                            "ticketId": t.get("ticketId"),
+                            "sender": f"{t.get('requestedFor', '')} ({t.get('location', '')})",
+                            "createdDate": t.get("createdDate"),
+                            "text": f"[ASSIGNED] {t.get('shortDesc', '')} | Lokasi: {t.get('location', '')} | Group: {t.get('assignmentGroup', '')} ({t.get('resolverLayer', '')})",
+                            "matchedKeyword": t.get("assignmentGroup") or "GC 1",
+                            "requestState": "Assigned",
+                            "resolverLayer": t.get("resolverLayer", "Helpdesk")
+                        })
+
+                if not assigned_tickets:
+                    assigned_tickets = [
+                        a for a in ALERTS
+                        if (a.get("requestState", "").lower() == "assigned" or "[assigned]" in a.get("text", "").lower())
+                        and not a.get("isTelkom", False)
+                        and "telkom" not in (a.get("text", "") + " " + a.get("sender", "")).lower()
+                    ]
+
+                # Cari tiket yang belum pernah dilaporkan
+                target_tickets = [
+                    a for a in assigned_tickets
+                    if TICKET_REGISTRY.get(a.get("ticketId"), {}).get("reported_state") != "Assigned"
+                ]
+
+                if not target_tickets and force and assigned_tickets:
+                    target_tickets = assigned_tickets[:5]
+                elif not target_tickets and assigned_tickets:
+                    # Jika ditekan tombol manual "Kirim Rekap ke WA" dari dashboard
+                    target_tickets = assigned_tickets
+
+                if not target_tickets:
+                    self.send_json({
+                        "status": "empty",
+                        "message": "Semua tiket Assigned tim kita sudah pernah dilaporkan (Anti-Spam Aktif)."
+                    })
+                    return
+
+                recap_msg = build_wa_summary_text(target_tickets, update_type="MANUAL")
+                msg_hash = hashlib.md5(recap_msg.encode("utf-8")).hexdigest()
+
+                if msg_hash in SENT_RECAP_HASHES and not force:
+                    self.send_json({
+                        "status": "already_sent",
+                        "message": "Isi rekap persis sama dengan pesan yang baru saja dikirim."
+                    })
+                    return
+
+                SENT_RECAP_HASHES.add(msg_hash)
+                msg_id = f"wa_{int(time.time()*1000)}"
+                tids = [a.get("ticketId") for a in target_tickets if a.get("ticketId")]
+
+                WA_QUEUE.append({
+                    "id": msg_id,
+                    "target": CONFIG.get("target_contact", "mimi Sandora"),
+                    "text": recap_msg,
+                    "auto_send": data.get("auto_send", CONFIG.get("auto_send_wa", True)),
+                    "ticketIds": tids,
+                    "status": "pending",
+                    "created_at": time.time(),
+                    "hash": msg_hash
+                })
+
+                for tid in tids:
+                    if tid in TICKET_REGISTRY:
+                        TICKET_REGISTRY[tid]["reported_state"] = "Assigned"
+                        TICKET_REGISTRY[tid]["reported_at"] = time.time()
+
+                save_persisted_data()
+                print(f"[Sentinel Server] Manual Rekap {len(target_tickets)} tiket GC 1 diantrekan ke WhatsApp.")
+                self.send_json({
+                    "status": "queued",
+                    "message_id": msg_id,
+                    "ticket_count": len(target_tickets),
+                    "target": CONFIG.get("target_contact", "mimi Sandora"),
+                    "text": recap_msg
+                })
+
+            elif path == "/api/wa_queue":
+                # Menambahkan pesan manual ke antrean
+                if not outbound_enabled():
+                    self.send_json({"status": "disabled", "message": "Pengiriman ke WhatsApp dinonaktifkan."})
+                    return
+                msg_text = data.get("text", "")
+                msg_hash = hashlib.md5(msg_text.encode("utf-8")).hexdigest()
+
+                if msg_hash in SENT_RECAP_HASHES and not data.get("force"):
+                    self.send_json({"status": "skipped", "reason": "duplicate_message_hash"})
+                    return
+
+                SENT_RECAP_HASHES.add(msg_hash)
+                msg_id = data.get("id") or f"wa_{int(time.time()*1000)}"
+                WA_QUEUE.append({
+                    "id": msg_id,
+                    "target": data.get("target", CONFIG.get("target_contact", "mimi Sandora")),
+                    "text": msg_text,
+                    "auto_send": data.get("auto_send", True),
+                    "ticketIds": data.get("ticketIds", []),
+                    "status": "pending",
+                    "created_at": time.time(),
+                    "hash": msg_hash
+                })
+                save_persisted_data()
+                self.send_json({"status": "ok", "message_id": msg_id})
+
+            elif path == "/api/wa_status":
+                msg_id = data.get("id")
+                status = data.get("status", "sent")
+                error = data.get("error", "")
+
+                for item in list(WA_QUEUE):
+                    if item.get("id") == msg_id:
+                        item["status"] = status
+                        item["finished_at"] = time.time()
+                        if error:
+                            item["error"] = error
+                        WA_HISTORY.insert(0, item)
+                        WA_QUEUE.remove(item)
+                        break
+
+                save_persisted_data()
+                print(f"[Sentinel Server] WA Delivery Status [{status}] for {msg_id}: {error or 'Sukses'}")
+                self.send_json({"status": "acknowledged"})
+
+            elif path == "/api/add_wa_ticket":
+                sender = data.get("sender") or "Member Grup WA"
+                group = data.get("group") or "Grup Koordinasi Teknis GC 1"
+                text = str(data.get("text") or "")[:4000]
+                kw = data.get("matchedKeyword") or "GC 1"
+                msg_id = str(data.get("msgId") or "")[:200]
+                manual = bool(data.get("manual"))
+                wa_ts = data.get("waTs")
+                try:
+                    wa_ts = float(wa_ts) if wa_ts else None
+                except (TypeError, ValueError):
+                    wa_ts = None
+
+                if not text.strip():
+                    self.send_json({"status": "error", "message": "Text aduan tidak boleh kosong"}, 400)
+                    return
+
+                # Hanya grup yang didaftarkan (privasi: chat pribadi tidak diproses). Input manual dashboard dikecualikan.
+                groups = [g.strip().lower() for g in (CONFIG.get("wa_monitored_groups") or []) if g.strip()]
+                ignored = [g.strip().lower() for g in (CONFIG.get("wa_ignored_groups") or []) if g.strip()]
+                if not manual and any(g in str(group).lower() for g in ignored):
+                    self.send_json({"status": "ignored", "reason": "group_ignored"})
+                    return
+                if not manual and groups and "*" not in groups and not any(g in str(group).lower() for g in groups):
+                    self.send_json({"status": "ignored", "reason": "group_not_monitored"})
+                    return
+
+                # Aduan GC 2 (Telkom) di luar ruang lingkup
+                if "telkom" in f"{text} {group}".lower():
+                    self.send_json({"status": "ignored", "reason": "out_of_scope_gc2"})
+                    return
+
+                # Pesan lama (mis. riwayat chat yang tampil saat WhatsApp Web dibuka) tidak dijadikan tiket baru
+                max_age = float(CONFIG.get("wa_max_age_hours", 24) or 24) * 3600
+                if not manual and wa_ts and time.time() - wa_ts > max_age:
+                    self.send_json({"status": "ignored", "reason": "message_too_old"})
+                    return
+
+                # Deduplikasi: id pesan WhatsApp, atau pengirim + teks lengkap pada hari yang sama
+                if msg_id and any(t.get("waMsgId") == msg_id for t in WA_TICKETS):
+                    self.send_json({"status": "ignored", "reason": "already_converted_to_ticket"})
+                    return
+                if not msg_id and any(t.get("rawWaText") == re.sub(r"[\r\n\t]+", " ", text).strip()
+                                      and t.get("requestedFor") == sender
+                                      and time.time() - (t.get("detectedTs") or 0) < 86400 for t in WA_TICKETS):
+                    self.send_json({"status": "ignored", "reason": "already_converted_to_ticket"})
+                    return
+
+                # Satu utas = satu tiket. Balasan yang mengutip pesan awal (atau pesan awal yang dikutip balasan)
+                # digabung ke pra-tiket yang sudah ada, bukan dibuat tiket baru. Balasan dari tim sendiri
+                # dihitung sebagai respons pertama (SOP 3.2).
+                norm_new = re.sub(r"\s+", " ", text).strip().lower()
+                team = [x.strip().lower() for x in (CONFIG.get("wa_team_senders") or []) if x.strip()]
+                is_team = any(x in str(sender).lower() for x in team)
+                now_ts = time.time()
+                for w in WA_TICKETS:
+                    if w.get("waGroup") != str(group).strip() or now_ts - (w.get("detectedTs") or 0) > 86400:
+                        continue
+                    norm_old = re.sub(r"\s+", " ", w.get("rawWaText", "")).strip().lower()
+                    if len(norm_old) >= 25 and (norm_old in norm_new or (len(norm_new) >= 25 and norm_new in norm_old)):
+                        e = TICKET_REGISTRY.get(w["ticketId"])
+                        if e is not None:
+                            add_history(e, "Pesan lanjutan di utas WA", f"{sender}: {text[:200]}", actor="WhatsApp Observer")
+                            if is_team and not e.get("responded_ts"):
+                                e["responded_ts"] = wa_ts or now_ts
+                                add_history(e, "Respons pertama (balasan tim di grup WA)", str(sender), actor="WhatsApp Observer")
+                            save_persisted_data()
+                        self.send_json({"status": "ignored", "reason": "merged_into_thread", "ticketId": w["ticketId"]})
+                        return
+                if is_team:
+                    self.send_json({"status": "ignored", "reason": "team_sender"})
+                    return
+
+                # SOP 4.1: verifikasi pelapor terhadap daftar PIC tenan (None = daftar belum dikonfigurasi)
+                roster = [v.strip().lower() for v in (CONFIG.get("wa_verified_senders") or []) if v.strip()]
+                verified = None if not roster else any(v in str(sender).lower() for v in roster)
+
+                wa_ticket = convert_wa_message_to_ticket(sender, group, text, kw, msg_id=msg_id, wa_ts=wa_ts, verified=verified)
+                if wa_ticket:
+                    wa_ticket["helpdeskMentioned"] = bool(re.search(r"@\s*helpdesk|tim\s+helpdesk|\bhelpdesk\b", text, re.IGNORECASE))
+                if not wa_ticket:
+                    self.send_json({"status": "error", "message": "Text aduan tidak valid"}, 400)
+                    return
+                LAST_SYNC_TIME = time.strftime("%H:%M:%S WIB")
+                print(f"[Sentinel Server] WhatsApp -> pra-tiket {wa_ticket['ticketId']} dari {sender} [{group}] ({wa_ticket['autoPriority']})")
+                self.send_json({"status": "success", "ticket": wa_ticket})
+
+            elif path == "/api/ai_suggestion":
+                # Saran dari agen AI: hanya disimpan sebagai usulan, tidak mengubah prioritas/SLA sampai Helpdesk menerima
+                tid = str(data.get("ticketId") or "").strip()
+                sug = data.get("suggestion") or {}
+                known = {t.get("ticketId") for t in HELPDESK_SNAPSHOT} | {t.get("ticketId") for t in WA_TICKETS}
+                if tid not in known or not isinstance(sug, dict):
+                    self.send_json({"status": "error", "message": "Tiket tidak ditemukan atau format salah"}, 400)
+                    return
+                prio = sug.get("priority")
+                clean = {
+                    "priority": prio if prio in PRIORITY_CHOICES else None,
+                    "summary": str(sug.get("summary") or "")[:300],
+                    "reason": str(sug.get("reason") or "")[:300],
+                    "is_peer_chatter": bool(sug.get("is_peer_chatter")),
+                    "needs_followup": bool(sug.get("needs_followup", True)),
+                    "has_image_only": bool(sug.get("has_image_only")),
+                    "model": str(data.get("model") or "")[:60],
+                    "ts": time.time(),
+                }
+                e = TICKET_REGISTRY.get(tid) or track_ticket(tid, "")
+                e["ai"] = clean
+                e.pop("ai_decision", None)
+                add_history(e, "Saran AI diterima server", f"{clean['priority'] or '-'} | {clean['summary'][:80]}", actor="Agen AI")
+                save_persisted_data()
+                self.send_json({"status": "ok"})
+
+            elif path == "/api/ticket_action":
+                # Tindakan operator pada tiket: ack | set_priority | link_portal | note (semua tercatat di riwayat)
+                tid = str(data.get("ticketId") or "").strip()
+                action = str(data.get("action") or "")
+                value = str(data.get("value") or "").strip()[:300]
+                note = str(data.get("note") or "").strip()[:500]
+                by = str(data.get("by") or "Operator Helpdesk")[:60]
+                known = {t.get("ticketId") for t in HELPDESK_SNAPSHOT} | {t.get("ticketId") for t in WA_TICKETS}
+                if tid not in known:
+                    self.send_json({"status": "error", "message": "Tiket tidak ditemukan"}, 404)
+                    return
+                e = TICKET_REGISTRY.get(tid) or track_ticket(tid, "")
+                if action == "ack":
+                    if not e.get("responded_ts"):
+                        e["responded_ts"] = time.time()
+                        add_history(e, "Respons pertama dicatat operator", note, actor=by)
+                elif action == "set_priority":
+                    if value not in PRIORITY_CHOICES or not note:
+                        self.send_json({"status": "error", "message": "Prioritas harus Critical/Major/Minor/Service Request dan alasan wajib diisi (SOP 3.3)"}, 400)
+                        return
+                    e["priority_override"] = value
+                    add_history(e, "Prioritas ditetapkan Helpdesk", f"{value}. Alasan: {note}", actor=by)
+                elif action == "link_portal":
+                    if not re.fullmatch(r"(REQ-[A-Z0-9-]+|INC[0-9]+|TKT-[0-9]+)", value.upper()):
+                        self.send_json({"status": "error", "message": "Format nomor tiket portal tidak dikenali"}, 400)
+                        return
+                    e["linked_portal"] = value.upper()
+                    add_history(e, "Ditautkan ke tiket portal", value.upper(), actor=by)
+                elif action == "ai_accept":
+                    ai = e.get("ai")
+                    if not ai:
+                        self.send_json({"status": "error", "message": "Belum ada saran AI"}, 400)
+                        return
+                    e["ai_decision"] = "accepted"
+                    if ai.get("priority") in PRIORITY_CHOICES:
+                        e["priority_override"] = ai["priority"]
+                    add_history(e, "Saran AI diterima Helpdesk", f"Prioritas {ai.get('priority')}. {note}", actor=by)
+                elif action == "ai_reject":
+                    e["ai_decision"] = "rejected"
+                    add_history(e, "Saran AI ditolak Helpdesk", note, actor=by)
+                elif action == "note":
+                    if not note:
+                        self.send_json({"status": "error", "message": "Catatan kosong"}, 400)
+                        return
+                    add_history(e, "Catatan", note, actor=by)
+                else:
+                    self.send_json({"status": "error", "message": "Aksi tidak dikenal"}, 400)
+                    return
+                save_persisted_data()
+                self.send_json({"status": "ok"})
+
+            elif path == "/api/config":
+                allowed = {k: v for k, v in data.items() if k in CONFIG_API_KEYS}
+                save_config({**CONFIG, **allowed})
+                self.send_json({"status": "ok", "config": CONFIG, "ignored_keys": sorted(set(data) - set(allowed))})
+
+            elif path == "/api/reset_registry":
+                # Reset anti-spam registry jika operator ingin mereset state tiket
+                TICKET_REGISTRY.clear()
+                SENT_RECAP_HASHES.clear()
+                WA_QUEUE.clear()
+                save_persisted_data()
+                print("[Sentinel Server] Ticket Registry & Anti-Spam state direset.")
+                self.send_json({"status": "registry_reset"})
+
+            elif path == "/api/clear_data":
+                # KOSONGKAN SELURUH DATA GC 1 DASHBOARD UNTUK KEPERLUAN PENGUJIAN / TESTING
+                HELPDESK_SNAPSHOT = []
+                TELKOM_SKIPPED = 0
+                ALERTS = []
+                WA_TICKETS = []
+                TICKET_REGISTRY.clear()
+                SENT_RECAP_HASHES.clear()
+                WA_QUEUE.clear()
+                WA_HISTORY.clear()
+                LAST_SYNC_TIME = time.strftime("%H:%M:%S WIB")
+                save_persisted_data()
+
+                try:
+                    rep_file = APP_DIR / "markijo_reported.json"
+                    if rep_file.exists():
+                        with open(rep_file, "w", encoding="utf-8") as f:
+                            f.write("[]")
+                except Exception:
+                    pass
+
+                print("[Sentinel Server] 🗑️ Clear Data GC 1 Dashboard dieksekusi: Seluruh data tiket dikosongkan.")
+                self.send_json({"status": "cleared", "message": "Seluruh data tiket dan alert di GC 1 Dashboard berhasil dibersihkan."})
+
+            else:
+                self.send_error(404, "API route not found")
+
+
+def main():
+    load_config()
+    load_persisted_data()
+    port = CONFIG.get("server_port", 8765)
+
+    host = CONFIG.get("bind_host", "127.0.0.1")
+    server = http.server.ThreadingHTTPServer((host, port), SentinelHandler)
+    print("=" * 70)
+    print(f"  [GC 1 SENTINEL] HELPDESK EXPERT SERVER AKTIF (PORT {port})")
+    print(f"  Direktori: {APP_DIR}")
+    print(f"  Alamat: {host}:{port} (hanya lokal bila 127.0.0.1)")
+    print(f"  Kirim ke WhatsApp: {'AKTIF' if outbound_enabled() else 'NONAKTIF (hanya membaca grup WA)'}")
+    groups = CONFIG.get("wa_monitored_groups") or []
+    print(f"  Grup WA dipantau: {', '.join(groups) if groups else 'BELUM DIATUR (isi wa_monitored_groups di config.json)'}")
+    print(f"  Dashboard: http://localhost:{port}/dashboard.html")
+    print("=" * 70)
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n[Sentinel Server] Menghentikan server...")
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
