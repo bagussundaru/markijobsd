@@ -109,6 +109,15 @@ Agar rekan satu tim bisa memantau dashboard dari komputer lain:
 
 Tampilan tim hanya bisa membaca dashboard, laporan, dan CSV. Semua tindakan, pengaturan, dan data mentah ditolak (403); tombol operator disembunyikan. Catatan: lewat HTTP biasa, pakai hanya di jaringan internal yang dipercaya, dan siapa pun yang memegang token dapat melihat data tiket.
 
+## Alur pra-tiket WhatsApp
+
+1. Aduan masuk di WhatsApp: **tempel** ke dashboard (Ctrl+V di mana saja, lalu **Ctrl+Enter**). Terbentuk **pra-tiket**.
+2. **Balas dalam 5-10 menit** (`wa_reply_warn_minutes` 5, `wa_reply_breach_minutes` 10). Tombol **💬 Balasan** menyalin balasan siap kirim; **✓ Dibalas** menghentikan hitung mundur. Pil di baris tiket berubah hijau, kuning (>5 menit), merah (>10 menit).
+3. **Tenan terdaftar**: balasan meminta pelapor **membuka tiket di ITSM dulu** (teks SOP lampiran 14.1, nama dan instansi terisi otomatis). **Nomor baru**: balasan berupa pertanyaan identitas, lalu alur verifikasi Komdigi.
+4. Bila 15 menit (`wa_ticket_open_target_minutes`) belum ada tiket di ITSM, muncul penanda "Belum ada tiket di ITSM".
+5. Setelah tiket ITSM terbit, **SLA resmi (KAK) berjalan pada tiket ITSM itu** (waktu tiket di portal). Pra-tiket **tidak dihitung SLA penyelesaian** dan tidak masuk persentase kepatuhan SLA. Waktu aduan pertama di WA tetap dicatat dan ditampilkan di tiket ITSM (SOP 4.4).
+6. WhatsApp berfungsi sebagai pra-tiket dan komunikasi; laporan memisahkan metrik pra-tiket (balasan WA, pembukaan tiket) dari SLA tiket ITSM.
+
 ## Identitas pelapor dan daftar PIC (SOP 4.1)
 
 Setiap aduan WhatsApp mencatat **nomor HP**, **nama PIC**, dan **instansi**. Nomor yang tampil sebagai nama kontak (nomor belum tersimpan di ponsel) dikenali otomatis; untuk teks polos isi kolom "Nomor HP pengirim".

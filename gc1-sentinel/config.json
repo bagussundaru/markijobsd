@@ -52,5 +52,8 @@
         "nota_dinas"
       ]
     }
-  ]
+  ],
+  "wa_reply_warn_minutes": 5,
+  "wa_reply_breach_minutes": 10,
+  "wa_ticket_open_target_minutes": 15
 }

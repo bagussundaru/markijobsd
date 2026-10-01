@@ -281,8 +281,10 @@ updateClock();
 // SERVER & DELEGATED ACTIONS (tanpa inline onclick: teks dari WhatsApp tidak pernah menjadi kode)
 // ----------------------------------------------------
 document.addEventListener("click", (e) => {
-  const el = e.target.closest("[data-detail],[data-copy],[data-copytext],[data-recap]");
+  const el = e.target.closest("[data-detail],[data-copy],[data-copytext],[data-recap],[data-reply],[data-ack]");
   if (!el) return;
+  if (el.dataset.reply !== undefined) { window.quickReplyCopy(el.dataset.reply); return; }
+  if (el.dataset.ack !== undefined) { window.quickAck(el.dataset.ack); return; }
   if (el.dataset.detail !== undefined) window.openTicketActivityDetail(el.dataset.detail);
   else if (el.dataset.recap !== undefined) window.quickSendTicketWa(el.dataset.recap);
   else if (el.dataset.copytext !== undefined) window.copyText(el.dataset.copytext, el);
@@ -426,7 +428,7 @@ window.openTicketActivityDetail = function (ticketId) {
   if (modalPicName) modalPicName.textContent = `👤 ${ticket.picName || "Tim Helpdesk"}`;
   if (modalPicRole) modalPicRole.textContent = ticket.picRole || "L0 Gateway";
   if (modalPriorityText) modalPriorityText.textContent = `${ticket.priority || "Normal"} (Target SLA: ${ticket.slaLimitHours || 24} Jam)`;
-  if (modalTargetTime) modalTargetTime.textContent = `Batas SLA: ${ticket.slaTargetTime || "-"}`;
+  if (modalTargetTime) modalTargetTime.textContent = ticket.slaMode ? "SLA resmi dihitung dari tiket ITSM" : `Batas SLA: ${ticket.slaTargetTime || "-"}`;
 
   const slaBadgeClass = ticket.slaBadgeClass || "sla-safe";
   const slaText = ticket.slaStatusText || "Sisa 24j";
@@ -774,6 +776,8 @@ function renderHelpdeskTable(tickets) {
       const gc1Badge = `<span class="gc1-tag">GC 1</span>`;
       const priorityClass = { Critical: "priority-critical", Major: "priority-major", Minor: "priority-minor", "Service Request": "priority-sr" }[t.priority] || "priority-normal";
       const priorityBadge = `<span class="priority-pill ${priorityClass}" title="${escapeHtml(t.priorityReason || "")}${t.priorityOverridden ? " (ditetapkan Helpdesk)" : " (usulan otomatis)"}">${escapeHtml(t.priority || "Minor")}</span>`;
+      const replyPill = t.isPreTicket && t.responseText ? `<span class="reply-pill reply-${escapeHtml(t.responseStatus || "due")}">💬 ${escapeHtml(t.responseText)}</span>` : "";
+      const quickBtns = t.isPreTicket && !t.slaClosed ? `<button class="action-btn-wa" data-reply="${escapeHtml(cleanId)}" title="Salin balasan pertama (kirim manual lewat WhatsApp)"><span class="btn-icon">💬</span><span>Balasan</span></button>${t.responseStatus === "ok" ? "" : `<button class="action-btn-wa" data-ack="${escapeHtml(cleanId)}" title="Tandai balasan sudah dikirim"><span class="btn-icon">✓</span><span>Dibalas</span></button>`}` : "";
       const tierBadge = t.isFromWa && t.waTier ? `<span class="link-pill" title="Prioritas grup WA">P${t.waTier}</span>` : "";
       const preTicketBadge = t.isPreTicket ? `<span class="pretiket-pill">Pra-tiket</span>` : "";
       const linkedBadge = t.linkedPortalId && t.isFromWa ? `<span class="link-pill">🔗 ${escapeHtml(t.linkedPortalId)}</span>` : "";
@@ -823,6 +827,7 @@ function renderHelpdeskTable(tickets) {
           <button class="action-btn-detail" data-detail="${escapeHtml(cleanId)}" title="Lihat detail, riwayat, dan tindakan">
             <span class="btn-icon">🔍</span><span>Detail</span>
           </button>
+          ${quickBtns}
           ${isAssigned ? `<button class="action-btn-wa" data-recap="${escapeHtml(cleanId)}" title="Salin ringkasan tiket ini (tidak dikirim otomatis)"><span class="btn-icon">📋</span><span>Salin</span></button>` : ""}
         </div>
       `;
@@ -874,6 +879,7 @@ function renderHelpdeskTable(tickets) {
             <span class="sla-pill ${slaBadgeClass}">
               ⏱️ ${slaStatusText}
             </span>
+            ${replyPill}
             <div class="sla-mini-bar">
               <div class="sla-mini-fill" style="width:${slaPercent}%;"></div>
             </div>
@@ -1225,7 +1231,7 @@ setInterval(() => {
 
   const nowSecs = Date.now() / 1000;
   allTickets.forEach((t) => {
-    if (t.deadlineTs && !t.slaClosed) {
+    if (t.deadlineTs && !t.slaClosed && !t.slaMode) {
       const remainingSecs = Math.max(0, Math.floor(t.deadlineTs - nowSecs));
       const remH = Math.floor(remainingSecs / 3600);
       const remM = Math.floor((remainingSecs % 3600) / 60);
@@ -1558,6 +1564,7 @@ async function loadReport() {
         <tr><td>Respons pertama &lt; 15 menit (teramati ${r.response_known}, tidak teramati ${r.response_unknown})</td><td>${pct(r.response_within_15m_pct)}</td></tr>
         <tr><td>Tiket dengan penanda eskalasi</td><td>${r.escalated_tickets}</td></tr>
         <tr><td>Aduan WA / sudah bertiket / belum bertiket</td><td>${r.wa_total} / ${r.wa_linked} / ${r.wa_unlinked}</td></tr>
+        <tr><td>Balasan WA dalam target ${r.wa_reply_target_minutes ?? 10} menit (teramati ${r.wa_reply_known ?? 0}, tidak teramati ${r.wa_reply_unknown ?? 0})</td><td>${pct(r.wa_reply_within_target_pct)}</td></tr>
         <tr><td>Aduan WA dari pelapor belum terverifikasi</td><td>${r.wa_unverified ?? 0}</td></tr>
         <tr><td>Tiket dengan syarat dokumen belum lengkap (approval / nota dinas)</td><td>${r.docs_incomplete ?? 0}</td></tr>
       </table>
@@ -1638,6 +1645,7 @@ document.getElementById("mwSubmit")?.addEventListener("click", async () => {
 
   const plainTs = mwTime.value ? Math.floor(new Date(mwTime.value).getTime() / 1000) : null;
   const tally = {};
+  const replyItems = [];
   let lastId = "";
   const btn = document.getElementById("mwSubmit");
   btn.disabled = true;
@@ -1660,12 +1668,14 @@ document.getElementById("mwSubmit")?.addEventListener("click", async () => {
         group_ignored: "grup diabaikan"
       }[r.reason] || r.message || r.reason || "gagal");
       tally[key] = (tally[key] || 0) + 1;
-      if (r.status === "success") { lastId = r.ticket.ticketId; if (r.identity && r.identity.status !== "verified") tally["_baru"] = (tally["_baru"] || 0) + 1; }
+      if (r.status === "success") { lastId = r.ticket.ticketId; replyItems.push({ identity: r.identity, label: (r.identity && r.identity.name) || sender }); if (r.identity && r.identity.status !== "verified") tally["_baru"] = (tally["_baru"] || 0) + 1; }
     } catch (_) {
       tally["gagal (server tidak merespons)"] = (tally["gagal (server tidak merespons)"] || 0) + 1;
     }
   }
   btn.disabled = false;
+  window.__mwShowReplies(replyItems);
+  mwText.focus();
   mwRememberGroup(group);
   const unverifiedNew = tally["_baru"] || 0;
   delete tally["_baru"];
@@ -1891,3 +1901,62 @@ function docsBoxHtml(ticket) {
       ${d.items.filter((i) => i.ok).map((i) => `<button class="btn btn-secondary btn-sm" data-doc-clear="${e(i.key)}">Cabut ${e(i.label.toLowerCase())}</button>`).join("")}</div>
   </div>`;
 }
+
+
+// ----------------------------------------------------
+// BALASAN CEPAT (WA = pra-tiket dan komunikasi) DAN PINTASAN JAM SIBUK
+// ----------------------------------------------------
+function waGreeting() {
+  const h = new Date().getHours();
+  return h < 11 ? "pagi" : h < 15 ? "siang" : h < 18 ? "sore" : "malam";
+}
+
+/** Balasan pertama. Tenan terdaftar: minta buka tiket di ITSM dulu (SOP lampiran 14.1). Nomor baru: tanyakan identitas (SOP 4.1). */
+function waReplyFor(identity) {
+  if (identity && identity.status === "verified") {
+    return `Selamat ${waGreeting()} Bapak/Ibu ${identity.name} dari ${identity.instansi}. Aduan Anda kami terima dan sedang kami periksa. Agar tercatat resmi dan terpantau SLA-nya, mohon dibuatkan tiket di pdn.layanan.go.id, lalu kirimkan nomor tiketnya kepada kami.`;
+  }
+  return picQuestion();
+}
+
+window.quickReplyCopy = function (ticketId) {
+  const t = (state.snapshot.all_tickets || []).find((x) => x.ticketId === ticketId);
+  if (!t) return;
+  window.copyText(waReplyFor(t.identity));
+  const btn = document.querySelector(`[data-reply="${CSS.escape(ticketId)}"]`);
+  if (btn) { const o = btn.innerHTML; btn.textContent = "✅ Disalin"; setTimeout(() => { btn.innerHTML = o; }, 1500); }
+};
+
+window.quickAck = async function (ticketId) {
+  const by = getOperator(false);
+  if (!by) { alert("Nama petugas wajib diisi."); return; }
+  const r = await postJson("/api/ticket_action", { ticketId, action: "ack", note: "Balasan WA terkirim", by });
+  if (r.status !== "ok") alert(r.message || "Gagal.");
+  fetchHelpdeskSnapshot();
+};
+
+// Ctrl+V di mana saja (di luar kolom isian) langsung mengisi kolom input WA; Ctrl+Enter membuat pra-tiket
+document.addEventListener("paste", (e) => {
+  if (state.role === "team" || !mwText) return;
+  const tg = e.target;
+  if (tg && (tg.tagName === "INPUT" || tg.tagName === "TEXTAREA" || tg.tagName === "SELECT" || tg.isContentEditable)) return;
+  const txt = (e.clipboardData && e.clipboardData.getData("text")) || "";
+  if (!txt.trim()) return;
+  e.preventDefault();
+  const det = document.getElementById("manualWaDetails");
+  if (det) det.open = true;
+  mwText.value = txt;
+  mwText.dispatchEvent(new Event("input"));
+  mwText.focus();
+  mwText.scrollIntoView({ block: "center" });
+});
+mwText?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.getElementById("mwSubmit").click(); }
+});
+
+// setelah pra-tiket dibuat: tombol balasan siap salin per pelapor
+const mwReplies = document.getElementById("mwReplies");
+window.__mwShowReplies = function (items) {
+  if (!mwReplies) return;
+  mwReplies.innerHTML = items.map((it) => `<button data-copytext="${escapeHtml(waReplyFor(it.identity))}" title="Salin balasan lalu kirim manual di WhatsApp">💬 Salin balasan: ${escapeHtml(it.label)}</button>`).join("");
+};

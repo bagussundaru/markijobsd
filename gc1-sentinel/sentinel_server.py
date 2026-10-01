@@ -77,6 +77,9 @@ DEFAULT_CONFIG = {
     "ai_external_approved": False,
     "ai_hermes_exe": "",
     "ai_hermes_home": "",
+    "wa_reply_warn_minutes": 5,
+    "wa_reply_breach_minutes": 10,
+    "wa_ticket_open_target_minutes": 15,
     "doc_rules": [
         {"name": "Pembuatan akun",
          "keywords": ["pembuatan akun", "buat akun", "akun baru", "dibuatkan akun", "pendaftaran akun", "pembuatan user", "buat user", "pembuatan username"],
@@ -416,6 +419,39 @@ def apply_sla(t, now=None):
         if remaining <= 0:
             flags.append("SLA penyelesaian terlewati")
 
+    is_pre = bool(t.get("isPreTicket"))
+    if is_pre:
+        # Pra-tiket WA: SLA resmi (KAK) hanya berjalan pada tiket di ITSM. Di sini yang dipantau: balasan 5-10 menit
+        # dan pembukaan tiket di ITSM oleh tenan.
+        warn_s = int(CONFIG.get("wa_reply_warn_minutes", 5)) * 60
+        brk_s = int(CONFIG.get("wa_reply_breach_minutes", 10)) * 60
+        open_s = int(CONFIG.get("wa_ticket_open_target_minutes", 15)) * 60
+        elapsed = now - created_ts
+        flags = []
+        if responded_ts:
+            late = responded_ts - created_ts > brk_s
+            resp_status = "late" if late else "ok"
+            resp_text = f"Dibalas {int((responded_ts - created_ts) // 60)} menit" + (" (lewat target)" if late else "")
+        elif closed:
+            resp_status, resp_text = "ok", "-"
+        elif elapsed >= brk_s:
+            resp_status = "late"
+            resp_text = f"Belum dibalas ({int(elapsed // 60)} menit), target {brk_s // 60} menit"
+            flags.append(f"Balasan WA terlambat ({int(elapsed // 60)} menit, target {warn_s // 60}-{brk_s // 60} menit)")
+        elif elapsed >= warn_s:
+            resp_status = "warn"
+            resp_text = f"Segera balas ({int((brk_s - elapsed) // 60) + 1} menit lagi)"
+            flags.append(f"Balasan WA belum dikirim ({int(elapsed // 60)} menit)")
+        else:
+            resp_status = "due"
+            resp_text = f"Balas dalam {int((warn_s - elapsed) // 60) + 1} menit"
+        linked = e.get("linked_portal") or t.get("linkedPortalId")
+        if not closed:
+            badge = "sla-warning"
+            text = f"Tiket ITSM {linked}" if linked else "Menunggu tiket ITSM"
+            if elapsed >= open_s and not linked:
+                flags.append(f"Belum ada tiket di ITSM ({int(elapsed // 60)} menit): minta pelapor membuka tiket dulu")
+
     t.update({
         "priority": prio,
         "priorityOverridden": bool(e.get("priority_override")),
@@ -429,7 +465,8 @@ def apply_sla(t, now=None):
         "slaBadgeClass": badge,
         "slaStatusText": text,
         "slaClosed": closed,
-        "slaBreached": (not closed) and remaining <= 0,
+        "slaBreached": (not closed) and remaining <= 0 and not is_pre,
+        "slaMode": "pra-tiket" if is_pre else "",
         "responseStatus": resp_status,
         "responseText": resp_text,
         "updateEveryMin": UPDATE_INTERVAL_MIN.get(prio, 240),
@@ -946,6 +983,8 @@ def period_bounds(kind, day):
 
 
 def sla_outcome(rec, now):
+    if rec.get("source") == "Pra-tiket WA":
+        return "Pra-tiket (SLA resmi dari tiket ITSM)", rec["createdTs"]
     hours = SLA_HOURS.get(rec.get("priority"), 24)
     deadline = rec["createdTs"] + hours * 3600
     closed = rec.get("closedSeenTs")
@@ -957,7 +996,9 @@ def sla_outcome(rec, now):
 def compute_report(kind, day):
     now = time.time()
     start, end, label = period_bounds(kind, day)
-    rows = [r for r in TICKET_ARCHIVE.values() if start <= r.get("createdTs", 0) < end]
+    all_rows = [r for r in TICKET_ARCHIVE.values() if start <= r.get("createdTs", 0) < end]
+    rows = [r for r in all_rows if r.get("source") != "Pra-tiket WA"]   # SLA KAK: hanya tiket ITSM
+    pre_rows = [r for r in all_rows if r.get("source") == "Pra-tiket WA"]
     n = len(rows)
 
     def count_by(key):
@@ -984,7 +1025,10 @@ def compute_report(kind, day):
         trend[key] = trend.get(key, 0) + 1
 
     prev_s = start - (end - start) if kind != "monthly" else period_bounds("monthly", datetime.datetime.fromtimestamp(start - 86400).strftime("%Y-%m-%d"))[0]
-    prev_n = len([r for r in TICKET_ARCHIVE.values() if prev_s <= r.get("createdTs", 0) < start])
+    prev_n = len([r for r in TICKET_ARCHIVE.values() if prev_s <= r.get("createdTs", 0) < start and r.get("source") != "Pra-tiket WA"])
+    brk_s = int(CONFIG.get("wa_reply_breach_minutes", 10)) * 60
+    wa_replied = [r for r in pre_rows if r.get("respondedTs")]
+    wa_reply_ok = [r for r in wa_replied if r["respondedTs"] - r["createdTs"] <= brk_s]
 
     wa = [w for w in WA_TICKETS if start <= (w.get("createdTs") or 0) < end]
     wa_linked = [w for w in wa if TICKET_REGISTRY.get(w["ticketId"], {}).get("linked_portal") or w.get("linkedPortalId")]
@@ -1002,14 +1046,14 @@ def compute_report(kind, day):
     cm = [
         {"ticketId": r["ticketId"], "location": r["location"], "priority": r["priority"], "state": r["state"],
          "desc": r["shortDesc"], "sla": sla_outcome(r, now)[0]}
-        for r in rows if r.get("priority") in ("Critical", "Major")
+        for r in all_rows if r.get("priority") in ("Critical", "Major")
     ]
 
     return {
         "kind": kind, "label": label, "start": start, "end": end,
         "generated": time.strftime("%d %b %Y %H:%M:%S WIB"),
         "total": n, "previous_total": prev_n,
-        "by_source": count_by("source"), "by_type": count_by("ticketType"), "by_priority": count_by("priority"),
+        "by_source": {k: len([r for r in all_rows if r.get("source") == k]) for k in sorted({r.get("source") for r in all_rows})}, "by_type": count_by("ticketType"), "by_priority": count_by("priority"),
         "open": len([r for r in rows if not r.get("closedSeenTs")]),
         "closed": len([r for r in rows if r.get("closedSeenTs")]),
         "sla_outcomes": outcomes, "sla_compliance_pct": sla_pct,
@@ -1021,12 +1065,16 @@ def compute_report(kind, day):
         "critical_major": cm,
         "wa_total": len(wa), "wa_linked": len(wa_linked), "wa_unlinked": len(wa) - len(wa_linked),
         "docs_incomplete": len([r for r in rows if r.get("docsRule") and not r.get("docsComplete") and not r.get("closedSeenTs")]),
+        "wa_reply_target_minutes": brk_s // 60,
+        "wa_reply_within_target_pct": round(len(wa_reply_ok) / len(wa_replied) * 100, 1) if wa_replied else None,
+        "wa_reply_known": len(wa_replied), "wa_reply_unknown": len(pre_rows) - len(wa_replied),
         "wa_unverified": len([w for w in wa if identity_for(w.get("senderPhone", ""))["status"] != "verified"]),
         "coverage_pct": round(hours_cov / hours_total * 100, 1),
         "coverage_hours": f"{hours_cov} dari {hours_total} jam",
         "monitor_start": time.strftime("%d %b %Y %H:%M", time.localtime(MONITOR_START)) if MONITOR_START else "-",
         "telkom_skipped_last_sync": TELKOM_SKIPPED,
         "notes": [
+            "SLA resmi (KAK) hanya dihitung untuk tiket di ITSM. Pra-tiket WA dipantau terpisah: balasan dalam 5-10 menit dan pembukaan tiket di ITSM.",
             "DATA TERPANTAU Sentinel untuk pantauan bersama. BUKAN angka resmi: angka laporan KAK diambil dari portal ITSM (SOP 11.4).",
             "Sentinel hanya melihat baris yang tampil di layar ITSM saat aplikasi aktif; lihat 'Cakupan pemantauan' untuk celahnya.",
             "Waktu selesai = saat Sentinel pertama kali melihat status Resolved/Closed, bukan waktu resmi di portal.",
@@ -1062,6 +1110,7 @@ table{{border-collapse:collapse;min-width:360px}}td,th{{border:1px solid #cbd5e1
 <tr><td>Respons pertama &lt; 15 menit</td><td>{pct(rep['response_within_15m_pct'])} (teramati {rep['response_known']}, tidak teramati {rep['response_unknown']})</td></tr>
 <tr><td>Tiket dengan penanda eskalasi</td><td>{rep['escalated_tickets']}</td></tr>
 <tr><td>Aduan WA / sudah bertiket / belum bertiket</td><td>{rep['wa_total']} / {rep['wa_linked']} / {rep['wa_unlinked']}</td></tr>
+<tr><td>Balasan WA dalam target {rep['wa_reply_target_minutes']} menit</td><td>{'-' if rep['wa_reply_within_target_pct'] is None else str(rep['wa_reply_within_target_pct']) + '%'} (teramati {rep['wa_reply_known']}, tidak teramati {rep['wa_reply_unknown']})</td></tr>
 <tr><td>Aduan WA dari pelapor belum terverifikasi</td><td>{rep['wa_unverified']}</td></tr>
 <tr><td>Tiket dengan syarat dokumen belum lengkap (mis. approval/nota dinas)</td><td>{rep['docs_incomplete']}</td></tr></table>
 {table('Hasil SLA', rep['sla_outcomes'])}{table('Per sumber', rep['by_source'])}{table('Per tipe', rep['by_type'])}{table('Per prioritas', rep['by_priority'])}
@@ -1362,8 +1411,9 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 team_progress = [t for t in our_team_tickets if "progress" in st(t)]
 
                 open_tickets = [t for t in our_team_tickets if not t.get("slaClosed")]
-                breached = [t for t in open_tickets if t.get("slaBreached")]
-                sla_health_pct = 100 if not open_tickets else int(((len(open_tickets) - len(breached)) / len(open_tickets)) * 100)
+                sla_pool = [t for t in open_tickets if not t.get("slaMode")]
+                breached = [t for t in sla_pool if t.get("slaBreached")]
+                sla_health_pct = 100 if not sla_pool else int(((len(sla_pool) - len(breached)) / len(sla_pool)) * 100)
                 escalations = [t for t in open_tickets if t.get("escalationFlags")]
 
                 wa_alerts = [a for a in ALERTS if a.get("source") == "whatsapp"]

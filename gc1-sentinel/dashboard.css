@@ -1885,3 +1885,11 @@ body.enterprise-theme {
 .extra-box .btn:hover, .action-row .btn:hover, .report-table .btn:hover { background: #e2e8f0; }
 .extra-box .btn.btn-primary, #picBody .btn.btn-primary { background: #065f46; color: #fff; border-color: #065f46; font-weight: 700; }
 .enterprise-modal-footer .btn-secondary, .modal-footer .btn-secondary { color:#0f172a; background:#f8fafc; border:1px solid #cbd5e1; }
+
+.reply-pill { display:block; margin-top:4px; font-size:11px; font-weight:700; padding:1px 8px; border-radius:10px; text-align:center; }
+.reply-due { background:#ECFDF5; color:#047857; border:1px solid #A7F3D0; }
+.reply-warn { background:#FFFBEB; color:#92400E; border:1px solid #FDE68A; }
+.reply-late { background:#FEF2F2; color:#991B1B; border:1px solid #FECACA; }
+.reply-ok { background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE; }
+.manual-replies { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.manual-replies button { padding:4px 10px; border:1px solid #A7F3D0; background:#ECFDF5; color:#065F46; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600; }
