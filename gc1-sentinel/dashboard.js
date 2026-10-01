@@ -778,8 +778,15 @@ function renderHelpdeskTable(tickets) {
       const preTicketBadge = t.isPreTicket ? `<span class="pretiket-pill">Pra-tiket</span>` : "";
       const linkedBadge = t.linkedPortalId && t.isFromWa ? `<span class="link-pill">🔗 ${escapeHtml(t.linkedPortalId)}</span>` : "";
       const waFirstBadge = !t.isFromWa && t.waFirstReportAt ? `<span class="link-pill" title="Aduan pertama di WhatsApp: ${escapeHtml(t.waFirstReportAt)}">💬 WA ${escapeHtml(t.waFirstReportAt.slice(12, 17))}</span>` : "";
-      const unverifiedBadge = t.isFromWa && t.senderVerified === false ? `<span class="unverified-pill" title="Pengirim tidak ada di daftar PIC tenan. Verifikasi dulu (SOP 4.1).">⚠ belum terverifikasi</span>` : "";
+      const unverifiedBadge = false && t.isFromWa && t.senderVerified === false ? `<span class="unverified-pill" title="Pengirim tidak ada di daftar PIC tenan. Verifikasi dulu (SOP 4.1).">⚠ belum terverifikasi</span>` : "";
       const mentionBadge = t.isFromWa && t.helpdeskMentioned ? `<span class="link-pill" title="Pesan menyebut Helpdesk">@Helpdesk</span>` : "";
+      const idn = t.identity || {};
+      const identBadge = !t.isFromWa ? "" :
+        idn.status === "verified" ? `<span class="pretiket-pill" title="${escapeHtml((idn.name || "") + " - " + (idn.instansi || ""))}">✓ PIC terdaftar</span>` :
+        idn.status === "rejected" ? `<span class="unverified-pill">⛔ ditolak</span>` :
+        idn.status === "no_phone" ? `<span class="unverified-pill" title="Nomor HP pelapor belum dicatat">⚠ tanpa nomor</span>` :
+        `<span class="unverified-pill" title="Nomor belum terdaftar: tanyakan asal dan instansi, daftar ke Komdigi dulu">⚠ nomor baru</span>`;
+      const docsBadge = t.docs && !t.docs.complete && !t.slaClosed ? `<span class="doc-pill" title="${escapeHtml(t.docs.rule)}: approval / nota dinas belum lengkap">📄 dokumen belum lengkap</span>` : "";
       const flagBadge = (t.escalationFlags || []).length ? `<span class="flag-pill" title="${escapeHtml(t.escalationFlags.join(" | "))}">⚠ ${t.escalationFlags.length} eskalasi</span>` : "";
 
       // Clean PIC Name & Short Role Tag
@@ -834,7 +841,7 @@ function renderHelpdeskTable(tickets) {
         </td>
         <td>
           <div style="line-height:1.45;">
-            ${gc1Badge}${tierBadge}${preTicketBadge}${waGroupTag}${priorityBadge}${linkedBadge}${waFirstBadge}${unverifiedBadge}${mentionBadge}${flagBadge}<strong>${escapeHtml(rawDesc)}</strong>
+            ${gc1Badge}${tierBadge}${preTicketBadge}${waGroupTag}${priorityBadge}${linkedBadge}${waFirstBadge}${unverifiedBadge}${mentionBadge}${identBadge}${docsBadge}${flagBadge}<strong>${escapeHtml(rawDesc)}</strong>
           </div>
         </td>
         <td>
@@ -1420,6 +1427,7 @@ function renderTicketExtra(ticket) {
     ? `<div>Aduan WA</div><div>${escapeHtml(ticket.waGroup || "-")} &middot; ${escapeHtml(ticket.requestedFor || "")}${ticket.senderVerified === false ? ' <span class="unverified-pill">belum terverifikasi</span>' : ""}</div>`
     : (ticket.waFirstReportAt ? `<div>Aduan pertama di WA</div><div>${escapeHtml(ticket.waFirstReportAt)} (${escapeHtml(ticket.waGroup || "")})</div>` : "");
   const ai = ticket.ai;
+  const identBox = identityBoxHtml(ticket) + docsBoxHtml(ticket);
   const aiBox = ai ? `
     <div class="extra-box" style="border-color:#C4B5FD;"><h4>Saran AI (usulan, bukan keputusan) &middot; ${escapeHtml(ai.model || "")}</h4>
       <div class="extra-grid">
@@ -1431,7 +1439,7 @@ function renderTicketExtra(ticket) {
       </div>
       ${ticket.aiDecision ? "" : `<div class="action-row"><button class="btn btn-secondary btn-sm" id="actAiAccept">Terima saran</button><button class="btn btn-secondary btn-sm" id="actAiReject">Tolak saran</button></div>`}
     </div>` : "";
-  box.innerHTML = aiBox + `
+  box.innerHTML = identBox + aiBox + `
     <div class="extra-box"><h4>Klasifikasi dan SLA (SOP 3.2-3.3)</h4>
       <div class="extra-grid">
         <div>Tipe</div><div>${escapeHtml(ticket.ticketType || "-")}</div>
@@ -1469,6 +1477,20 @@ function renderTicketExtra(ticket) {
     else await reopen();
   };
   document.getElementById("actAck")?.addEventListener("click", () => act({ action: "ack" }));
+  document.getElementById("actManageIdent")?.addEventListener("click", () => { document.getElementById("ticketActivityModal")?.classList.remove("active"); openPic("cases", (ticket.identity || {}).phone); });
+  document.getElementById("actCopyQ")?.addEventListener("click", () => { window.copyText(picQuestion()); alert("Pertanyaan disalin. Kirim manual lewat WhatsApp."); });
+  document.getElementById("actSetPhone")?.addEventListener("click", () => {
+    const v = prompt("Nomor HP pelapor (08xx atau +62 8xx):");
+    if (v) act({ action: "set_phone", value: v });
+  });
+  box.querySelectorAll("[data-doc-set]").forEach((b) => b.addEventListener("click", () => {
+    const v = prompt(b.dataset.docSet === "nota_dinas" ? "Nomor dan tanggal nota dinas (mis. ND-123/2026, 30 Sep 2026):" : "Pemberi approval, nomor, dan tanggal (mis. Eselon II Kemenkeu, 30 Sep 2026):");
+    if (v) act({ action: "doc_set", doc: b.dataset.docSet, value: v });
+  }));
+  box.querySelectorAll("[data-doc-clear]").forEach((b) => b.addEventListener("click", () => {
+    const n = prompt("Alasan mencabut catatan dokumen ini (wajib):");
+    if (n) act({ action: "doc_clear", doc: b.dataset.docClear, note: n });
+  }));
   document.getElementById("actWho")?.addEventListener("click", () => { getOperator(true); reopen(); });
   document.getElementById("actAiAccept")?.addEventListener("click", () => act({ action: "ai_accept" }));
   document.getElementById("actAiReject")?.addEventListener("click", () => {
@@ -1536,6 +1558,8 @@ async function loadReport() {
         <tr><td>Respons pertama &lt; 15 menit (teramati ${r.response_known}, tidak teramati ${r.response_unknown})</td><td>${pct(r.response_within_15m_pct)}</td></tr>
         <tr><td>Tiket dengan penanda eskalasi</td><td>${r.escalated_tickets}</td></tr>
         <tr><td>Aduan WA / sudah bertiket / belum bertiket</td><td>${r.wa_total} / ${r.wa_linked} / ${r.wa_unlinked}</td></tr>
+        <tr><td>Aduan WA dari pelapor belum terverifikasi</td><td>${r.wa_unverified ?? 0}</td></tr>
+        <tr><td>Tiket dengan syarat dokumen belum lengkap (approval / nota dinas)</td><td>${r.docs_incomplete ?? 0}</td></tr>
       </table>
       ${reportTable("Hasil SLA", r.sla_outcomes)}${reportTable("Per prioritas", r.by_priority)}${reportTable("Per tipe", r.by_type)}
       ${reportTable("Per sumber", r.by_source)}${reportTable("Tren", r.trend)}${reportTable("Instansi terbanyak", Object.fromEntries(r.top_agencies || []))}
@@ -1623,7 +1647,8 @@ document.getElementById("mwSubmit")?.addEventListener("click", async () => {
     const body = {
       sender, group, text: m.text, matchedKeyword: "GC 1", manual: true, enteredBy: by,
       msgId: "man|" + GC1Paste.hashKey([group, sender, m.text, ts || ""].join("|")),
-      waTs: ts, tier: mwTier.value ? parseInt(mwTier.value, 10) : undefined
+      waTs: ts, tier: mwTier.value ? parseInt(mwTier.value, 10) : undefined,
+      phone: (!parsed.hadHeaders && (document.getElementById("mwPhone").value || "").trim()) || undefined
     };
     try {
       const r = await postJson("/api/add_wa_ticket", body);
@@ -1635,17 +1660,234 @@ document.getElementById("mwSubmit")?.addEventListener("click", async () => {
         group_ignored: "grup diabaikan"
       }[r.reason] || r.message || r.reason || "gagal");
       tally[key] = (tally[key] || 0) + 1;
-      if (r.status === "success") lastId = r.ticket.ticketId;
+      if (r.status === "success") { lastId = r.ticket.ticketId; if (r.identity && r.identity.status !== "verified") tally["_baru"] = (tally["_baru"] || 0) + 1; }
     } catch (_) {
       tally["gagal (server tidak merespons)"] = (tally["gagal (server tidak merespons)"] || 0) + 1;
     }
   }
   btn.disabled = false;
   mwRememberGroup(group);
-  mwResult.textContent = Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(", ") + (lastId ? ` (terakhir: ${lastId})` : "");
+  const unverifiedNew = tally["_baru"] || 0;
+  delete tally["_baru"];
+  mwResult.textContent = Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(", ") + (lastId ? ` (terakhir: ${lastId})` : "") +
+    (unverifiedNew ? `. ${unverifiedNew} dari pelapor yang nomornya belum terdaftar: buka tiketnya untuk verifikasi identitas.` : "");
   if (tally["dibuat"]) { mwText.value = ""; mwPreview.textContent = ""; playAlertSound(); }
   await fetchHelpdeskSnapshot();
   mwLoadGroupList();
 });
 
 mwLoadGroupList();
+
+
+// ----------------------------------------------------
+// IDENTITAS PELAPOR (SOP 4.1), DAFTAR PIC, DAN SYARAT DOKUMEN
+// ----------------------------------------------------
+const fmtPhone = (p) => (p ? "+" + p : "-");
+const CASE_LABEL = { verified: "Terdaftar", unknown: "Belum ditanya", asked: "Sudah ditanya, menunggu jawaban", claimed: "Pelapor sudah menjawab, belum diverifikasi", registration_requested: "Pendaftaran diajukan ke Komdigi", rejected: "Ditolak (bukan tenan)", no_phone: "Nomor HP belum dicatat" };
+
+function picQuestion() {
+  const h = new Date().getHours();
+  const g = h < 11 ? "pagi" : h < 15 ? "siang" : h < 18 ? "sore" : "malam";
+  return `Selamat ${g} Bapak/Ibu. Terima kasih sudah menghubungi Helpdesk Managed Service Government Cloud 1. Nomor ini belum terdaftar sebagai PIC layanan PDN kami. Mohon informasikan: (1) nama lengkap, (2) instansi/satuan kerja, (3) jabatan Anda. Untuk keamanan, aduan baru dapat kami tindaklanjuti setelah identitas terverifikasi. Mohon tidak mengirimkan password atau data rahasia lewat WhatsApp.`;
+}
+
+async function picAction(body) {
+  const by = getOperator(false);
+  if (!by) { alert("Nama petugas wajib diisi."); return null; }
+  const r = await postJson("/api/pic_action", { by, ...body });
+  if (r.status !== "ok") { alert(r.message || "Gagal."); return null; }
+  return r;
+}
+
+// --- modal Daftar PIC ---
+const picModal = document.getElementById("picModal");
+let picData = { registry: [], cases: [] };
+let picTab = "registry";
+let picCase = "";
+let picFilter = "";
+let picFlash = "";
+
+async function picLoad() {
+  try { picData = await (await fetch(`${SERVER}/api/pic_registry`)).json(); } catch (_) {}
+  picRender();
+}
+
+function picRender() {
+  document.querySelectorAll("#picTabs button").forEach((b) => b.classList.toggle("active", b.dataset.picTab === picTab && !picCase));
+  const body = document.getElementById("picBody");
+  if (!body) return;
+  const e = escapeHtml;
+  if (picCase) {
+    const c = picData.cases.find((x) => x.phone === picCase);
+    if (!c) { picCase = ""; return picRender(); }
+    body.innerHTML = `
+      <p><button class="btn btn-secondary btn-sm" data-pic-act="back">← Kembali</button>
+        <strong>${e(fmtPhone(c.phone))}</strong> <span class="pic-status ${c.status === "rejected" ? "bad" : ""}">${e(CASE_LABEL[c.status] || c.status)}</span>
+        &middot; ${c.ticketCount} tiket</p>
+      <div class="extra-box"><h4>Langkah verifikasi (SOP 4.1)</h4>
+        <ol style="margin:0 0 0 18px;padding:0;line-height:1.7;">
+          <li>Tanyakan asal dan instansi pelapor (salin pertanyaan di bawah, kirim manual lewat WhatsApp).</li>
+          <li>Catat nama dan instansi yang disebut pelapor.</li>
+          <li>Bila belum terdaftar, minta pelapor mendaftar ke Komdigi, lalu catat nomor/tanggal pengajuan.</li>
+          <li>Setelah Komdigi memverifikasi, catat bukti verifikasinya. <strong>Baru saat itu nomor disimpan sebagai PIC.</strong></li>
+          <li>Bukan tenan: tolak. Aduan dihentikan dan tidak diproses.</li></ol></div>
+      <div class="pic-form">
+        <div><label>Nama (yang disebut pelapor / hasil verifikasi)</label><input id="picName" value="${e(c.claimedName || "")}"></div>
+        <div><label>Instansi</label><input id="picInstansi" value="${e(c.claimedInstansi || "")}"></div>
+        <div class="full"><label>Nomor/tanggal pengajuan atau bukti verifikasi Komdigi</label><input id="picRef" value="${e(c.komdigiRef || "")}" placeholder="mis. Surat 123/2026, 30 Sep 2026"></div>
+        <div class="full"><label>Catatan / alasan penolakan</label><input id="picNote"></div>
+      </div>
+      <div class="action-row">
+        <button class="btn btn-secondary btn-sm" data-pic-act="copyq">📋 Salin pertanyaan identitas</button>
+        <button class="btn btn-secondary btn-sm" data-pic-act="asked">Sudah ditanya</button>
+        <button class="btn btn-secondary btn-sm" data-pic-act="claimed">Simpan jawaban pelapor</button>
+        <button class="btn btn-secondary btn-sm" data-pic-act="regreq">Pendaftaran diajukan ke Komdigi</button>
+        <button class="btn btn-primary btn-sm" data-pic-act="verify">✓ Terverifikasi, simpan nomor</button>
+        <button class="btn btn-secondary btn-sm" data-pic-act="reject">⛔ Tolak (bukan tenan)</button>
+      </div>
+      <h4 style="margin:12px 0 4px;font-size:12.5px;">Riwayat kasus</h4>
+      ${(c.history || []).slice().reverse().map((h) => `<div class="hist-item"><time>${e(h.time)} &middot; ${e(h.actor)}</time><br><strong>${e(h.event)}</strong>${h.detail ? ": " + e(h.detail) : ""}</div>`).join("") || "<em>Belum ada</em>"}`;
+    return;
+  }
+  if (picTab === "registry") {
+    const f = picFilter.toLowerCase();
+    const rows = picData.registry.filter((r) => !f || `${r.name} ${r.instansi} ${r.phone}`.toLowerCase().includes(f)).map((r) => `
+      <tr><td>${e(r.name)}</td><td>${e(r.instansi)}</td><td>${e(fmtPhone(r.phone))}</td><td>${e(r.basis || "")}</td><td>${e(r.verifiedBy || "")}<br><span style="color:#64748B">${e(r.verifiedAt || "")}</span></td>
+        <td><button class="btn btn-secondary btn-sm" data-pic-remove="${e(r.phone)}">Hapus</button></td></tr>`).join("");
+    body.innerHTML = `<input id="picSearch" class="form-control-enterprise" placeholder="Cari nama, instansi, atau nomor" value="${e(picFilter)}" style="margin-bottom:8px;">
+      <table class="report-table"><tr><th>Nama</th><th>Instansi</th><th>Nomor</th><th>Dasar verifikasi</th><th>Oleh</th><th></th></tr>${rows || '<tr><td colspan="6"><em>Belum ada PIC terdaftar. Impor daftar resmi di tab Tambah / Impor.</em></td></tr>'}</table>`;
+  } else if (picTab === "cases") {
+    const rows = picData.cases.map((c) => `
+      <tr><td>${e(fmtPhone(c.phone))}</td><td><span class="pic-status ${c.status === "rejected" ? "bad" : ""}">${e(CASE_LABEL[c.status] || c.status)}</span></td>
+        <td>${e(c.claimedName || "-")}<br><span style="color:#64748B">${e(c.claimedInstansi || "")}</span></td><td>${e(c.komdigiRef || "-")}</td><td>${c.ticketCount}</td>
+        <td><button class="btn btn-secondary btn-sm" data-pic-case="${e(c.phone)}">Kelola</button></td></tr>`).join("");
+    body.innerHTML = `<table class="report-table"><tr><th>Nomor</th><th>Status</th><th>Menurut pelapor</th><th>Ref. Komdigi</th><th>Tiket</th><th></th></tr>${rows || '<tr><td colspan="6"><em>Tidak ada nomor yang menunggu verifikasi.</em></td></tr>'}</table>`;
+  } else {
+    body.innerHTML = `
+      <div class="extra-box"><h4>Tambah satu PIC terverifikasi</h4>
+        <div class="pic-form">
+          <div><label>Nomor HP</label><input id="addPhone" placeholder="08xx / +62 8xx"></div>
+          <div><label>Nama</label><input id="addName"></div>
+          <div><label>Instansi</label><input id="addInstansi"></div>
+          <div><label>Dasar verifikasi (wajib)</label><input id="addBasis" placeholder="mis. Terdaftar di Komdigi, surat 123/2026"></div>
+        </div><button class="btn btn-primary btn-sm" data-pic-act="add">Simpan PIC</button></div>
+      <div class="extra-box"><h4>Impor daftar PIC resmi (CSV)</h4>
+        <div class="note" style="font-size:12px;color:#64748B;">Satu baris per PIC: <code>nama;instansi;nomor</code> (pemisah ; , atau tab). Dianggap sudah terverifikasi karena berasal dari daftar resmi.</div>
+        <textarea id="importText" style="width:100%;min-height:100px;margin:6px 0;box-sizing:border-box;" placeholder="Budi Santoso;Kementerian Kesehatan;0812-3456-7890"></textarea>
+        <button class="btn btn-primary btn-sm" data-pic-act="import">Impor</button> <span id="importResult" class="note">${e(picFlash)}</span></div>`;
+  }
+}
+
+function openPic(tab, phone) {
+  picTab = tab || "registry";
+  picCase = phone || "";
+  picModal?.classList.add("active");
+  picLoad();
+}
+
+document.getElementById("btnPic")?.addEventListener("click", () => openPic("cases"));
+["closePicBtn", "picCloseBtn"].forEach((id) => document.getElementById(id)?.addEventListener("click", () => picModal?.classList.remove("active")));
+document.getElementById("picTabs")?.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-pic-tab]");
+  if (b) { picTab = b.dataset.picTab; picCase = ""; picFlash = ""; picRender(); }
+});
+
+document.getElementById("picBody")?.addEventListener("input", (e) => {
+  if (e.target.id === "picSearch") { picFilter = e.target.value; const pos = e.target.selectionStart; picRender(); const s = document.getElementById("picSearch"); s.focus(); s.setSelectionRange(pos, pos); }
+});
+
+document.getElementById("picBody")?.addEventListener("click", async (e) => {
+  const val = (id) => (document.getElementById(id)?.value || "").trim();
+  const caseBtn = e.target.closest("[data-pic-case]");
+  if (caseBtn) { picCase = caseBtn.dataset.picCase; picRender(); return; }
+  const rm = e.target.closest("[data-pic-remove]");
+  if (rm) {
+    const note = prompt("Alasan menghapus PIC ini dari daftar (wajib):");
+    if (note && (await picAction({ action: "remove", phone: rm.dataset.picRemove, note }))) { await picLoad(); fetchHelpdeskSnapshot(); }
+    return;
+  }
+  const a = e.target.closest("[data-pic-act]");
+  if (!a) return;
+  const act = a.dataset.picAct;
+  if (act === "back") { picCase = ""; picRender(); return; }
+  if (act === "copyq") { window.copyText(picQuestion()); alert("Pertanyaan disalin. Kirim manual lewat WhatsApp."); return; }
+  if (act === "add") {
+    if (await picAction({ action: "add_verified", phone: val("addPhone"), name: val("addName"), instansi: val("addInstansi"), basis: val("addBasis") })) { picTab = "registry"; await picLoad(); fetchHelpdeskSnapshot(); }
+    return;
+  }
+  if (act === "import") {
+    const r = await picAction({ action: "import_csv", text: document.getElementById("importText").value });
+    if (r) { picFlash = `${r.added} PIC masuk, ${r.skipped} baris dilewati.`; await picLoad(); fetchHelpdeskSnapshot(); }
+    return;
+  }
+  const base = { phone: picCase, name: val("picName"), instansi: val("picInstansi"), komdigiRef: val("picRef"), note: val("picNote") };
+  let r = null;
+  if (act === "asked") r = await picAction({ action: "case_update", status: "asked", ...base });
+  else if (act === "claimed") r = await picAction({ action: "case_update", status: "claimed", ...base });
+  else if (act === "regreq") r = await picAction({ action: "case_update", status: "registration_requested", ...base });
+  else if (act === "verify") {
+    if (!confirm("Simpan nomor ini sebagai PIC terverifikasi? Pastikan bukti verifikasi dari Komdigi sudah dicatat.")) return;
+    r = await picAction({ action: "verify_case", ...base });
+    if (r) picCase = "";
+  } else if (act === "reject") {
+    if (!confirm("Tolak pelapor ini? Aduan dari nomor ini akan ditutup dan tidak diproses (SOP 4.1).")) return;
+    r = await picAction({ action: "reject_case", ...base });
+  }
+  if (r) { await picLoad(); fetchHelpdeskSnapshot(); }
+});
+
+// --- pratinjau status nomor di kolom input manual ---
+const mwPhoneEl = document.getElementById("mwPhone");
+let mwIdTimer = null;
+async function mwCheckIdentity() {
+  const box = document.getElementById("mwIdentity");
+  if (!box || !window.GC1Paste) return;
+  const parsed = GC1Paste.parseWaPaste(mwText.value);
+  const phones = new Set();
+  parsed.messages.forEach((m) => { if (/^\+?[\d\s\-()]{8,24}$/.test((m.sender || "").trim())) phones.add(m.sender.trim()); });
+  if (!parsed.hadHeaders && mwPhoneEl.value.trim()) phones.add(mwPhoneEl.value.trim());
+  if (!phones.size) { box.textContent = parsed.messages.length ? "Nomor HP pengirim belum diisi: tanpa nomor, identitas pelapor tidak bisa diverifikasi (SOP 4.1)." : ""; return; }
+  const out = [];
+  for (const p of phones) {
+    try {
+      const r = await (await fetch(`${SERVER}/api/pic_lookup?phone=${encodeURIComponent(p)}`)).json();
+      out.push(r.status === "verified" ? `✓ ${p}: ${r.name} (${r.instansi})` : r.status === "rejected" ? `⛔ ${p}: ditolak` : `⚠ ${p}: nomor belum terdaftar. Setelah tiket dibuat, tanyakan asal dan instansi, lalu verifikasi lewat Komdigi.`);
+    } catch (_) {}
+  }
+  box.textContent = out.join("   ");
+}
+const mwDebounce = () => { clearTimeout(mwIdTimer); mwIdTimer = setTimeout(mwCheckIdentity, 400); };
+mwText?.addEventListener("input", mwDebounce);
+mwPhoneEl?.addEventListener("input", mwDebounce);
+
+// --- kotak identitas dan dokumen di detail tiket ---
+function identityBoxHtml(ticket) {
+  const idn = ticket.identity;
+  if (!ticket.isFromWa || !idn) return "";
+  const e = escapeHtml;
+  const ok = idn.status === "verified";
+  return `<div class="extra-box" style="border-color:${ok ? "#A7F3D0" : "#FED7AA"};"><h4>Identitas pelapor (SOP 4.1)</h4>
+    <div class="extra-grid">
+      <div>Nomor HP</div><div>${e(fmtPhone(idn.phone))}</div>
+      <div>Status</div><div><span class="pic-status ${ok ? "ok" : idn.status === "rejected" ? "bad" : ""}">${e(CASE_LABEL[idn.status] || idn.status)}</span></div>
+      ${ok ? `<div>PIC terdaftar</div><div>${e(idn.name)} (${e(idn.instansi)})</div>` : ""}
+      ${!ok && idn.claimedName ? `<div>Menurut pelapor</div><div>${e(idn.claimedName)} (${e(idn.claimedInstansi || "-")})</div>` : ""}
+      ${!ok && idn.komdigiRef ? `<div>Ref. Komdigi</div><div>${e(idn.komdigiRef)}</div>` : ""}
+    </div>
+    ${ok ? "" : `<div class="warn" style="margin:8px 0 0;">Jangan memberi informasi layanan, IP, atau status sistem sebelum pelapor terverifikasi.</div>`}
+    ${ok ? "" : `<div class="action-row">
+      ${idn.status === "no_phone" ? '<button class="btn btn-secondary btn-sm" id="actSetPhone">Catat nomor HP</button>' : '<button class="btn btn-primary btn-sm" id="actManageIdent">Kelola verifikasi</button>'}
+      <button class="btn btn-secondary btn-sm" id="actCopyQ">📋 Salin pertanyaan identitas</button></div>`}
+  </div>`;
+}
+
+function docsBoxHtml(ticket) {
+  const d = ticket.docs;
+  if (!d) return "";
+  const e = escapeHtml;
+  return `<div class="extra-box" style="border-color:${d.complete ? "#A7F3D0" : "#FDE68A"};"><h4>Syarat dokumen: ${e(d.rule)} ${d.complete ? "(lengkap)" : "(BELUM lengkap, jangan diproses)"}</h4>
+    <div class="extra-grid">${d.items.map((i) => `<div>${i.ok ? "✓" : "✗"} ${e(i.label)}</div><div>${i.ok ? e(i.ref) + (i.auto ? " (otomatis dari status ITSM)" : ` &middot; ${e(i.by)}`) : "<em>belum ada</em>"}</div>`).join("")}</div>
+    <div class="action-row">${d.items.map((i) => `<button class="btn btn-secondary btn-sm" data-doc-set="${e(i.key)}">${i.ok ? "Ubah" : "Catat"} ${e(i.label.toLowerCase())}</button>`).join("")}
+      ${d.items.filter((i) => i.ok).map((i) => `<button class="btn btn-secondary btn-sm" data-doc-clear="${e(i.key)}">Cabut ${e(i.label.toLowerCase())}</button>`).join("")}</div>
+  </div>`;
+}

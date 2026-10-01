@@ -248,6 +248,8 @@
               <option value="">Otomatis (dari daftar prioritas)</option>
               <option value="1">P1 (alarm)</option><option value="2">P2 (biasa)</option><option value="3">P3 (pasif)</option>
             </select></div>
+          <div><label for="mwPhone">Nomor HP pengirim (hanya bila teks polos)</label>
+            <input id="mwPhone" class="form-control-enterprise" placeholder="08xx / +62 8xx" autocomplete="off"></div>
           <div><label for="mwSender">Pengirim (hanya bila teks polos)</label>
             <input id="mwSender" class="form-control-enterprise" placeholder="Nama pelapor (instansi)" autocomplete="off"></div>
           <div><label for="mwTime">Waktu pesan (hanya bila teks polos)</label>
@@ -258,6 +260,7 @@
           <button id="mwSubmit" class="btn btn-enterprise btn-primary-wa"><span>➕</span><span>Buat pra-tiket</span></button>
           <span id="mwPreview" class="manual-note"></span>
         </div>
+        <div id="mwIdentity" class="manual-note" style="margin-top:6px;"></div>
         <div id="mwResult" class="manual-result"></div>
       </details>
     </section>
@@ -297,6 +300,11 @@
         <button id="btnReports" class="btn btn-enterprise btn-secondary" title="Laporan harian, mingguan, bulanan (data terpantau)">
           <span>📑</span>
           <span>Laporan</span>
+        </button>
+
+        <button id="btnPic" data-operator-only="1" class="btn btn-enterprise btn-secondary" title="Daftar PIC tenan, nomor baru yang menunggu verifikasi, dan impor daftar resmi">
+          <span>📇</span>
+          <span>Daftar PIC</span>
         </button>
 
         <button id="btnDailyRecap" class="btn btn-enterprise btn-secondary" title="Rekap harian aduan WhatsApp vs tiket portal (SOP 4.4)">
@@ -684,6 +692,31 @@
         <button id="reportPrintBtn" class="btn btn-secondary btn-enterprise">🖨️ Cetak / PDF</button>
         <button id="reportCsvBtn" class="btn btn-secondary btn-enterprise">📥 CSV</button>
         <button id="reportCloseBtn" class="btn btn-primary btn-enterprise">Tutup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DAFTAR PIC & VERIFIKASI NOMOR -->
+  <div id="picModal" class="modal-backdrop">
+    <div class="modal-box enterprise-modal" style="max-width: 900px;">
+      <div class="modal-header enterprise-modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:18px;">📇</span>
+          <h3>Daftar PIC Tenan dan Verifikasi Nomor (SOP 4.1)</h3>
+        </div>
+        <button id="closePicBtn" class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body enterprise-modal-body">
+        <div class="pic-tabs" id="picTabs">
+          <button data-pic-tab="registry">Terdaftar</button>
+          <button data-pic-tab="cases">Menunggu verifikasi</button>
+          <button data-pic-tab="add">Tambah / Impor</button>
+        </div>
+        <div id="picBody"></div>
+      </div>
+      <div class="modal-footer enterprise-modal-footer">
+        <span class="note" style="font-size:12px;color:#64748B;">Nomor baru hanya disimpan sebagai PIC setelah terverifikasi Komdigi. Tampilan tim tidak menampilkan nomor lengkap.</span>
+        <button id="picCloseBtn" class="btn btn-primary btn-enterprise">Tutup</button>
       </div>
     </div>
   </div>

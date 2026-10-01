@@ -109,6 +109,31 @@ Agar rekan satu tim bisa memantau dashboard dari komputer lain:
 
 Tampilan tim hanya bisa membaca dashboard, laporan, dan CSV. Semua tindakan, pengaturan, dan data mentah ditolak (403); tombol operator disembunyikan. Catatan: lewat HTTP biasa, pakai hanya di jaringan internal yang dipercaya, dan siapa pun yang memegang token dapat melihat data tiket.
 
+## Identitas pelapor dan daftar PIC (SOP 4.1)
+
+Setiap aduan WhatsApp mencatat **nomor HP**, **nama PIC**, dan **instansi**. Nomor yang tampil sebagai nama kontak (nomor belum tersimpan di ponsel) dikenali otomatis; untuk teks polos isi kolom "Nomor HP pengirim".
+
+- **Nomor terdaftar** (ada di Daftar PIC): tiket otomatis memakai nama dan instansi PIC.
+- **Nomor baru**: tiket diberi penanda "nomor baru" dan peringatan *jangan beri informasi layanan*. Alurnya di tombol **📇 Daftar PIC** (atau "Kelola verifikasi" di detail tiket):
+  1. salin pertanyaan identitas dan kirim manual (asal dan instansi),
+  2. catat jawaban pelapor,
+  3. bila belum terdaftar, minta pelapor mendaftar ke Komdigi dan catat nomor/tanggal pengajuan,
+  4. setelah Komdigi memverifikasi, catat bukti verifikasinya. **Baru saat itu nomor disimpan sebagai PIC** dan semua tiket dari nomor itu ikut terverifikasi,
+  5. bukan tenan: tolak, tiket ditutup dan aduan dihentikan.
+- Nomor yang belum terverifikasi **tidak pernah masuk Daftar PIC**; ia hanya berupa "kasus verifikasi".
+- **Impor daftar PIC resmi** (CSV `nama;instansi;nomor`) di tab Tambah / Impor.
+- Semua langkah atas nama petugas dan tercatat di riwayat tiket. Tampilan tim menyamarkan nomor HP (hanya 4 digit terakhir), dan CSV laporan tidak memuat nomor.
+- Data PIC tersimpan di `sentinel_data.json` (tidak masuk repo). **Tombol Clear Data tidak menghapus Daftar PIC**, supaya tidak terhapus tak sengaja; hapus entri uji lewat tombol Hapus.
+
+## Syarat dokumen per jenis permintaan
+
+Aturan di `config.json` (`doc_rules`). Bawaan: **pembuatan akun** wajib punya **approval** dan **nota dinas**.
+
+- Tiket yang cocok diberi penanda "dokumen belum lengkap, jangan diproses" sampai keduanya tercatat (nomor dan tanggal, atas nama petugas).
+- Approval dicatat otomatis bila status ITSM terlihat berubah dari *Pending Approval* ke status lain; nota dinas selalu dicatat petugas.
+- Sentinel hanya mencatat dan memperingatkan; ia tidak memblokir sistem lain.
+- Aturan ini **belum ada di SOP v0.2**; sebaiknya dimasukkan ke SOP versi berikutnya (SOP 4.4 saat ini membolehkan aktivasi akun sederhana diselesaikan di WhatsApp tanpa tiket).
+
 ## Batasan yang perlu diketahui
 
 - Prioritas otomatis hanyalah **usulan** dari kata kunci SOP 3.3. Helpdesk menetapkan prioritas final berdasarkan dampak terverifikasi.

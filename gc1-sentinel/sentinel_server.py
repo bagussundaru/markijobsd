@@ -77,6 +77,11 @@ DEFAULT_CONFIG = {
     "ai_external_approved": False,
     "ai_hermes_exe": "",
     "ai_hermes_home": "",
+    "doc_rules": [
+        {"name": "Pembuatan akun",
+         "keywords": ["pembuatan akun", "buat akun", "akun baru", "dibuatkan akun", "pendaftaran akun", "pembuatan user", "buat user", "pembuatan username"],
+         "docs": ["approval", "nota_dinas"]}
+    ],
     "team_view_enabled": False,
     "team_view_token": "",
     "live_helpdesk_url": "https://pdn.layanan.go.id"
@@ -101,6 +106,8 @@ HELPDESK_SNAPSHOT = []
 LAST_SYNC_TIME = ""
 TELKOM_SKIPPED = 0
 TICKET_ARCHIVE = {}
+PIC_REGISTRY = {}      # nomor HP TERVERIFIKASI -> data PIC (hanya yang sudah lolos verifikasi Komdigi)
+IDENTITY_CASES = {}    # nomor HP belum terverifikasi -> kasus verifikasi (belum disimpan sebagai PIC)
 SYNC_HOURS = set()
 MONITOR_START = 0
 CONFIG = dict(DEFAULT_CONFIG)
@@ -133,7 +140,7 @@ def save_config(cfg):
 
 
 def load_persisted_data():
-    global ALERTS, WA_TICKETS, TICKET_REGISTRY, SENT_RECAP_HASHES, WA_QUEUE, WA_HISTORY, HELPDESK_SNAPSHOT, LAST_SYNC_TIME, TICKET_ARCHIVE, SYNC_HOURS, MONITOR_START
+    global ALERTS, WA_TICKETS, TICKET_REGISTRY, SENT_RECAP_HASHES, WA_QUEUE, WA_HISTORY, HELPDESK_SNAPSHOT, LAST_SYNC_TIME, TICKET_ARCHIVE, SYNC_HOURS, MONITOR_START, PIC_REGISTRY, IDENTITY_CASES
     if DATA_FILE.exists():
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -147,6 +154,8 @@ def load_persisted_data():
                 HELPDESK_SNAPSHOT = data.get("helpdesk_snapshot", [])
                 LAST_SYNC_TIME = data.get("last_sync_time", "")
                 TICKET_ARCHIVE = data.get("ticket_archive", {})
+                PIC_REGISTRY = data.get("pic_registry", {})
+                IDENTITY_CASES = data.get("identity_cases", {})
                 SYNC_HOURS = set(data.get("sync_hours", []))
                 MONITOR_START = data.get("monitor_start", 0)
         except Exception as e:
@@ -168,7 +177,9 @@ def save_persisted_data():
                 "last_sync_time": LAST_SYNC_TIME,
                 "ticket_archive": TICKET_ARCHIVE,
                 "sync_hours": sorted(SYNC_HOURS)[-24 * 70:],
-                "monitor_start": MONITOR_START
+                "monitor_start": MONITOR_START,
+                "pic_registry": PIC_REGISTRY,
+                "identity_cases": IDENTITY_CASES
             }, f, indent=2, ensure_ascii=False)
         os.replace(tmp, DATA_FILE)
     except Exception as e:
@@ -296,6 +307,8 @@ def track_ticket(tid, state, group=""):
         e["current_state"] = state
         if prev.lower() != "assigned":
             e["seen_other_state"] = True
+        if "pending" in prev.lower() and "pending" not in state.lower() and not any(k in state.lower() for k in ("closed", "reject", "tolak", "cancel")):
+            e.setdefault("docs", {}).setdefault("approval", {"ref": f"Status ITSM berubah dari {prev} ke {state}", "by": "Sentinel", "at": time.strftime("%d %b %Y %H:%M"), "auto": True})
         if not e.get("responded_ts") and any(k in state.lower() for k in ("progress", "pending", "resolved", "closed", "complete")):
             e["responded_ts"] = now
             add_history(e, "Respons pertama terdeteksi", f"Status beralih dari {prev or 'Assigned'}")
@@ -563,7 +576,9 @@ def convert_wa_message_to_ticket(sender, group, text, matched_kw="GC 1", msg_id=
 def enrich_ticket_with_sop(t):
     """Lengkapi tiket dengan klasifikasi, PIC per peran, timeline, dan SLA hidup (SOP v0.2)."""
     if t.get("isFromWa"):
-        return apply_sla(t)
+        apply_sla(t)
+        apply_identity(t)
+        return apply_docs(t)
 
     tid = t.get("ticketId", "")
     desc = t.get("shortDesc", "")
@@ -613,7 +628,8 @@ def enrich_ticket_with_sop(t):
          "desc": "Konfirmasi hasil pengerjaan dengan tenan (SOP 5.6).",
          "status": "completed" if done else "pending", "actor": "Helpdesk L0 dan tenan", "time": "Selesai" if done else "-"},
     ]
-    return apply_sla(t)
+    apply_sla(t)
+    return apply_docs(t)
 
 
 def should_report_ticket(ticket_data):
@@ -764,6 +780,116 @@ def build_daily_recap(day):
     }
 
 
+CASE_STATUSES = ("unknown", "asked", "claimed", "registration_requested", "rejected")
+_PHONE_RE = re.compile(r"(?<!\d)(?:\+?62|0)8\d[\d\s-]{6,12}\d")
+
+
+def normalize_phone(raw):
+    """Nomor HP -> 62xxxxxxxxxx (hanya digit). String kosong bila tidak tampak sebagai nomor."""
+    digits = re.sub(r"\D", "", str(raw or ""))
+    if digits.startswith("0"):
+        digits = "62" + digits[1:]
+    elif digits.startswith("8") and 9 <= len(digits) <= 12:
+        digits = "62" + digits
+    return digits if 10 <= len(digits) <= 15 else ""
+
+
+def looks_like_phone(text):
+    t = str(text or "").strip()
+    return bool(re.fullmatch(r"\+?[\d\s\-()]{8,24}", t)) and bool(normalize_phone(t))
+
+
+def mask_phones(text):
+    """Samarkan nomor HP kecuali 4 digit terakhir (dipakai untuk tampilan tim)."""
+    return _PHONE_RE.sub(lambda m: re.sub(r"\d(?=(?:\D*\d){4})", "*", m.group(0)), text)
+
+
+def identity_for(phone):
+    if phone and phone in PIC_REGISTRY:
+        e = PIC_REGISTRY[phone]
+        return {"status": "verified", "phone": phone, "name": e.get("name", ""), "instansi": e.get("instansi", "")}
+    if phone and phone in IDENTITY_CASES:
+        c = IDENTITY_CASES[phone]
+        return {"status": c.get("status", "unknown"), "phone": phone, "claimedName": c.get("claimedName", ""),
+                "claimedInstansi": c.get("claimedInstansi", ""), "komdigiRef": c.get("komdigiRef", "")}
+    return {"status": "unknown" if phone else "no_phone", "phone": phone or ""}
+
+
+def ensure_case(phone, tid):
+    c = IDENTITY_CASES.setdefault(phone, {"phone": phone, "status": "unknown", "claimedName": "", "claimedInstansi": "",
+                                          "komdigiRef": "", "firstSeen": time.time(), "ticketIds": [], "history": []})
+    if tid and tid not in c["ticketIds"]:
+        c["ticketIds"].append(tid)
+    return c
+
+
+def case_event(case, text, by="Sentinel", detail=""):
+    """Catat di kasus dan di riwayat setiap tiket dari nomor itu."""
+    case.setdefault("history", []).append({"ts": time.time(), "time": time.strftime("%d %b %Y %H:%M:%S"), "event": text, "detail": detail, "actor": by})
+    for tid in case.get("ticketIds", []):
+        e = TICKET_REGISTRY.get(tid)
+        if e is not None:
+            add_history(e, text, detail, actor=by)
+
+
+def apply_identity(t):
+    """Status identitas pelapor (SOP 4.1) dihitung hidup dari registri, jadi verifikasi langsung berlaku ke semua tiketnya."""
+    phone = t.get("senderPhone", "") or ""
+    ident = identity_for(phone)
+    t["identity"] = ident
+    flags = list(t.get("escalationFlags") or [])
+    closed = t.get("slaClosed")
+    st = ident["status"]
+    if st == "verified":
+        t["requestedFor"] = f"{ident['name']} ({ident['instansi']})"
+        t["location"] = ident["instansi"] or t.get("location", "")
+        t["senderVerified"] = True
+    elif st == "rejected":
+        t["senderVerified"] = False
+        t["requestState"] = "Closed"
+        t["slaClosed"] = True
+        t["slaStatusText"] = "Ditolak: bukan tenan"
+        t["slaBadgeClass"] = "sla-safe"
+        t["slaBreached"] = False
+        flags = ["Pelapor ditolak (bukan tenan terdaftar), aduan dihentikan (SOP 4.1)"]
+    elif st == "no_phone":
+        if t.get("senderVerified") is not True:
+            t["senderVerified"] = False if t.get("senderVerified") is False else None
+            if not closed:
+                flags.append("Nomor HP pelapor belum dicatat: lengkapi untuk verifikasi identitas (SOP 4.1)")
+    else:
+        t["senderVerified"] = False
+        if not closed:
+            flags.append("Nomor belum terdaftar: tanyakan asal dan instansi, jangan beri informasi layanan (SOP 4.1)")
+    t["escalationFlags"] = flags
+    return t
+
+
+DOC_LABELS = {"approval": "Approval pejabat/atasan pemohon", "nota_dinas": "Nota dinas"}
+
+
+def apply_docs(t):
+    """Syarat dokumen per jenis permintaan (mis. pembuatan akun: approval + nota dinas). Hanya pencatatan, tidak memblokir sistem lain."""
+    text = f"{t.get('shortDesc', '')} {t.get('rawWaText', '')}".lower()
+    rule = next((r for r in (CONFIG.get("doc_rules") or []) if any(k in text for k in r.get("keywords", []))), None)
+    if not rule:
+        t["docs"] = None
+        return t
+    e = TICKET_REGISTRY.get(t.get("ticketId", ""), {})
+    have = e.get("docs", {})
+    items, complete = [], True
+    for key in rule.get("docs", []):
+        d = have.get(key)
+        items.append({"key": key, "label": DOC_LABELS.get(key, key), "ok": bool(d), "ref": (d or {}).get("ref", ""),
+                      "by": (d or {}).get("by", ""), "at": (d or {}).get("at", ""), "auto": bool((d or {}).get("auto"))})
+        complete = complete and bool(d)
+    t["docs"] = {"rule": rule.get("name", ""), "items": items, "complete": complete}
+    if not complete and not t.get("slaClosed"):
+        missing = ", ".join(i["label"].lower() for i in items if not i["ok"])
+        t["escalationFlags"] = list(t.get("escalationFlags") or []) + [f"Syarat {rule.get('name', '').lower()} belum lengkap ({missing}): jangan diproses dulu"]
+    return t
+
+
 def archive_ticket(t):
     """Simpan ringkasan tiap tiket yang pernah terpantau, agar laporan periode tidak bergantung pada daftar layar saat ini."""
     tid = t.get("ticketId")
@@ -787,6 +913,8 @@ def archive_ticket(t):
         "createdTs": t.get("createdTs") or rec["firstSeenTs"],
         "respondedTs": e.get("responded_ts"),
         "waFirstReportAt": t.get("waFirstReportAt", "") or "",
+        "docsRule": (t.get("docs") or {}).get("rule", ""),
+        "docsComplete": (t.get("docs") or {}).get("complete", True),
     })
     if closed:
         rec.setdefault("closedSeenTs", time.time())
@@ -892,6 +1020,8 @@ def compute_report(kind, day):
         "top_agencies": top_agencies,
         "critical_major": cm,
         "wa_total": len(wa), "wa_linked": len(wa_linked), "wa_unlinked": len(wa) - len(wa_linked),
+        "docs_incomplete": len([r for r in rows if r.get("docsRule") and not r.get("docsComplete") and not r.get("closedSeenTs")]),
+        "wa_unverified": len([w for w in wa if identity_for(w.get("senderPhone", ""))["status"] != "verified"]),
         "coverage_pct": round(hours_cov / hours_total * 100, 1),
         "coverage_hours": f"{hours_cov} dari {hours_total} jam",
         "monitor_start": time.strftime("%d %b %Y %H:%M", time.localtime(MONITOR_START)) if MONITOR_START else "-",
@@ -931,7 +1061,9 @@ table{{border-collapse:collapse;min-width:360px}}td,th{{border:1px solid #cbd5e1
 <tr><td>Kepatuhan SLA penyelesaian (target &gt; 95%)</td><td>{pct(rep['sla_compliance_pct'])}</td></tr>
 <tr><td>Respons pertama &lt; 15 menit</td><td>{pct(rep['response_within_15m_pct'])} (teramati {rep['response_known']}, tidak teramati {rep['response_unknown']})</td></tr>
 <tr><td>Tiket dengan penanda eskalasi</td><td>{rep['escalated_tickets']}</td></tr>
-<tr><td>Aduan WA / sudah bertiket / belum bertiket</td><td>{rep['wa_total']} / {rep['wa_linked']} / {rep['wa_unlinked']}</td></tr></table>
+<tr><td>Aduan WA / sudah bertiket / belum bertiket</td><td>{rep['wa_total']} / {rep['wa_linked']} / {rep['wa_unlinked']}</td></tr>
+<tr><td>Aduan WA dari pelapor belum terverifikasi</td><td>{rep['wa_unverified']}</td></tr>
+<tr><td>Tiket dengan syarat dokumen belum lengkap (mis. approval/nota dinas)</td><td>{rep['docs_incomplete']}</td></tr></table>
 {table('Hasil SLA', rep['sla_outcomes'])}{table('Per sumber', rep['by_source'])}{table('Per tipe', rep['by_type'])}{table('Per prioritas', rep['by_priority'])}
 {table('Tren', rep['trend'])}{table('Instansi terbanyak', dict(rep['top_agencies']))}
 <h3>Insiden Critical / Major</h3><table><tr><th>Tiket</th><th>Instansi</th><th>Prioritas</th><th>Status</th><th>SLA</th><th>Uraian</th></tr>{cm or '<tr><td colspan=6><em>Tidak ada</em></td></tr>'}</table>
@@ -949,7 +1081,7 @@ def build_export_csv(kind="daily", day=""):
     w.writerow(["Sumber", "No Tiket", "Tiket Portal Tertaut", "Instansi", "Pemohon", "Uraian", "Tipe", "Prioritas",
                 "Prioritas Ditetapkan Helpdesk", "Status Terakhir Terpantau", "Resolver", "Waktu Masuk",
                 "Waktu Aduan Pertama WA", "Waktu Respons Pertama", "Respons (menit)", "Batas SLA", "Hasil SLA",
-                "Waktu Selesai Terpantau"])
+                "Waktu Selesai Terpantau", "Syarat Dokumen"])
     for r in sorted(TICKET_ARCHIVE.values(), key=lambda x: x.get("createdTs", 0)):
         if not (start <= r.get("createdTs", 0) < end):
             continue
@@ -961,6 +1093,7 @@ def build_export_csv(kind="daily", day=""):
             r.get("state"), r.get("layer"), fmt_wib(r["createdTs"]), r.get("waFirstReportAt"),
             fmt_wib(resp) if resp else "", int((resp - r["createdTs"]) // 60) if resp else "",
             fmt_wib(deadline), outcome, fmt_wib(r["closedSeenTs"]) if r.get("closedSeenTs") else "",
+            "-" if not r.get("docsRule") else ("Lengkap" if r.get("docsComplete") else "Belum lengkap"),
         ])
     return buf.getvalue()
 
@@ -1110,7 +1243,10 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def send_json(self, payload, code=200):
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        text = json.dumps(payload, ensure_ascii=False)
+        if not self._is_local():
+            text = mask_phones(text)  # tampilan tim: nomor HP disamarkan
+        body = text.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -1282,6 +1418,21 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json(rep_data)
                 else:
                     self.send_bytes(build_report_html(rep_data).encode("utf-8"), "text/html; charset=utf-8")
+
+            elif path == "/api/pic_registry":
+                if not self._is_local():
+                    self.send_error(403, "Hanya dari Mini PC operator")
+                    return
+                reg = sorted(PIC_REGISTRY.values(), key=lambda e: (e.get("instansi", ""), e.get("name", "")))
+                cases = [dict(c, ticketCount=len(c.get("ticketIds", []))) for c in IDENTITY_CASES.values()]
+                self.send_json({"registry": reg, "cases": sorted(cases, key=lambda c: -c.get("firstSeen", 0))})
+
+            elif path == "/api/pic_lookup":
+                if not self._is_local():
+                    self.send_error(403, "Hanya dari Mini PC operator")
+                    return
+                q = parse_qs(parsed.query)
+                self.send_json(identity_for(normalize_phone((q.get("phone") or [""])[0])))
 
             elif path == "/api/whoami":
                 self.send_json({"role": "operator" if self._is_local() else "team"})
@@ -1728,6 +1879,19 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
 
                 wa_ticket = convert_wa_message_to_ticket(sender, group, text, kw, msg_id=msg_id, wa_ts=wa_ts, verified=verified)
                 if wa_ticket:
+                    phone = normalize_phone(data.get("phone") or (sender if looks_like_phone(sender) else ""))
+                    wa_ticket["senderPhone"] = phone
+                    ident = identity_for(phone)
+                    if phone:
+                        e_t = TICKET_REGISTRY[wa_ticket["ticketId"]]
+                        if ident["status"] == "verified":
+                            add_history(e_t, "Nomor pelapor terdaftar", f"{ident['name']} ({ident['instansi']})", actor="Sentinel")
+                        else:
+                            case = ensure_case(phone, wa_ticket["ticketId"])
+                            if len(case["ticketIds"]) == 1 and not case["history"]:
+                                case_event(case, "Nomor baru belum terdaftar", "Tanyakan asal dan instansi (SOP 4.1)")
+                            else:
+                                add_history(e_t, "Nomor pelapor belum terverifikasi", f"status: {ident['status']}", actor="Sentinel")
                     wa_ticket["waTier"] = tier
                     wa_ticket["enteredBy"] = entered_by if manual else ""
                     if manual:
@@ -1738,7 +1902,7 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     return
                 LAST_SYNC_TIME = time.strftime("%H:%M:%S WIB")
                 print(f"[Sentinel Server] WhatsApp -> pra-tiket {wa_ticket['ticketId']} dari {sender} [{group}] ({wa_ticket['autoPriority']})")
-                self.send_json({"status": "success", "ticket": wa_ticket})
+                self.send_json({"status": "success", "ticket": wa_ticket, "identity": identity_for(wa_ticket.get("senderPhone", ""))})
 
             elif path == "/api/ai_suggestion":
                 # Saran dari agen AI: hanya disimpan sebagai usulan, tidak mengubah prioritas/SLA sampai Helpdesk menerima
@@ -1763,6 +1927,91 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 e["ai"] = clean
                 e.pop("ai_decision", None)
                 add_history(e, "Saran AI diterima server", f"{clean['priority'] or '-'} | {clean['summary'][:80]}", actor="Agen AI")
+                save_persisted_data()
+                self.send_json({"status": "ok"})
+
+            elif path == "/api/pic_action":
+                by = re.sub(r"\s+", " ", str(data.get("by") or "")).strip()[:60]
+                if len(by) < 2 or by.lower() in ("operator", "operator helpdesk"):
+                    self.send_json({"status": "error", "message": "Nama petugas wajib diisi (SOP bab 12)"}, 400)
+                    return
+                if not self._is_local():
+                    self.send_json({"status": "error", "message": "Hanya dari Mini PC operator"}, 403)
+                    return
+                act = str(data.get("action") or "")
+                clip = lambda k, n=120: re.sub(r"\s+", " ", str(data.get(k) or "")).strip()[:n]
+                phone = normalize_phone(data.get("phone"))
+                name, instansi, ref, note, basis = clip("name"), clip("instansi"), clip("komdigiRef"), clip("note", 300), clip("basis", 200)
+
+                def err(msg, code=400):
+                    self.send_json({"status": "error", "message": msg}, code)
+
+                if act == "add_verified":
+                    if not (phone and name and instansi and basis):
+                        return err("Nomor HP, nama, instansi, dan dasar verifikasi wajib diisi")
+                    PIC_REGISTRY[phone] = {"phone": phone, "name": name, "instansi": instansi, "basis": basis, "verifiedBy": by, "verifiedAt": time.strftime("%d %b %Y %H:%M"), "source": "manual"}
+                    c = IDENTITY_CASES.pop(phone, None)
+                    if c:
+                        case_event(c, "Identitas terverifikasi", f"{name} ({instansi}). Dasar: {basis}", by)
+                elif act == "import_csv":
+                    added = skipped = 0
+                    for line in str(data.get("text") or "").splitlines():
+                        parts = [x.strip() for x in re.split(r"[;\t,]", line)]
+                        if len(parts) < 3:
+                            skipped += bool(line.strip())
+                            continue
+                        ph = normalize_phone(parts[2])
+                        if not (ph and parts[0] and parts[1]):
+                            skipped += 1
+                            continue
+                        PIC_REGISTRY[ph] = {"phone": ph, "name": parts[0][:120], "instansi": parts[1][:120], "basis": basis or "Impor daftar PIC resmi", "verifiedBy": by, "verifiedAt": time.strftime("%d %b %Y %H:%M"), "source": "import"}
+                        c = IDENTITY_CASES.pop(ph, None)
+                        if c:
+                            case_event(c, "Identitas terverifikasi (impor daftar PIC)", f"{parts[0]} ({parts[1]})", by)
+                        added += 1
+                    save_persisted_data()
+                    self.send_json({"status": "ok", "added": added, "skipped": skipped})
+                    return
+                elif act in ("case_update", "verify_case", "reject_case"):
+                    c = IDENTITY_CASES.get(phone)
+                    if not c:
+                        return err("Kasus verifikasi untuk nomor ini tidak ditemukan", 404)
+                    if act == "case_update":
+                        status = str(data.get("status") or "")
+                        if status not in ("asked", "claimed", "registration_requested"):
+                            return err("Status tidak valid")
+                        if status == "claimed" and not (name and instansi):
+                            return err("Nama dan instansi yang disebut pelapor wajib diisi")
+                        if status == "registration_requested" and not ref:
+                            return err("Isi nomor/tanggal pengajuan pendaftaran ke Komdigi")
+                        if name:
+                            c["claimedName"] = name
+                        if instansi:
+                            c["claimedInstansi"] = instansi
+                        if ref:
+                            c["komdigiRef"] = ref
+                        c["status"] = status
+                        label = {"asked": "Pelapor sudah ditanya asal dan instansi", "claimed": "Pelapor menyebut identitas",
+                                 "registration_requested": "Pendaftaran diajukan ke Komdigi"}[status]
+                        case_event(c, label, (f"{name} ({instansi}) " if name else "") + (f"Ref: {ref}. " if ref else "") + note, by)
+                    elif act == "verify_case":
+                        vn, vi = name or c.get("claimedName", ""), instansi or c.get("claimedInstansi", "")
+                        if not (vn and vi and ref):
+                            return err("Nama, instansi, dan nomor/bukti verifikasi dari Komdigi wajib diisi sebelum nomor disimpan")
+                        PIC_REGISTRY[phone] = {"phone": phone, "name": vn, "instansi": vi, "basis": f"Terverifikasi Komdigi: {ref}", "verifiedBy": by, "verifiedAt": time.strftime("%d %b %Y %H:%M"), "source": "verifikasi"}
+                        case_event(c, "Identitas terverifikasi, nomor disimpan", f"{vn} ({vi}). Bukti: {ref}", by)
+                        IDENTITY_CASES.pop(phone, None)
+                    else:
+                        if not note:
+                            return err("Alasan penolakan wajib diisi")
+                        c["status"] = "rejected"
+                        case_event(c, "Pelapor ditolak: bukan tenan terdaftar", note, by)
+                elif act == "remove":
+                    if phone not in PIC_REGISTRY or not note:
+                        return err("Nomor tidak ada di daftar, atau alasan penghapusan kosong")
+                    PIC_REGISTRY.pop(phone)
+                else:
+                    return err("Aksi tidak dikenal")
                 save_persisted_data()
                 self.send_json({"status": "ok"})
 
@@ -1800,6 +2049,36 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                         return
                     e["linked_portal"] = value.upper()
                     add_history(e, "Ditautkan ke tiket portal", value.upper(), actor=by)
+                elif action == "set_phone":
+                    w = next((x for x in WA_TICKETS if x.get("ticketId") == tid), None)
+                    ph = normalize_phone(value)
+                    if not w or not ph:
+                        self.send_json({"status": "error", "message": "Hanya untuk pra-tiket WA, dan nomor HP harus valid"}, 400)
+                        return
+                    w["senderPhone"] = ph
+                    add_history(e, "Nomor HP pelapor dicatat", "nomor tersimpan di tiket", actor=by)
+                    if identity_for(ph)["status"] != "verified":
+                        case = ensure_case(ph, tid)
+                        if not case["history"]:
+                            case_event(case, "Nomor baru belum terdaftar", "Tanyakan asal dan instansi (SOP 4.1)", by)
+                elif action in ("doc_set", "doc_clear"):
+                    key = str(data.get("doc") or "")
+                    if key not in DOC_LABELS:
+                        self.send_json({"status": "error", "message": "Dokumen tidak dikenal"}, 400)
+                        return
+                    docs = e.setdefault("docs", {})
+                    if action == "doc_set":
+                        if not value:
+                            self.send_json({"status": "error", "message": "Isi nomor dan tanggal dokumen (mis. ND-123/2026, 30 Sep 2026)"}, 400)
+                            return
+                        docs[key] = {"ref": value, "by": by, "at": time.strftime("%d %b %Y %H:%M"), "auto": False}
+                        add_history(e, f"{DOC_LABELS[key]} dicatat", f"{value}. {note}".strip(), actor=by)
+                    else:
+                        if not note:
+                            self.send_json({"status": "error", "message": "Alasan pencabutan wajib diisi"}, 400)
+                            return
+                        docs.pop(key, None)
+                        add_history(e, f"{DOC_LABELS[key]} dicabut", note, actor=by)
                 elif action == "ai_accept":
                     ai = e.get("ai")
                     if not ai:

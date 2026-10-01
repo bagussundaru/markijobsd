@@ -33,5 +33,24 @@
   "ai_hermes_home": "",
   "team_view_enabled": false,
   "team_view_token": "",
-  "wa_priority_groups": []
+  "wa_priority_groups": [],
+  "doc_rules": [
+    {
+      "name": "Pembuatan akun",
+      "keywords": [
+        "pembuatan akun",
+        "buat akun",
+        "akun baru",
+        "dibuatkan akun",
+        "pendaftaran akun",
+        "pembuatan user",
+        "buat user",
+        "pembuatan username"
+      ],
+      "docs": [
+        "approval",
+        "nota_dinas"
+      ]
+    }
+  ]
 }
