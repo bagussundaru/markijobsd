@@ -199,7 +199,43 @@ SLA_HOURS = {"Critical": 4, "Major": 8, "Minor": 24, "Service Request": 24}
 RESPONSE_SLA_SECONDS = 15 * 60  # SOP 3.2: respons < 15 menit untuk semua aduan/tiket
 UPDATE_INTERVAL_MIN = {"Critical": 30, "Major": 60, "Minor": 240, "Service Request": 240}
 ESCALATE_L2_MINUTES = {"Critical": 15, "Major": 60, "Minor": 240}  # SOP 6.6
-CLOSED_STATES = ("resolved", "closed", "complete", "selesai")
+CLOSED_STATES = ("resolved", "closed", "complete", "selesai", "cancel", "reject", "tolak")
+
+# KAK poin 18.c: SLA permintaan layanan menurut Katalog Layanan (hari, jam). Format "4 Hari, 4 Jam" belum disepakati
+# artinya dengan Tim GC1 (SOP 3.4); di sini dibaca sebagai DURASI TOTAL (hari x 24 + jam) dan ditandai di tiket.
+SLA_CATALOG = {
+    "IaaS": (4, 4), "BaaS": (9, 6), "SecaS": (1, 24), "SaaS": (16, 0), "Layanan Pendukung": (3, 0), "PaaS": (3, 0),
+    "Baremetal as a Service": (5, 0), "DC Colocation": (4, 8), "Layanan Jaringan": (4, 2), "Layanan Cloud Terpadu": (3, 0),
+    "Layanan Sandi Data": (0, 9), "Pendaftaran": (1, 0),
+}
+SERVICE_CATEGORIES = list(SLA_CATALOG)
+KAK_INCIDENT_BAKU_HOURS = 24.25   # KAK 18.c: "SLA Insiden: 24 Jam, 15 menit"
+CATEGORY_KW = [  # urutan: yang spesifik dulu, IaaS (luas) terakhir
+    ("Pendaftaran", ["pendaftaran akun", "pembuatan akun", "buat akun", "akun baru", "dibuatkan akun", "registrasi akun", "pembuatan user", "buat user"]),
+    ("Baremetal as a Service", ["baremetal", "bare metal"]),
+    ("DC Colocation", ["colocation", "kolokasi", "rak server", "rak colo"]),
+    ("BaaS", ["backup", "restore"]),
+    ("SecaS", ["waf", "web application firewall", "firewall", "edr", "ddos", "vulnerability", "siem", "ndr", "dns filtering", "email security", "traffic filter", "attack surface"]),
+    ("PaaS", ["cpanel", "whm", "hosting"]),
+    ("SaaS", ["cloud storage", "cdn", "project management", "replikasi", "replication"]),
+    ("Layanan Jaringan", ["ip public", "ip publik", "dns", "vlan", "bandwidth", "routing", "nat ", "port akses", "vpn"]),
+    ("Layanan Pendukung", ["video conference", "zoom", "diskusi teknis", "pendampingan", "workshop", "webinar", "pelatihan"]),
+    ("IaaS", ["vm", "virtual machine", "vcpu", "cpu", "ram", "disk", "storage", "vdc", "resource", "jump host", "snapshot", "console", "server"]),
+]
+
+
+def classify_category(text):
+    t = f" {str(text or '').lower()} "
+    for cat, kws in CATEGORY_KW:
+        if any(k in t for k in kws):
+            return cat
+    return ""
+
+
+def catalog_hours(cat):
+    d, h = SLA_CATALOG[cat]
+    return d * 24 + h
+
 
 CRITICAL_KW = [
     "ransomware", "kebocoran data", "data bocor", "akses tidak sah", "diretas", "hacked",
@@ -368,6 +404,15 @@ def apply_sla(t, now=None):
     if prio not in SLA_HOURS:
         prio = "Minor"
     hours = SLA_HOURS[prio]
+    sla_basis = f"Matriks prioritas {prio} ({hours} jam)"
+    if prio == "Service Request":
+        cat = t.get("serviceCategory") or ""
+        if cat in SLA_CATALOG:
+            d_, h_ = SLA_CATALOG[cat]
+            hours = catalog_hours(cat)
+            sla_basis = f"KAK 18.c {cat}: {d_} Hari {h_} Jam, dihitung {hours} jam total (tafsiran belum dikonfirmasi Tim GC1)"
+        else:
+            sla_basis = "Service request tanpa kategori layanan terdeteksi: baku 24 jam (pilih kategori agar SLA katalog berlaku)"
     created_ts = t.get("createdTs") or e.get("first_seen") or now
     state = (t.get("requestState") or "").lower()
     closed = any(k in state for k in CLOSED_STATES)
@@ -456,6 +501,7 @@ def apply_sla(t, now=None):
         "priority": prio,
         "priorityOverridden": bool(e.get("priority_override")),
         "slaLimitHours": hours,
+        "slaBasis": sla_basis,
         "createdTs": created_ts,
         "deadlineTs": deadline,
         "slaTargetTime": time.strftime("%d %b %Y %H:%M WIB", time.localtime(deadline)),
@@ -613,6 +659,7 @@ def convert_wa_message_to_ticket(sender, group, text, matched_kw="GC 1", msg_id=
 def enrich_ticket_with_sop(t):
     """Lengkapi tiket dengan klasifikasi, PIC per peran, timeline, dan SLA hidup (SOP v0.2)."""
     if t.get("isFromWa"):
+        t["serviceCategory"] = TICKET_REGISTRY.get(t.get("ticketId", ""), {}).get("category_override") or classify_category(t.get("rawWaText", ""))
         apply_sla(t)
         apply_identity(t)
         return apply_docs(t)
@@ -630,6 +677,7 @@ def enrich_ticket_with_sop(t):
     t["createdTs"] = parsed or e.get("first_seen") or time.time()
     t["createdTsEstimated"] = parsed is None
 
+    t["serviceCategory"] = e.get("category_override") or classify_category(desc)
     prio, ttype, reason = classify_ticket(desc)
     t["autoPriority"] = prio
     t["ticketType"] = ttype
@@ -950,6 +998,8 @@ def archive_ticket(t):
         "createdTs": t.get("createdTs") or rec["firstSeenTs"],
         "respondedTs": e.get("responded_ts"),
         "waFirstReportAt": t.get("waFirstReportAt", "") or "",
+        "serviceCategory": t.get("serviceCategory", "") or "",
+        "slaHours": t.get("slaLimitHours"),
         "docsRule": (t.get("docs") or {}).get("rule", ""),
         "docsComplete": (t.get("docs") or {}).get("complete", True),
     })
@@ -985,7 +1035,7 @@ def period_bounds(kind, day):
 def sla_outcome(rec, now):
     if rec.get("source") == "Pra-tiket WA":
         return "Pra-tiket (SLA resmi dari tiket ITSM)", rec["createdTs"]
-    hours = SLA_HOURS.get(rec.get("priority"), 24)
+    hours = rec.get("slaHours") or SLA_HOURS.get(rec.get("priority"), 24)
     deadline = rec["createdTs"] + hours * 3600
     closed = rec.get("closedSeenTs")
     if closed:
@@ -1013,6 +1063,24 @@ def compute_report(kind, day):
     judged = outcomes["Tepat waktu"] + outcomes["Terlambat"] + outcomes["Lewat SLA (masih terbuka)"]
     sla_pct = round(outcomes["Tepat waktu"] / judged * 100, 1) if judged else None
 
+    def kak_outcome(r):
+        hrs = KAK_INCIDENT_BAKU_HOURS if r.get("ticketType") == "Insiden" else (r.get("slaHours") or 24)
+        deadline = r["createdTs"] + hrs * 3600
+        c = r.get("closedSeenTs")
+        return ("ok" if c <= deadline else "late") if c else ("late" if now > deadline else "open")
+    kak = [kak_outcome(r) for r in rows]
+    kak_judged = kak.count("ok") + kak.count("late")
+    sla_kak_pct = round(kak.count("ok") / kak_judged * 100, 1) if kak_judged else None
+    cats = {}
+    for r, k in zip(rows, kak):
+        c = cats.setdefault(r.get("serviceCategory") or "Belum terklasifikasi", {"kategori": r.get("serviceCategory") or "Belum terklasifikasi", "request": 0, "insiden": 0, "ok": 0, "late": 0})
+        c["insiden" if r.get("ticketType") == "Insiden" else "request"] += 1
+        if k in ("ok", "late"):
+            c[k] += 1
+    by_category = []
+    for c in sorted(cats.values(), key=lambda x: -(x["request"] + x["insiden"])):
+        j = c["ok"] + c["late"]
+        by_category.append({"kategori": c["kategori"], "request": c["request"], "insiden": c["insiden"], "sla_pct": round(c["ok"] / j * 100, 1) if j else None})
     resp_known = [r for r in rows if r.get("respondedTs")]
     resp_ok = [r for r in resp_known if r["respondedTs"] - r["createdTs"] <= RESPONSE_SLA_SECONDS]
     resp_pct = round(len(resp_ok) / len(resp_known) * 100, 1) if resp_known else None
@@ -1065,6 +1133,8 @@ def compute_report(kind, day):
         "critical_major": cm,
         "wa_total": len(wa), "wa_linked": len(wa_linked), "wa_unlinked": len(wa) - len(wa_linked),
         "docs_incomplete": len([r for r in rows if r.get("docsRule") and not r.get("docsComplete") and not r.get("closedSeenTs")]),
+        "sla_kak_compliance_pct": sla_kak_pct,
+        "by_category": by_category,
         "wa_reply_target_minutes": brk_s // 60,
         "wa_reply_within_target_pct": round(len(wa_reply_ok) / len(wa_replied) * 100, 1) if wa_replied else None,
         "wa_reply_known": len(wa_replied), "wa_reply_unknown": len(pre_rows) - len(wa_replied),
@@ -1080,6 +1150,8 @@ def compute_report(kind, day):
             "Waktu selesai = saat Sentinel pertama kali melihat status Resolved/Closed, bukan waktu resmi di portal.",
             "SLA: Critical 4 jam, Major 8 jam, Minor 24 jam, Service Request 24 jam baku (katalog KAK 18.c belum dikonfirmasi BPO). Jam SLA tidak berhenti saat Pending.",
             "Prioritas berasal dari usulan otomatis kecuali ditandai ditetapkan Helpdesk.",
+            "SLA request memakai Katalog Layanan KAK 18.c per kategori; 'N Hari, M Jam' dibaca sebagai durasi total (belum dikonfirmasi Tim GC1). Kategori ditentukan dari kata kunci dan bisa diubah petugas.",
+            "Baris 'batas baku KAK' menilai insiden terhadap 24 jam 15 menit (KAK 18.c); baris SLA lain memakai matriks prioritas SOP (Critical 4, Major 8, Minor 24 jam).",
             "Respons pertama hanya dihitung bila terobservasi; yang tidak teramati dilaporkan terpisah.",
         ],
     }
@@ -1096,6 +1168,8 @@ def build_report_html(rep):
         f"<tr><td>{e(c['ticketId'])}</td><td>{e(c['location'])}</td><td>{e(c['priority'])}</td><td>{e(c['state'])}</td><td>{e(c['sla'])}</td><td>{e(c['desc'])}</td></tr>"
         for c in rep["critical_major"])
     pct = lambda v: "-" if v is None else f"{v}%"
+    cat_rows = "".join(f"<tr><td>{e(c['kategori'])}</td><td style='text-align:right'>{c['request']}</td><td style='text-align:right'>{c['insiden']}</td><td style='text-align:right'>{pct(c['sla_pct'])}</td></tr>" for c in rep["by_category"])
+    cat_table = f"<h3>Per kategori layanan (KAK 8.5.h)</h3><table><tr><th>Kategori</th><th>Request</th><th>Insiden</th><th>SLA</th></tr>{cat_rows or '<tr><td colspan=4><em>Tidak ada data</em></td></tr>'}</table>"
     kind_name = {"daily": "Harian", "weekly": "Mingguan", "monthly": "Bulanan"}[rep["kind"]]
     return f"""<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Laporan {kind_name} GC 1 (data terpantau)</title>
 <style>body{{font:13px/1.45 Segoe UI,Arial,sans-serif;margin:24px;color:#0f172a}}h1{{font-size:20px;margin:0}}h3{{margin:18px 0 6px;font-size:14px}}
@@ -1107,13 +1181,14 @@ table{{border-collapse:collapse;min-width:360px}}td,th{{border:1px solid #cbd5e1
 <tr><td>Total tiket masuk (periode ini)</td><td>{rep['total']}</td></tr><tr><td>Periode sebelumnya</td><td>{rep['previous_total']}</td></tr>
 <tr><td>Terbuka / selesai (terpantau)</td><td>{rep['open']} / {rep['closed']}</td></tr>
 <tr><td>Kepatuhan SLA penyelesaian (target &gt; 95%)</td><td>{pct(rep['sla_compliance_pct'])}</td></tr>
+<tr><td>Kepatuhan SLA menurut batas baku KAK 18.c (insiden 24 jam 15 menit; request sesuai katalog)</td><td>{pct(rep['sla_kak_compliance_pct'])}</td></tr>
 <tr><td>Respons pertama &lt; 15 menit</td><td>{pct(rep['response_within_15m_pct'])} (teramati {rep['response_known']}, tidak teramati {rep['response_unknown']})</td></tr>
 <tr><td>Tiket dengan penanda eskalasi</td><td>{rep['escalated_tickets']}</td></tr>
 <tr><td>Aduan WA / sudah bertiket / belum bertiket</td><td>{rep['wa_total']} / {rep['wa_linked']} / {rep['wa_unlinked']}</td></tr>
 <tr><td>Balasan WA dalam target {rep['wa_reply_target_minutes']} menit</td><td>{'-' if rep['wa_reply_within_target_pct'] is None else str(rep['wa_reply_within_target_pct']) + '%'} (teramati {rep['wa_reply_known']}, tidak teramati {rep['wa_reply_unknown']})</td></tr>
 <tr><td>Aduan WA dari pelapor belum terverifikasi</td><td>{rep['wa_unverified']}</td></tr>
 <tr><td>Tiket dengan syarat dokumen belum lengkap (mis. approval/nota dinas)</td><td>{rep['docs_incomplete']}</td></tr></table>
-{table('Hasil SLA', rep['sla_outcomes'])}{table('Per sumber', rep['by_source'])}{table('Per tipe', rep['by_type'])}{table('Per prioritas', rep['by_priority'])}
+{cat_table}{table('Hasil SLA', rep['sla_outcomes'])}{table('Per sumber', rep['by_source'])}{table('Per tipe', rep['by_type'])}{table('Per prioritas', rep['by_priority'])}
 {table('Tren', rep['trend'])}{table('Instansi terbanyak', dict(rep['top_agencies']))}
 <h3>Insiden Critical / Major</h3><table><tr><th>Tiket</th><th>Instansi</th><th>Prioritas</th><th>Status</th><th>SLA</th><th>Uraian</th></tr>{cm or '<tr><td colspan=6><em>Tidak ada</em></td></tr>'}</table>
 <p class="noprint"><button onclick="window.print()">Cetak / Simpan PDF</button></p></body></html>"""
@@ -2099,6 +2174,15 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                         return
                     e["linked_portal"] = value.upper()
                     add_history(e, "Ditautkan ke tiket portal", value.upper(), actor=by)
+                elif action == "set_category":
+                    if value not in SERVICE_CATEGORIES or not note:
+                        self.send_json({"status": "error", "message": "Kategori harus salah satu katalog KAK 18.c dan alasan wajib diisi"}, 400)
+                        return
+                    e["category_override"] = value
+                    add_history(e, "Kategori layanan ditetapkan Helpdesk", f"{value}. Alasan: {note}", actor=by)
+                    rec = TICKET_ARCHIVE.get(tid)
+                    if rec:
+                        rec["serviceCategory"] = value
                 elif action == "set_phone":
                     w = next((x for x in WA_TICKETS if x.get("ticketId") == tid), None)
                     ph = normalize_phone(value)

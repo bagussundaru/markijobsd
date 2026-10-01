@@ -1451,6 +1451,8 @@ function renderTicketExtra(ticket) {
         <div>Tipe</div><div>${escapeHtml(ticket.ticketType || "-")}</div>
         <div>Prioritas</div><div>${escapeHtml(ticket.priority || "-")} ${ticket.priorityOverridden ? "(ditetapkan Helpdesk)" : "(usulan otomatis)"}</div>
         <div>Dasar prioritas</div><div>${escapeHtml(ticket.priorityReason || "-")}</div>
+        <div>Kategori layanan (KAK 18.c)</div><div>${escapeHtml(ticket.serviceCategory || "belum terklasifikasi")}</div>
+        <div>Dasar batas SLA</div><div>${escapeHtml(ticket.slaBasis || "-")}</div>
         <div>Respons pertama</div><div>${escapeHtml(ticket.responseText || "-")}</div>
         <div>Update ke tenan</div><div>setiap ${ticket.updateEveryMin || "-"} menit</div>
         ${ticket.linkedPortalId ? `<div>Tiket portal tertaut</div><div>${escapeHtml(ticket.linkedPortalId)}</div>` : ""}
@@ -1463,6 +1465,7 @@ function renderTicketExtra(ticket) {
         <button class="btn btn-secondary btn-sm" id="actPrio">Tetapkan prioritas</button>
         ${ticket.isFromWa ? '<button class="btn btn-secondary btn-sm" id="actLink">Tautkan tiket portal</button>' : ""}
         <button class="btn btn-secondary btn-sm" id="actNote">Tambah catatan</button>
+        <button class="btn btn-secondary btn-sm" id="actCat">Ubah kategori layanan</button>
         <button class="btn btn-secondary btn-sm" id="actWho" title="Nama petugas yang tercatat pada tindakan">Petugas: ${escapeHtml((() => { try { return localStorage.getItem("gc1_operator") || "belum diisi"; } catch (_) { return "belum diisi"; } })())}</button>
       </div>
     </div>
@@ -1483,6 +1486,12 @@ function renderTicketExtra(ticket) {
     else await reopen();
   };
   document.getElementById("actAck")?.addEventListener("click", () => act({ action: "ack" }));
+  document.getElementById("actCat")?.addEventListener("click", () => {
+    const v = prompt("Kategori layanan (KAK 18.c):\nIaaS, BaaS, SecaS, SaaS, Layanan Pendukung, PaaS, Baremetal as a Service, DC Colocation, Layanan Jaringan, Layanan Cloud Terpadu, Layanan Sandi Data, Pendaftaran", ticket.serviceCategory || "");
+    if (!v) return;
+    const n = prompt("Alasan menetapkan kategori ini (wajib):");
+    if (n) act({ action: "set_category", value: v.trim(), note: n });
+  });
   document.getElementById("actManageIdent")?.addEventListener("click", () => { document.getElementById("ticketActivityModal")?.classList.remove("active"); openPic("cases", (ticket.identity || {}).phone); });
   document.getElementById("actCopyQ")?.addEventListener("click", () => { window.copyText(picQuestion()); alert("Pertanyaan disalin. Kirim manual lewat WhatsApp."); });
   document.getElementById("actSetPhone")?.addEventListener("click", () => {
@@ -1549,6 +1558,11 @@ function reportTable(title, obj) {
   return `<h4 style="margin:10px 0 2px;font-size:12.5px;">${escapeHtml(title)}</h4><table class="report-table">${rows || '<tr><td colspan="2"><em>Tidak ada data</em></td></tr>'}</table>`;
 }
 
+function categoryTable(r) {
+  const rows = (r.by_category || []).map((c) => `<tr><td>${escapeHtml(c.kategori)}</td><td>${c.request}</td><td>${c.insiden}</td><td>${c.sla_pct === null || c.sla_pct === undefined ? "-" : c.sla_pct + "%"}</td></tr>`).join("");
+  return `<h4 style="margin:10px 0 2px;font-size:12.5px;">Per kategori layanan (KAK 8.5.h): request | insiden | SLA</h4><table class="report-table">${rows || '<tr><td colspan="4"><em>Tidak ada data</em></td></tr>'}</table>`;
+}
+
 async function loadReport() {
   const date = reportDate.value || new Date().toISOString().slice(0, 10);
   try {
@@ -1561,6 +1575,7 @@ async function loadReport() {
         <tr><td>Tiket masuk (periode sebelumnya)</td><td>${r.total} (${r.previous_total})</td></tr>
         <tr><td>Terbuka / selesai (terpantau)</td><td>${r.open} / ${r.closed}</td></tr>
         <tr><td>Kepatuhan SLA penyelesaian (target &gt; 95%)</td><td>${pct(r.sla_compliance_pct)}</td></tr>
+        <tr><td>Kepatuhan SLA menurut batas baku KAK 18.c (insiden 24 jam 15 menit; request sesuai katalog)</td><td>${pct(r.sla_kak_compliance_pct)}</td></tr>
         <tr><td>Respons pertama &lt; 15 menit (teramati ${r.response_known}, tidak teramati ${r.response_unknown})</td><td>${pct(r.response_within_15m_pct)}</td></tr>
         <tr><td>Tiket dengan penanda eskalasi</td><td>${r.escalated_tickets}</td></tr>
         <tr><td>Aduan WA / sudah bertiket / belum bertiket</td><td>${r.wa_total} / ${r.wa_linked} / ${r.wa_unlinked}</td></tr>
@@ -1568,7 +1583,7 @@ async function loadReport() {
         <tr><td>Aduan WA dari pelapor belum terverifikasi</td><td>${r.wa_unverified ?? 0}</td></tr>
         <tr><td>Tiket dengan syarat dokumen belum lengkap (approval / nota dinas)</td><td>${r.docs_incomplete ?? 0}</td></tr>
       </table>
-      ${reportTable("Hasil SLA", r.sla_outcomes)}${reportTable("Per prioritas", r.by_priority)}${reportTable("Per tipe", r.by_type)}
+      ${categoryTable(r)}${reportTable("Hasil SLA", r.sla_outcomes)}${reportTable("Per prioritas", r.by_priority)}${reportTable("Per tipe", r.by_type)}
       ${reportTable("Per sumber", r.by_source)}${reportTable("Tren", r.trend)}${reportTable("Instansi terbanyak", Object.fromEntries(r.top_agencies || []))}
       <h4 style="margin:10px 0 2px;font-size:12.5px;">Insiden Critical / Major</h4>
       <table class="report-table">${(r.critical_major || []).map((c) => `<tr><td>${escapeHtml(c.ticketId)} &middot; ${escapeHtml(c.location)} &middot; ${escapeHtml(c.priority)} &middot; ${escapeHtml(c.sla)}<br><span style="color:#64748B;">${escapeHtml(c.desc)}</span></td><td>${escapeHtml(c.state)}</td></tr>`).join("") || '<tr><td colspan="2"><em>Tidak ada</em></td></tr>'}</table>

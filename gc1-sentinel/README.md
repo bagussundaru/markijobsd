@@ -111,17 +111,25 @@ Tampilan tim hanya bisa membaca dashboard, laporan, dan CSV. Semua tindakan, pen
 
 ## Dasar angka (apa yang resmi, apa yang internal)
 
+Bersumber dari **teks KAK** (poin 18.c, 8.5, 14), SOP v0.2, dan MoM 29 Sep 2026.
+
 | Ketentuan | Nilai | Dasar | Status |
 |---|---|---|---|
-| Respons semua aduan/tiket | < 15 menit | KAK 18.c, via SOP v0.2 bab 3.2 dan MoM 29 Sep 2026 (sore) | Resmi |
-| Penyelesaian baku | 24 jam 15 menit; Critical 4 jam, Major 8 jam, Minor 24 jam | KAK 18.c dan MoM; matriks SOP Komdigi No. 75 | Resmi (matriks perlu dicocokkan dengan dokumen aslinya) |
-| Capaian SLA bulanan | > 95% | MoM 29 Sep 2026 (pagi) | Resmi |
-| Yang dihitung | Hanya tiket GC1 di portal; tiket Telkom (GC2) terpisah | Dokumen_Helpdesk_per_Ruang_Lingkup_KAK_GC1 | Resmi |
-| Balasan WA 5-10 menit | 5 dan 10 menit | Target internal tim, lebih ketat dari 15 menit resmi | Internal |
-| Tenan membuka tiket ITSM | 15 menit | Pengaman internal, selaras dengan 15 menit respons; **belum ada angka resmi** | Internal, belum dikonfirmasi |
-| Jam SLA saat Pending; arti "Pending Approval"; format "4 hari 4 jam" | - | Belum disepakati dengan Tim GC1 | **Belum ditentukan**; Sentinel tidak menghentikan jam saat Pending |
+| SLA Insiden | **24 Jam, 15 menit** | KAK 18.c (kata per kata) | Resmi |
+| Matriks prioritas insiden | Critical 4 jam, Major 8 jam, Minor 24 jam | SOP Komdigi No. 75 (via SOP v0.2 dan MoM) | Dipakai Sentinel; dokumen aslinya belum diterima tim |
+| SLA permintaan layanan | Per Katalog Layanan: IaaS 4 Hari 4 Jam, BaaS 9 Hari 6 Jam, SecaS 1 Hari 24 Jam, SaaS 16 Hari, Layanan Pendukung 3 Hari, PaaS 3 Hari, Baremetal 5 Hari, DC Colocation 4 Hari 8 Jam, Jaringan 4 Hari 2 Jam, Cloud Terpadu 3 Hari, Sandi Data 9 Jam, Pendaftaran 1 Hari | KAK 18.c | Resmi; **arti "N Hari, M Jam" belum disepakati**, Sentinel membacanya sebagai durasi total (hari x 24 + jam) dan menandainya di tiket |
+| "Respons < 15 menit" | 15 menit | **Tafsiran** SOP/MoM atas "24 Jam, 15 menit"; KAK tidak menyebut respons terpisah | Tafsiran, bukan kutipan KAK |
+| Capaian SLA bulanan | > 95% | MoM 29 Sep 2026 (pagi) | Resmi (MoM) |
+| Yang dihitung | Hanya tiket GC1 di portal; Telkom (GC2) terpisah | Dokumen ruang lingkup KAK GC1 | Resmi |
+| Status tiket pada laporan | Request: Open/On-Hold/In Progress/Completed/Pending Approval/Closed/Canceled/Rejected. Insiden: On-Hold/In Progress/Resolved/Canceled/Closed | KAK 8.5.h | Resmi; Completed/Canceled/Rejected dianggap selesai |
+| Laporan per kategori layanan | Request dan insiden per kategori, SLA per kategori | KAK 8.5.h.iv-viii | Resmi |
+| Balasan WA 5-10 menit | 5 dan 10 menit | Target internal tim | **Tidak ada di KAK** |
+| Tenan membuka tiket ITSM | 15 menit | Pengaman internal | **Tidak ada di KAK** |
+| Jam SLA saat Pending; arti "Pending Approval" | - | Belum disepakati dengan Tim GC1 | Belum ditentukan; jam tidak berhenti saat Pending |
+| Data di Indonesia, tidak ke pihak asing | - | KAK 15-16 | Resmi: AI eksternal tidak boleh memproses data tenan |
 
-Teks KAK lengkap tidak ada di komputer ini; angka resmi di atas bersumber dari SOP v0.2, MoM, dan dokumen ruang lingkup KAK yang merujuknya.
+**Kategori layanan** pada tiket ditentukan dari kata kunci dan bisa diubah petugas (tombol "Ubah kategori layanan", alasan wajib). SLA request mengikuti kategorinya; request tanpa kategori terdeteksi memakai baku 24 jam sampai kategorinya dipilih. Laporan memuat dua ukuran: SLA menurut matriks prioritas SOP dan SLA menurut **batas baku KAK** (insiden 24 jam 15 menit; request sesuai katalog).
+
 MoM 29 Sep menyebut Komdigi/GC2 menangani komplain di WhatsApp lebih dulu agar SLA tiket portal tidak breach. Karena itu Sentinel selalu mencatat **waktu aduan pertama di WA** (SOP 4.4) dan memisahkan metrik pra-tiket dari SLA portal.
 
 ## Alur pra-tiket WhatsApp
