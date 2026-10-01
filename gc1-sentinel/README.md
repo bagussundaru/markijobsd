@@ -109,6 +109,21 @@ Agar rekan satu tim bisa memantau dashboard dari komputer lain:
 
 Tampilan tim hanya bisa membaca dashboard, laporan, dan CSV. Semua tindakan, pengaturan, dan data mentah ditolak (403); tombol operator disembunyikan. Catatan: lewat HTTP biasa, pakai hanya di jaringan internal yang dipercaya, dan siapa pun yang memegang token dapat melihat data tiket.
 
+## Dasar angka (apa yang resmi, apa yang internal)
+
+| Ketentuan | Nilai | Dasar | Status |
+|---|---|---|---|
+| Respons semua aduan/tiket | < 15 menit | KAK 18.c, via SOP v0.2 bab 3.2 dan MoM 29 Sep 2026 (sore) | Resmi |
+| Penyelesaian baku | 24 jam 15 menit; Critical 4 jam, Major 8 jam, Minor 24 jam | KAK 18.c dan MoM; matriks SOP Komdigi No. 75 | Resmi (matriks perlu dicocokkan dengan dokumen aslinya) |
+| Capaian SLA bulanan | > 95% | MoM 29 Sep 2026 (pagi) | Resmi |
+| Yang dihitung | Hanya tiket GC1 di portal; tiket Telkom (GC2) terpisah | Dokumen_Helpdesk_per_Ruang_Lingkup_KAK_GC1 | Resmi |
+| Balasan WA 5-10 menit | 5 dan 10 menit | Target internal tim, lebih ketat dari 15 menit resmi | Internal |
+| Tenan membuka tiket ITSM | 15 menit | Pengaman internal, selaras dengan 15 menit respons; **belum ada angka resmi** | Internal, belum dikonfirmasi |
+| Jam SLA saat Pending; arti "Pending Approval"; format "4 hari 4 jam" | - | Belum disepakati dengan Tim GC1 | **Belum ditentukan**; Sentinel tidak menghentikan jam saat Pending |
+
+Teks KAK lengkap tidak ada di komputer ini; angka resmi di atas bersumber dari SOP v0.2, MoM, dan dokumen ruang lingkup KAK yang merujuknya.
+MoM 29 Sep menyebut Komdigi/GC2 menangani komplain di WhatsApp lebih dulu agar SLA tiket portal tidak breach. Karena itu Sentinel selalu mencatat **waktu aduan pertama di WA** (SOP 4.4) dan memisahkan metrik pra-tiket dari SLA portal.
+
 ## Alur pra-tiket WhatsApp
 
 1. Aduan masuk di WhatsApp: **tempel** ke dashboard (Ctrl+V di mana saja, lalu **Ctrl+Enter**). Terbentuk **pra-tiket**.
