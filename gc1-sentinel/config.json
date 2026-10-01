@@ -19,9 +19,7 @@
   "bind_host": "127.0.0.1",
   "live_helpdesk_url": "https://pdn.layanan.go.id",
   "allowed_origins": [],
-  "wa_monitored_groups": [
-    "*"
-  ],
+  "wa_monitored_groups": [],
   "wa_ignored_groups": [],
   "wa_team_senders": [],
   "wa_verified_senders": [],
@@ -34,5 +32,6 @@
   "ai_hermes_exe": "",
   "ai_hermes_home": "",
   "team_view_enabled": false,
-  "team_view_token": ""
+  "team_view_token": "",
+  "wa_priority_groups": []
 }

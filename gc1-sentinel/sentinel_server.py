@@ -65,6 +65,7 @@ DEFAULT_CONFIG = {
     "bind_host": "127.0.0.1",
     "allowed_origins": [],
     "wa_monitored_groups": [],
+    "wa_priority_groups": [],
     "wa_ignored_groups": [],
     "wa_team_senders": [],
     "wa_verified_senders": [],
@@ -84,7 +85,7 @@ DEFAULT_CONFIG = {
 # Kunci config yang boleh diubah lewat API (kunci keamanan hanya lewat config.json)
 CONFIG_API_KEYS = {
     "keywords", "target_contact", "poll_interval_seconds", "markijo_auto_mode",
-    "wa_monitored_groups", "wa_ignored_groups", "wa_team_senders", "wa_verified_senders",
+    "wa_monitored_groups", "wa_priority_groups", "wa_ignored_groups", "wa_team_senders", "wa_verified_senders",
     "wa_max_age_hours", "pic_roster",
 }
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
@@ -426,6 +427,16 @@ def apply_sla(t, now=None):
         "history": e.get("history", []),
     })
     return t
+
+
+def wa_tier_for(group):
+    """Tingkat perhatian grup (1=P1 alarm, 2=P2 biasa, 3=P3 pasif) dari config.wa_priority_groups."""
+    g = str(group or "").lower()
+    for p in CONFIG.get("wa_priority_groups") or []:
+        needle = str((p or {}).get("match", "")).strip().lower()
+        if needle and needle in g:
+            return p.get("tier") if p.get("tier") in (1, 2, 3) else 2
+    return 2
 
 
 def convert_wa_message_to_ticket(sender, group, text, matched_kw="GC 1", msg_id="", wa_ts=None, verified=None):
@@ -1632,6 +1643,19 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 kw = data.get("matchedKeyword") or "GC 1"
                 msg_id = str(data.get("msgId") or "")[:200]
                 manual = bool(data.get("manual"))
+                entered_by = re.sub(r"\s+", " ", str(data.get("enteredBy") or "")).strip()[:60]
+                if manual and (len(entered_by) < 2 or entered_by.lower() in ("operator", "operator helpdesk")):
+                    self.send_json({"status": "error", "message": "Nama petugas yang mencatat wajib diisi (SOP bab 12)"}, 400)
+                    return
+                if manual and not self._is_local():
+                    self.send_json({"status": "error", "message": "Hanya dari Mini PC operator"}, 403)
+                    return
+                try:
+                    tier = int(data.get("tier") or 0)
+                except (TypeError, ValueError):
+                    tier = 0
+                if tier not in (1, 2, 3):
+                    tier = wa_tier_for(group)
                 wa_ts = data.get("waTs")
                 try:
                     wa_ts = float(wa_ts) if wa_ts else None
@@ -1704,6 +1728,10 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
 
                 wa_ticket = convert_wa_message_to_ticket(sender, group, text, kw, msg_id=msg_id, wa_ts=wa_ts, verified=verified)
                 if wa_ticket:
+                    wa_ticket["waTier"] = tier
+                    wa_ticket["enteredBy"] = entered_by if manual else ""
+                    if manual:
+                        add_history(TICKET_REGISTRY[wa_ticket["ticketId"]], "Dicatat manual", f"oleh {entered_by}", actor=entered_by)
                     wa_ticket["helpdeskMentioned"] = bool(re.search(r"@\s*helpdesk|tim\s+helpdesk|\bhelpdesk\b", text, re.IGNORECASE))
                 if not wa_ticket:
                     self.send_json({"status": "error", "message": "Text aduan tidak valid"}, 400)

@@ -1855,3 +1855,13 @@ body.enterprise-theme {
 .report-table { border-collapse:collapse; width:100%; margin:6px 0 12px; font-size:12.5px; }
 .report-table td, .report-table th { border:1px solid #E2E8F0; padding:4px 10px; text-align:left; }
 .report-table td:last-child { text-align:right; }
+
+.manual-wa-panel { margin: 0 24px 12px; background:#fff; border:1px solid #E2E8F0; border-radius:10px; padding:10px 14px; }
+.manual-wa-panel summary { cursor:pointer; font-weight:700; font-size:13px; color:#065F46; }
+.manual-grid { display:grid; grid-template-columns: 1.4fr 1fr 1.2fr 1fr; gap:10px; margin:10px 0 8px; }
+.manual-grid label { display:block; font-size:11px; font-weight:700; color:#475569; margin-bottom:3px; }
+.manual-text { width:100%; min-height:90px; resize:vertical; padding:8px 12px; font-size:12.5px; line-height:1.45; border:1px solid #CBD5E1; border-radius:8px; box-sizing:border-box; }
+.manual-actions { display:flex; align-items:center; gap:12px; margin-top:8px; }
+.manual-note { font-size:12px; color:#475569; }
+.manual-result { font-size:12.5px; margin-top:6px; color:#065F46; font-weight:600; }
+@media (max-width: 900px) { .manual-grid { grid-template-columns: 1fr 1fr; } }

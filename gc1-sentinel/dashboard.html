@@ -80,7 +80,7 @@
       <div class="sub-meta-item">
         <span class="sub-meta-icon">🎯</span>
         <span class="sub-meta-label">Mode WhatsApp:</span>
-        <span class="sub-meta-val highlight-target">Hanya membaca grup (tidak mengirim)</span>
+        <span class="sub-meta-val highlight-target">Input manual (tidak mengakses WhatsApp)</span>
       </div>
       <div class="sub-meta-item">
         <span class="sub-meta-icon">🛡️</span>
@@ -235,6 +235,32 @@
 
     <!-- COMMAND TOOLBAR & REFINED FILTERS -->
     <div id="statusBanners" class="status-banners"></div>
+
+    <section id="manualWaPanel" class="manual-wa-panel" data-operator-only="1">
+      <details id="manualWaDetails" open>
+        <summary>✍️ Input aduan WhatsApp (manual)</summary>
+        <div class="manual-grid">
+          <div><label for="mwGroup">Grup / chat</label>
+            <input id="mwGroup" list="mwGroupList" class="form-control-enterprise" placeholder="Nama grup atau chat WhatsApp" autocomplete="off">
+            <datalist id="mwGroupList"></datalist></div>
+          <div><label for="mwTier">Prioritas grup</label>
+            <select id="mwTier" class="form-select-enterprise">
+              <option value="">Otomatis (dari daftar prioritas)</option>
+              <option value="1">P1 (alarm)</option><option value="2">P2 (biasa)</option><option value="3">P3 (pasif)</option>
+            </select></div>
+          <div><label for="mwSender">Pengirim (hanya bila teks polos)</label>
+            <input id="mwSender" class="form-control-enterprise" placeholder="Nama pelapor (instansi)" autocomplete="off"></div>
+          <div><label for="mwTime">Waktu pesan (hanya bila teks polos)</label>
+            <input id="mwTime" type="datetime-local" class="form-control-enterprise"></div>
+        </div>
+        <textarea id="mwText" class="manual-text" placeholder="Tempel pesan dari WhatsApp di sini. Boleh satu pesan, atau beberapa pesan sekaligus hasil salinan chat (format [09.09, 30/09/2026] Nama: pesan)."></textarea>
+        <div class="manual-actions">
+          <button id="mwSubmit" class="btn btn-enterprise btn-primary-wa"><span>➕</span><span>Buat pra-tiket</span></button>
+          <span id="mwPreview" class="manual-note"></span>
+        </div>
+        <div id="mwResult" class="manual-result"></div>
+      </details>
+    </section>
 
     <section class="action-bar enterprise-toolbar">
       <div class="toolbar-left">
@@ -663,6 +689,7 @@
   </div>
 
   <audio id="alertAudio" src="sounds/alert.wav" preload="auto"></audio>
+  <script src="wa_paste.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>

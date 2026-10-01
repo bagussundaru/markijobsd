@@ -9,3 +9,7 @@ config.local.json
 __pycache__/
 *.pyc
 *.docx
+
+# salinan lokal dan berkas percobaan
+extension/
+test.bat

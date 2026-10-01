@@ -538,7 +538,10 @@ async function fetchHelpdeskSnapshot() {
     const data = await res.json();
     state.snapshot = data;
 
-    const currentAssigned = data.team_assigned_count ?? data.gc1_assigned_count ?? 0;
+    // Aduan dari grup P3 bersifat pasif: tidak membunyikan alarm
+    const currentAssigned = Array.isArray(data.team_assigned)
+      ? data.team_assigned.filter((t) => t.waTier !== 3).length
+      : (data.team_assigned_count ?? data.gc1_assigned_count ?? 0);
     // Check if new Assigned ticket arrived -> chime alarm!
     if (lastKnownAssignedCount !== -1 && currentAssigned > lastKnownAssignedCount) {
       playAlertSound();
@@ -771,6 +774,7 @@ function renderHelpdeskTable(tickets) {
       const gc1Badge = `<span class="gc1-tag">GC 1</span>`;
       const priorityClass = { Critical: "priority-critical", Major: "priority-major", Minor: "priority-minor", "Service Request": "priority-sr" }[t.priority] || "priority-normal";
       const priorityBadge = `<span class="priority-pill ${priorityClass}" title="${escapeHtml(t.priorityReason || "")}${t.priorityOverridden ? " (ditetapkan Helpdesk)" : " (usulan otomatis)"}">${escapeHtml(t.priority || "Minor")}</span>`;
+      const tierBadge = t.isFromWa && t.waTier ? `<span class="link-pill" title="Prioritas grup WA">P${t.waTier}</span>` : "";
       const preTicketBadge = t.isPreTicket ? `<span class="pretiket-pill">Pra-tiket</span>` : "";
       const linkedBadge = t.linkedPortalId && t.isFromWa ? `<span class="link-pill">🔗 ${escapeHtml(t.linkedPortalId)}</span>` : "";
       const waFirstBadge = !t.isFromWa && t.waFirstReportAt ? `<span class="link-pill" title="Aduan pertama di WhatsApp: ${escapeHtml(t.waFirstReportAt)}">💬 WA ${escapeHtml(t.waFirstReportAt.slice(12, 17))}</span>` : "";
@@ -830,7 +834,7 @@ function renderHelpdeskTable(tickets) {
         </td>
         <td>
           <div style="line-height:1.45;">
-            ${gc1Badge}${preTicketBadge}${waGroupTag}${priorityBadge}${linkedBadge}${waFirstBadge}${unverifiedBadge}${mentionBadge}${flagBadge}<strong>${escapeHtml(rawDesc)}</strong>
+            ${gc1Badge}${tierBadge}${preTicketBadge}${waGroupTag}${priorityBadge}${linkedBadge}${waFirstBadge}${unverifiedBadge}${mentionBadge}${flagBadge}<strong>${escapeHtml(rawDesc)}</strong>
           </div>
         </td>
         <td>
@@ -1313,7 +1317,8 @@ submitWaSimulateBtn?.addEventListener("click", async () => {
         group: group,
         text: text,
         matchedKeyword: "GC 1",
-        manual: true
+        manual: true,
+        enteredBy: getOperator(false)
       })
     });
     const result = await res.json();
@@ -1346,11 +1351,7 @@ function renderBanners(data) {
   const box = document.getElementById("statusBanners");
   if (!box) return;
   const parts = [];
-  if (!(data.wa_monitored_groups || []).length) {
-    parts.push(`<div class="banner banner-warn">Belum ada grup WhatsApp yang dipantau, jadi pesan WA belum dibaca. Isi lewat Pengaturan atau wa_monitored_groups di config.json.</div>`);
-  } else {
-    parts.push(`<div class="banner banner-info">Membaca grup WA: ${escapeHtml(data.wa_monitored_groups.join(", "))}. Sentinel hanya membaca, tidak mengirim pesan ke WhatsApp.</div>`);
-  }
+  parts.push(`<div class="banner banner-info">WhatsApp dicatat manual lewat kolom <strong>Input aduan WhatsApp</strong> di bawah. Sentinel tidak mengakses WhatsApp dan tidak mengirim pesan apa pun.</div>`);
   const esc = data.escalations || [];
   if (esc.length) {
     const first = esc.slice(0, 3).map((t) => `${escapeHtml(t.ticketId)}: ${escapeHtml(t.escalationFlags[0])}`).join(" &nbsp;|&nbsp; ");
@@ -1560,3 +1561,91 @@ document.getElementById("reportPrintBtn")?.addEventListener("click", () =>
   window.open(`${SERVER}/api/report.html?kind=${reportKind.value}&date=${encodeURIComponent(reportDate.value || "")}`, "_blank"));
 document.getElementById("reportCsvBtn")?.addEventListener("click", () =>
   window.open(`${SERVER}/api/export.csv?kind=${reportKind.value}&date=${encodeURIComponent(reportDate.value || "")}`, "_blank"));
+
+
+// ----------------------------------------------------
+// INPUT MANUAL ADUAN WHATSAPP
+// ----------------------------------------------------
+const mwGroup = document.getElementById("mwGroup");
+const mwTier = document.getElementById("mwTier");
+const mwSender = document.getElementById("mwSender");
+const mwTime = document.getElementById("mwTime");
+const mwText = document.getElementById("mwText");
+const mwPreview = document.getElementById("mwPreview");
+const mwResult = document.getElementById("mwResult");
+
+function mwRecentGroups() {
+  try { return JSON.parse(localStorage.getItem("gc1_recent_groups") || "[]"); } catch (_) { return []; }
+}
+function mwRememberGroup(g) {
+  try {
+    const list = [g, ...mwRecentGroups().filter((x) => x !== g)].slice(0, 20);
+    localStorage.setItem("gc1_recent_groups", JSON.stringify(list));
+  } catch (_) {}
+}
+async function mwLoadGroupList() {
+  const names = new Set(mwRecentGroups());
+  try {
+    const cfg = await (await fetch(`${SERVER}/api/config`)).json();
+    (cfg.wa_priority_groups || []).forEach((p) => p && p.match && names.add(p.match));
+    (cfg.wa_monitored_groups || []).forEach((g) => g && g !== "*" && names.add(g));
+  } catch (_) {}
+  const dl = document.getElementById("mwGroupList");
+  if (dl) dl.innerHTML = [...names].map((n) => `<option value="${escapeHtml(n)}"></option>`).join("");
+  try { if (mwGroup && !mwGroup.value) mwGroup.value = mwRecentGroups()[0] || ""; } catch (_) {}
+}
+
+function mwUpdatePreview() {
+  if (!mwText || !mwPreview || !window.GC1Paste) return;
+  const r = GC1Paste.parseWaPaste(mwText.value);
+  mwPreview.textContent = !r.messages.length ? "" :
+    r.hadHeaders ? `Terdeteksi ${r.messages.length} pesan berformat WhatsApp (pengirim dan waktu diambil dari teks).`
+                 : "Teks polos: dibuat sebagai 1 pesan memakai pengirim dan waktu dari isian di atas.";
+}
+mwText?.addEventListener("input", mwUpdatePreview);
+
+document.getElementById("mwSubmit")?.addEventListener("click", async () => {
+  const group = (mwGroup.value || "").trim();
+  if (!group) { alert("Isi nama grup/chat WhatsApp."); return; }
+  const parsed = GC1Paste.parseWaPaste(mwText.value);
+  if (!parsed.messages.length) { alert("Tempel pesan WhatsApp dulu."); return; }
+  const by = getOperator(false);
+  if (!by) { alert("Nama petugas wajib diisi (satu akun satu orang)."); return; }
+
+  const plainTs = mwTime.value ? Math.floor(new Date(mwTime.value).getTime() / 1000) : null;
+  const tally = {};
+  let lastId = "";
+  const btn = document.getElementById("mwSubmit");
+  btn.disabled = true;
+  for (const m of parsed.messages) {
+    const sender = m.sender || (mwSender.value || "").trim() || "Pelapor (manual)";
+    const ts = m.ts || (parsed.hadHeaders ? null : plainTs);
+    const body = {
+      sender, group, text: m.text, matchedKeyword: "GC 1", manual: true, enteredBy: by,
+      msgId: "man|" + GC1Paste.hashKey([group, sender, m.text, ts || ""].join("|")),
+      waTs: ts, tier: mwTier.value ? parseInt(mwTier.value, 10) : undefined
+    };
+    try {
+      const r = await postJson("/api/add_wa_ticket", body);
+      const key = r.status === "success" ? "dibuat" : ({
+        merged_into_thread: "digabung ke utas yang ada",
+        team_sender: "pesan tim sendiri diabaikan",
+        already_converted_to_ticket: "sudah pernah dicatat",
+        out_of_scope_gc2: "aduan Telkom/GC 2 diabaikan",
+        group_ignored: "grup diabaikan"
+      }[r.reason] || r.message || r.reason || "gagal");
+      tally[key] = (tally[key] || 0) + 1;
+      if (r.status === "success") lastId = r.ticket.ticketId;
+    } catch (_) {
+      tally["gagal (server tidak merespons)"] = (tally["gagal (server tidak merespons)"] || 0) + 1;
+    }
+  }
+  btn.disabled = false;
+  mwRememberGroup(group);
+  mwResult.textContent = Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(", ") + (lastId ? ` (terakhir: ${lastId})` : "");
+  if (tally["dibuat"]) { mwText.value = ""; mwPreview.textContent = ""; playAlertSound(); }
+  await fetchHelpdeskSnapshot();
+  mwLoadGroupList();
+});
+
+mwLoadGroupList();
