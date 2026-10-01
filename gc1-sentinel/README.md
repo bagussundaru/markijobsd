@@ -139,7 +139,7 @@ Aplikasi ITSM punya menu terpisah (mis. **Request** dan **Assign**) dengan tampi
   ```
 - Tiap halaman hanya mengganti **daftarnya sendiri**. Dulu, membaca halaman Assign menimpa hasil halaman Request (dan sebaliknya); sekarang tidak.
 - Tiket yang muncul di dua menu dihitung **sekali** dan tercatat sebagai anggota kedua daftar. Total ITSM tidak dobel.
-- Di sidebar, grup Monitoring memuat **ITSM · Semua / Request / Assign** (sesuai `itsm_lists`) dan **Aduan WhatsApp**. Tiap item punya KPI, grafik, dan tabelnya sendiri; ringkasan menampilkan jumlah per daftar.
+- Di sidebar, grup Monitoring memuat **ITSM · Semua / Request / Assign** (tiket resmi, sesuai `itsm_lists`) dan **Pra-tiket WhatsApp** (aduan sebelum ada tiket di ITSM). Tiap item punya KPI, grafik, dan tabelnya sendiri; ringkasan menampilkan jumlah per daftar.
 - Di kepala tampilan ITSM ada status baca per halaman ("Request: 8 tiket, sinkron 2 menit lalu"); halaman yang belum pernah dibaca ditandai agar operator tahu menu mana yang perlu dibuka di ITSM.
 - Halaman yang judul/path-nya tidak cocok masuk daftar **"lainnya"**; ekstensi lama (tanpa info halaman) masuk daftar "ITSM" dan digantikan begitu ekstensi baru membaca halaman bernama. **Muat ulang ekstensi** setelah memperbarui berkas.
 - Pengujian: `dummy_helpdesk.html` (menu Request) dan `dummy_helpdesk_assign.html` (menu Assign, sebagian nomor sama dan ada insiden INC).

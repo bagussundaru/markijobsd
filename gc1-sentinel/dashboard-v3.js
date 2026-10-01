@@ -13,7 +13,7 @@
   const VIEWS = {
     overview: { title: "Ringkasan Operasional", crumb: "Kementerian Komunikasi dan Digital · Pusat Data Nasional" },
     itsm: { title: "Tiket ITSM", crumb: "Monitoring · tiket resmi di portal ITSM" },
-    wa: { title: "Aduan WhatsApp", crumb: "Monitoring · pra-tiket dan komunikasi" },
+    wa: { title: "Pra-tiket WhatsApp", crumb: "Monitoring · aduan WhatsApp sebelum ada tiket di ITSM" },
     quick: { title: "Input Cepat", crumb: "Input · aduan WhatsApp dengan NLP" },
   };
   const V3 = { view: "overview", range: "day", stats: null, lastStats: 0, itsmList: null, lists: [{ key: "request", label: "Request" }, { key: "assign", label: "Assign" }] };
