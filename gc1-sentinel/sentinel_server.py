@@ -1032,7 +1032,7 @@ def itsm_lists_info():
     out = []
     for e in entries:
         lst = HELPDESK_LISTS.get(e["key"])
-        out.append({"key": e["key"], "label": e.get("label", e["key"]), "count": len(lst["tickets"]) if lst else 0,
+        out.append({"key": e["key"], "label": e.get("label", e["key"]), "legacy": e["key"] == "itsm", "count": len(lst["tickets"]) if lst else 0,
                     "synced_at": lst.get("synced_at") if lst else None, "age_sec": int(now - lst["synced_at"]) if lst else None,
                     "title": (lst or {}).get("title", "")})
     return out

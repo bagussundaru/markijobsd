@@ -59,7 +59,7 @@
   function listLabel(key) { const l = V3.lists.find((x) => x.key === key); return l ? l.label : key; }
   function setLists(arr) {
     if (!Array.isArray(arr) || !arr.length) return;
-    const next = arr.map((l) => ({ key: l.key, label: l.label }));
+    const next = arr.filter((l) => !l.legacy).map((l) => ({ key: l.key, label: l.label }));   // daftar format lama bukan menu
     if (JSON.stringify(next) !== JSON.stringify(V3.lists)) { V3.lists = next; renderItsmMenu(); }
   }
 
@@ -185,7 +185,7 @@
     const h = st.sla.health_pct;
     const tgt = st.sla.wa_reply_target_min || 10;
     $("ovKpis").innerHTML =
-      kpi("itsm link", "Tiket ITSM aktif", kk.itsm_open, "tiket", Object.entries(kk.itsm_by_list || {}).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${listLabel(k)}`).join(" · ") || `${kk.itsm_assigned} Assigned · ${kk.itsm_pending} Pending`, "view:itsm") +
+      kpi("itsm link", "Tiket ITSM aktif", kk.itsm_open, "tiket", Object.entries(kk.itsm_by_list || {}).filter(([k, n]) => n > 0 && V3.lists.some((l) => l.key === k)).map(([k, n]) => `${n} ${listLabel(k)}`).join(" · ") || `${kk.itsm_assigned} Assigned · ${kk.itsm_pending} Pending`, "view:itsm") +
       kpi("wa link", "Aduan WhatsApp aktif", kk.wa_active, "aduan", `${kk.wa_unlinked} belum ber-tiket ITSM`, "view:wa") +
       kpi(kk.wa_late ? "danger" : kk.wa_waiting ? "warn" : "ok", "Menunggu balasan WA", kk.wa_waiting, "aduan", kk.wa_late ? `${kk.wa_late} lewat ${tgt} menit` : `semua dalam ${tgt} menit`, "view:wa") +
       kpi(h >= 95 ? "ok" : h >= 80 ? "warn" : "danger", "Kepatuhan SLA ITSM", h, "%", `${st.sla.breached} tiket lewat SLA · target > 95%`, "view:itsm") +
@@ -280,6 +280,7 @@
     const box = $("itsmSyncInfo");
     if (!box || !Array.isArray(lists)) return;
     box.innerHTML = lists.map((l) => {
+      if (l.legacy) return l.count ? `<span class="chip off" title="Dibaca ekstensi versi lama tanpa nama halaman">Ekstensi versi lama masih membaca ${l.count} tiket tanpa nama menu: muat ulang ekstensi di Chrome</span>` : "";
       if (l.synced_at === null || l.synced_at === undefined) return `<span class="chip off" title="Halaman ini belum pernah dibaca ekstensi">${esc(l.label)}: belum dibaca. Buka menu ${esc(l.label)} di ITSM</span>`;
       const mins = Math.round((l.age_sec || 0) / 60);
       const stale = (l.age_sec || 0) > 900;
