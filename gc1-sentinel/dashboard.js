@@ -29,6 +29,7 @@ let state = {
   searchQuery: "",
   filterStatus: "all",
   filterServiceType: "all",
+  filterScope: "team",
   settings: {
     targetContact: "mimi Sandora",
     keywords: [
@@ -46,7 +47,28 @@ let state = {
     markijoAuto: true,
     serverPort: 8765
   }
-};
+function deduplicateRepeatedText(str) {
+  if (!str) return "";
+  const s = String(str).replace(/\s+/g, " ").trim();
+  const words = s.split(" ");
+  const nw = words.length;
+  if (nw >= 2 && nw % 2 === 0) {
+    const half = nw / 2;
+    const firstHalf = words.slice(0, half).join(" ").toLowerCase();
+    const secondHalf = words.slice(half).join(" ").toLowerCase();
+    if (firstHalf === secondHalf) {
+      return words.slice(0, half).join(" ");
+    }
+  }
+  const n = s.length;
+  if (n >= 4 && n % 2 === 1) {
+    const half = Math.floor(n / 2);
+    if (s[half] === " " && s.slice(0, half).trim().toLowerCase() === s.slice(half + 1).trim().toLowerCase()) {
+      return s.slice(0, half).trim();
+    }
+  }
+  return s;
+}
 
 // ----------------------------------------------------
 // DOM REFERENCES
@@ -102,6 +124,8 @@ const emptyDesc = document.getElementById("emptyDesc");
 const searchInput = document.getElementById("searchInput");
 const filterStateSelect = document.getElementById("filterStateSelect");
 const filterServiceTypeSelect = document.getElementById("filterServiceTypeSelect");
+const filterScopeSelect = document.getElementById("filterScopeSelect");
+const btnReloadItsm = document.getElementById("btnReloadItsm");
 const toggleMarkijoBtn = document.getElementById("toggleMarkijoBtn");
 const sendWaSummaryBtn = document.getElementById("sendWaSummaryBtn");
 const exportCsvBtn = document.getElementById("exportCsvBtn");
@@ -697,6 +721,10 @@ function renderActiveTab() {
   if (sentinelTable) sentinelTable.style.display = "table";
 
   let list = [];
+  const rawPool = (state.snapshot.all_scanned_tickets && state.snapshot.all_scanned_tickets.length > 0)
+    ? state.snapshot.all_scanned_tickets
+    : (state.snapshot.all_tickets || []);
+
   if (state.activeTab === "team_assigned" || state.activeTab === "gc1_assigned") {
     list = state.snapshot.team_assigned || state.snapshot.gc1_assigned || [];
   } else if (state.activeTab === "team_pending" || state.activeTab === "gc1_pending") {
@@ -704,12 +732,26 @@ function renderActiveTab() {
   } else if (state.activeTab === "team_progress") {
     list = state.snapshot.team_progress || [];
   } else if (state.activeTab === "all_tickets") {
-    list = state.snapshot.all_tickets || [];
+    list = rawPool;
   }
 
-  // Exclude Telkom completely from list
-  list = list.filter((t) => !t.isTelkom && !((t.assignmentGroup || "") + " " + (t.shortDesc || "")).toLowerCase().includes("telkom"));
+  // Filter berdasarkan sumber / submenu ITSM aktif (All Request vs All Incident)
   if (window.V3 && V3.filterBySource) list = V3.filterBySource(list);
+
+  // Deteksi statistik Telkom vs Tim GC 1 Internal sebelum filter lingkup diterapkan
+  const isTelkomCheck = (t) => Boolean(t.isTelkom || ((t.assignmentGroup || "") + " " + (t.shortDesc || "")).toLowerCase().includes("telkom"));
+  const totalInView = list.length;
+  const telkomCountInView = list.filter(isTelkomCheck).length;
+  const teamCountInView = totalInView - telkomCountInView;
+
+  // Terapkan Filter Lingkup (Tim GC 1 Internal vs Semua Tiket ITSM vs Hanya Telkom)
+  const currentScope = state.filterScope || "team";
+  if (currentScope === "team") {
+    list = list.filter((t) => !isTelkomCheck(t));
+  } else if (currentScope === "telkom") {
+    list = list.filter((t) => isTelkomCheck(t));
+  }
+  // Jika currentScope === "all", seluruh tiket (termasuk Telkom) tetap ditampilkan
 
   // Apply Search
   if (query) {
@@ -754,7 +796,36 @@ function renderActiveTab() {
   list = Array.from(uniqueTicketsMap.values());
 
   if (feedCountBadge) {
-    feedCountBadge.textContent = `Menampilkan ${list.length} tiket`;
+    if (currentScope === "team") {
+      if (telkomCountInView > 0) {
+        feedCountBadge.innerHTML = `Menampilkan <b>${list.length}</b> tiket Tim GC 1 <span style="font-weight:normal;opacity:0.85">(${telkomCountInView} Telkom disaring | Total ITSM: ${totalInView})</span> <a href="#" id="linkShowAllItsm" style="color:#38BDF8;margin-left:6px;text-decoration:underline;">Tampilkan Semua (${totalInView})</a>`;
+      } else {
+        feedCountBadge.innerHTML = `Menampilkan <b>${list.length}</b> tiket Tim GC 1 (100% Internal)`;
+      }
+    } else if (currentScope === "all") {
+      feedCountBadge.innerHTML = `Menampilkan <b>${list.length}</b> tiket ITSM <span style="font-weight:normal;opacity:0.85">(${teamCountInView} Tim GC 1, ${telkomCountInView} Telkom Eksternal)</span> <a href="#" id="linkShowTeamOnly" style="color:#38BDF8;margin-left:6px;text-decoration:underline;">Hanya Tim GC 1 (${teamCountInView})</a>`;
+    } else {
+      feedCountBadge.innerHTML = `Menampilkan <b>${list.length}</b> tiket Telkom Eksternal`;
+    }
+
+    const lAll = document.getElementById("linkShowAllItsm");
+    if (lAll) {
+      lAll.onclick = (e) => {
+        e.preventDefault();
+        state.filterScope = "all";
+        if (filterScopeSelect) filterScopeSelect.value = "all";
+        renderActiveTab();
+      };
+    }
+    const lTeam = document.getElementById("linkShowTeamOnly");
+    if (lTeam) {
+      lTeam.onclick = (e) => {
+        e.preventDefault();
+        state.filterScope = "team";
+        if (filterScopeSelect) filterScopeSelect.value = "team";
+        renderActiveTab();
+      };
+    }
   }
 
   if (list.length === 0) {
@@ -778,8 +849,8 @@ function renderHelpdeskTable(tickets) {
       const cleanId = (t.ticketId || "").split("\n")[0].replace(/📋/g, "").trim();
       let rawDesc = (t.shortDesc || "").trim();
       rawDesc = rawDesc.replace(/^\[(GC\s*1|Government\s*Cloud\s*1)\]\s*/i, "").trim();
-      const cleanReq = (t.requestedFor || "-").split("\n")[0].trim();
-      const cleanLoc = (t.location || "Kominfo").replace(/📍/g, "").replace(/\(📲\s*WA\)/gi, "").trim();
+      const cleanReq = deduplicateRepeatedText((t.requestedFor || "-").split("\n")[0].trim());
+      const cleanLoc = deduplicateRepeatedText((t.location || "Kominfo").replace(/📍/g, "").replace(/\(📲\s*WA\)/gi, "").trim());
       const cleanGroup = (t.assignmentGroup || "Helpdesk").trim();
       const resolverLayer = t.resolverLayer || cleanGroup;
       const resolverClass = getResolverClass(resolverLayer);
@@ -1089,13 +1160,53 @@ filterServiceTypeSelect?.addEventListener("change", (e) => {
   renderActiveTab();
 });
 
+filterScopeSelect?.addEventListener("change", (e) => {
+  state.filterScope = e.target.value;
+  renderActiveTab();
+});
+
+btnReloadItsm?.addEventListener("click", async () => {
+  btnReloadItsm.disabled = true;
+  const origText = btnReloadItsm.innerHTML;
+  btnReloadItsm.innerHTML = `<span>⏳</span><span>Memuat Ulang...</span>`;
+
+  const activeMenu = (window.V3 && V3.itsmList) ? V3.itsmList : "active";
+  console.log(`[Dashboard] Mengirim sinyal reload ITSM untuk submenu: ${activeMenu}`);
+
+  // 1. BroadcastChannel ke tab ServiceNow yang terbuka
+  try {
+    const bus = new BroadcastChannel("gc1_sentinel_bus");
+    bus.postMessage({ type: "RELOAD_ITSM_SUBMENU", menu: activeMenu });
+  } catch (_) {}
+
+  // 2. Hubungi backend Sentinel Server
+  try {
+    await fetch(`${SERVER}/api/reload_itsm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ menu: activeMenu })
+    });
+  } catch (_) {}
+
+  setTimeout(() => {
+    btnReloadItsm.innerHTML = `<span>✓</span><span>Terkirim</span>`;
+    setTimeout(() => {
+      btnReloadItsm.disabled = false;
+      btnReloadItsm.innerHTML = origText;
+      fetchHelpdeskSnapshot();
+    }, 1200);
+  }, 700);
+});
+
 clearAllBtn?.addEventListener("click", () => {
   if (searchInput) searchInput.value = "";
   if (filterStateSelect) filterStateSelect.value = "all";
   if (filterServiceTypeSelect) filterServiceTypeSelect.value = "all";
+  if (filterScopeSelect) filterScopeSelect.value = "team";
   state.searchQuery = "";
   state.filterStatus = "all";
   state.filterServiceType = "all";
+  state.filterScope = "team";
   renderActiveTab();
 });
 

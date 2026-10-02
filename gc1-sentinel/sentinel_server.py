@@ -54,7 +54,7 @@ def is_valid_ticket_id(tid):
     if len(s) < 2 or len(s) > 50: return False
     if " " in s or "\t" in s or "\n" in s: return False
     lower = s.lower()
-    if lower in ("request", "incident", "requesttask", "task", "ticket", "permohonan", "gangguan"): return False
+    if lower in ("request", "incident", "requesttask", "task", "ticket", "permohonan", "gangguan", "require", "required", "requirement", "requirements", "including", "included", "includes", "increase", "incoming"): return False
     bad = ("homepage", "management", "reporting", "enablement", "assessment", "platform", "setting", "knowledge", "delete", "filter", "search", "logout", "login")
     if any(b in lower for b in bad): return False
     return True
@@ -1067,9 +1067,22 @@ def itsm_lists_info():
     out = []
     for e in entries:
         lst = HELPDESK_LISTS.get(e["key"])
-        out.append({"key": e["key"], "label": e.get("label", e["key"]), "legacy": e["key"] == "itsm", "count": len(lst["tickets"]) if lst else 0,
-                    "synced_at": lst.get("synced_at") if lst else None, "age_sec": int(now - lst["synced_at"]) if lst else None,
-                    "title": (lst or {}).get("title", "")})
+        tickets = lst.get("tickets", []) if lst else []
+        telkom_in_list = len([t for t in tickets if t.get("isTelkom") or "telkom" in (t.get("assignmentGroup", "") + " " + t.get("shortDesc", "")).lower()])
+        open_in_list = len([t for t in tickets if not t.get("slaClosed")])
+        out.append({
+            "key": e["key"],
+            "label": e.get("label", e["key"]),
+            "legacy": e["key"] == "itsm",
+            "count": len(tickets),
+            "open_count": open_in_list,
+            "team_count": len(tickets) - telkom_in_list,
+            "telkom_count": telkom_in_list,
+            "pagination": (lst or {}).get("pagination"),
+            "synced_at": lst.get("synced_at") if lst else None,
+            "age_sec": int(now - lst["synced_at"]) if lst else None,
+            "title": (lst or {}).get("title", "")
+        })
     return out
 
 
@@ -1871,6 +1884,17 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
 
             elif path == "/api/helpdesk_snapshot":
                 our_team_tickets = build_team_tickets()
+                # Kumpulkan seluruh tiket yang terpindai dari ITSM (termasuk Telkom jika tampil di layar)
+                all_scanned_pool = []
+                seen_all_ids = set()
+                for lst_obj in HELPDESK_LISTS.values():
+                    for t in lst_obj.get("tickets", []):
+                        tid = (t.get("ticketId") or "").strip()
+                        if tid and tid not in seen_all_ids:
+                            seen_all_ids.add(tid)
+                            all_scanned_pool.append(enrich_ticket_with_sop(dict(t)))
+
+                telkom_tickets = [t for t in all_scanned_pool if t.get("isTelkom") or "telkom" in (t.get("assignmentGroup", "") + " " + t.get("shortDesc", "")).lower()]
 
                 def st(t):
                     return (t.get("requestState") or "").lower()
@@ -1889,6 +1913,7 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
 
                 self.send_json({
                     "total_helpdesk": len(our_team_tickets),
+                    "total_itsm_scanned": len(all_scanned_pool),
                     "team_assigned_count": len(team_assigned),
                     "team_pending_count": len(team_pending),
                     "team_progress_count": len(team_progress),
@@ -1896,7 +1921,8 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     "sla_safe_count": len(open_tickets) - len(breached),
                     "sla_breached_count": len(breached),
                     "escalation_count": len(escalations),
-                    "telkom_count": TELKOM_SKIPPED,
+                    "telkom_count": len(telkom_tickets) or TELKOM_SKIPPED,
+                    "telkom_tickets": telkom_tickets,
                     "wa_count": len(wa_alerts),
                     "itsm_lists": itsm_lists_info(),
                     "wa_outbound_enabled": outbound_enabled(),
@@ -1908,6 +1934,7 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     "escalations": escalations,
                     "wa_alerts": wa_alerts,
                     "all_tickets": our_team_tickets,
+                    "all_scanned_tickets": all_scanned_pool,
                     # Backward-compatibility alias
                     "gc1_assigned": team_assigned,
                     "gc1_assigned_count": len(team_assigned),
@@ -2002,10 +2029,10 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     seen_sync_ids.add(tid)
 
                     desc = re.sub(r"\s+", " ", str(t.get("shortDesc") or t.get("desc") or "")).strip()
-                    req_for = re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(t.get("requestedFor") or ""))).strip()
+                    req_for = sentinel_db.deduplicate_name(re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(t.get("requestedFor") or ""))).strip())
                     state_val = re.sub(r"[●•\r\n\t]", "", str(t.get("requestState") or t.get("state") or "")).strip()
                     date_val = re.sub(r"\s+", " ", str(t.get("createdDate") or t.get("date") or "")).strip()
-                    loc_val = re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(t.get("location") or ""))).strip()
+                    loc_val = sentinel_db.deduplicate_name(re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(t.get("location") or ""))).strip())
                     grp_val = re.sub(r"\s+", " ", str(t.get("assignmentGroup") or t.get("group") or "")).strip()
 
                     # Filter out corrupted rows from dashboard button scraping
@@ -2104,7 +2131,8 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                                         "hash": msg_hash
                                     })
                 # Tiap halaman ITSM mengganti DAFTARNYA SENDIRI; daftar lain tidak tersentuh (tidak saling menimpa)
-                HELPDESK_LISTS[list_key] = {"label": list_label, "tickets": normalized_tickets, "synced_at": time.time(), "title": list_title, "path": list_path}
+                pagination_data = (data.get("list") or {}).get("pagination")
+                HELPDESK_LISTS[list_key] = {"label": list_label, "tickets": normalized_tickets, "synced_at": time.time(), "title": list_title, "path": list_path, "pagination": pagination_data}
                 if list_key != "itsm":
                     HELPDESK_LISTS.pop("itsm", None)   # daftar format lama (tanpa nama halaman) digantikan begitu ekstensi baru membaca halaman bernama
                 HELPDESK_SNAPSHOT = merge_itsm_lists()
@@ -2118,7 +2146,12 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 except Exception as db_err:
                     print(f"[Sentinel Server] SQLite save error: {db_err}")
                 save_persisted_data()
-                self.send_json({"status": "synced", "count": len(normalized_tickets), "list": list_key, "total": len(HELPDESK_SNAPSHOT), "last_sync": LAST_SYNC_TIME})
+                self.send_json({"status": "synced", "count": len(normalized_tickets), "list": list_key, "total": len(HELPDESK_SNAPSHOT), "last_sync": LAST_SYNC_TIME, "pagination": pagination_data})
+
+            elif path == "/api/reload_itsm":
+                target_menu = data.get("menu", "active")
+                print(f"[Sentinel Server] Permintaan reload submenu ITSM: {target_menu}")
+                self.send_json({"status": "ok", "message": f"Reload triggered for menu {target_menu}", "menu": target_menu})
 
             elif path == "/api/alerts":
                 alert_data = data.get("data", data)
@@ -2464,10 +2497,10 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     desc = re.sub(r"\s+", " ", str(t.get("shortDesc") or t.get("desc") or "")).strip()
                     if not desc:
                         return None, "Uraian / Deskripsi singkat tiket wajib diisi"
-                    req_for = re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(t.get("requestedFor") or ""))).strip()
+                    req_for = sentinel_db.deduplicate_name(re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(t.get("requestedFor") or ""))).strip())
                     state_val = re.sub(r"[●•\r\n\t]", "", str(t.get("requestState") or t.get("state") or "In Progress")).strip()
                     date_val = re.sub(r"\s+", " ", str(t.get("createdDate") or t.get("date") or time.strftime("%Y-%m-%d %H:%M"))).strip()
-                    loc_val = re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(t.get("location") or "-"))).strip()
+                    loc_val = sentinel_db.deduplicate_name(re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(t.get("location") or "-"))).strip())
                     grp_val = re.sub(r"\s+", " ", str(t.get("assignmentGroup") or t.get("group") or "EOS L1")).strip()
                     prio_val = str(t.get("priority") or "Minor").strip()
                     srv_type = str(t.get("serviceType") or "").strip()
@@ -2570,10 +2603,10 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                         errors.append(f"Baris {idx} ({tid}): deskripsi kosong")
                         continue
 
-                    req_for = re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(item.get("requestedFor") or ""))).strip()
+                    req_for = sentinel_db.deduplicate_name(re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(item.get("requestedFor") or ""))).strip())
                     state_val = re.sub(r"[●•\r\n\t]", "", str(item.get("requestState") or item.get("state") or "In Progress")).strip()
                     date_val = re.sub(r"\s+", " ", str(item.get("createdDate") or item.get("date") or time.strftime("%Y-%m-%d %H:%M"))).strip()
-                    loc_val = re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(item.get("location") or "-"))).strip()
+                    loc_val = sentinel_db.deduplicate_name(re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(item.get("location") or "-"))).strip())
                     grp_val = re.sub(r"\s+", " ", str(item.get("assignmentGroup") or item.get("group") or "EOS L1")).strip()
                     prio_val = str(item.get("priority") or "Minor").strip()
                     srv_type = str(item.get("serviceType") or "").strip()

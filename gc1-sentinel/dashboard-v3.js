@@ -133,11 +133,13 @@
         if (t.isFromWa) return false;
         if (!V3.itsmList) return true;
         const lists = t.itsmLists || [];
+        const tid = (t.ticketId || "").toUpperCase();
+        const st = (t.serviceType || "").toLowerCase();
         if (V3.itsmList === "incident") {
-          return lists.includes("incident") || lists.includes("assign") || (t.ticketId || "").toUpperCase().startsWith("INC") || (t.serviceType || "").toLowerCase() === "insiden";
+          return lists.includes("incident") || lists.includes("assign") || tid.startsWith("INC") || st === "insiden" || st === "incident";
         }
         if (V3.itsmList === "request") {
-          return lists.includes("request") || (t.ticketId || "").toUpperCase().startsWith("REQ") || (t.serviceType || "").toLowerCase() === "service request";
+          return lists.includes("request") || tid.startsWith("REQ") || tid.startsWith("RITM") || st === "request" || st === "service request";
         }
         return lists.includes(V3.itsmList);
       });
@@ -188,11 +190,13 @@
       if (t.isFromWa) return false;
       if (V3.view !== "itsm" || !V3.itsmList) return true;
       const lists = t.itsmLists || [];
+      const tid = (t.ticketId || "").toUpperCase();
+      const st = (t.serviceType || "").toLowerCase();
       if (V3.itsmList === "incident") {
-        return lists.includes("incident") || lists.includes("assign") || (t.ticketId || "").toUpperCase().startsWith("INC") || (t.serviceType || "").toLowerCase() === "insiden";
+        return lists.includes("incident") || lists.includes("assign") || tid.startsWith("INC") || st === "insiden" || st === "incident";
       }
       if (V3.itsmList === "request") {
-        return lists.includes("request") || (t.ticketId || "").toUpperCase().startsWith("REQ") || (t.serviceType || "").toLowerCase() === "service request";
+        return lists.includes("request") || tid.startsWith("REQ") || tid.startsWith("RITM") || st === "request" || st === "service request";
       }
       return lists.includes(V3.itsmList);
     });
@@ -409,18 +413,33 @@
     const k = snapKpis(data);
     setLists(data.itsm_lists);
     const pillW = $("sbPillWa");
-    const itsmAll = (data.all_tickets || []).filter((t) => !t.isFromWa && !t.slaClosed);
+    const itsmAll = (data.all_scanned_tickets && data.all_scanned_tickets.length > 0)
+      ? data.all_scanned_tickets.filter((t) => !t.isFromWa)
+      : (data.all_tickets || []).filter((t) => !t.isFromWa);
+
     document.querySelectorAll("[data-pill-list]").forEach((p) => {
       const key = p.dataset.pillList;
+      let matched = [];
       if (!key) {
-        p.textContent = itsmAll.length;
+        matched = itsmAll;
       } else if (key === "request") {
-        p.textContent = itsmAll.filter((t) => (t.itsmLists || []).includes("request") || (t.ticketId || "").toUpperCase().startsWith("REQ") || (t.serviceType || "").toLowerCase() === "service request").length;
+        matched = itsmAll.filter((t) => {
+          const st = (t.serviceType || "").toLowerCase();
+          const tid = (t.ticketId || "").toUpperCase();
+          return (t.itsmLists || []).includes("request") || tid.startsWith("REQ") || tid.startsWith("RITM") || st === "request" || st === "service request";
+        });
       } else if (key === "incident") {
-        p.textContent = itsmAll.filter((t) => (t.itsmLists || []).includes("incident") || (t.itsmLists || []).includes("assign") || (t.ticketId || "").toUpperCase().startsWith("INC") || (t.serviceType || "").toLowerCase() === "insiden").length;
+        matched = itsmAll.filter((t) => {
+          const st = (t.serviceType || "").toLowerCase();
+          const tid = (t.ticketId || "").toUpperCase();
+          return (t.itsmLists || []).includes("incident") || (t.itsmLists || []).includes("assign") || tid.startsWith("INC") || st === "insiden" || st === "incident";
+        });
       } else {
-        p.textContent = itsmAll.filter((t) => (t.itsmLists || []).includes(key)).length;
+        matched = itsmAll.filter((t) => (t.itsmLists || []).includes(key));
       }
+      p.textContent = matched.length;
+      const openCount = matched.filter((t) => !t.slaClosed).length;
+      p.title = `${matched.length} tiket di menu ini (${openCount} aktif, ${matched.length - openCount} selesai)`;
     });
     if (pillW) { pillW.textContent = k.waOpen.length; pillW.classList.toggle("hot", k.late.length > 0); }
     renderSyncInfo(data.itsm_lists);

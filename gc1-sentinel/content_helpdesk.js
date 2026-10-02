@@ -60,6 +60,212 @@
     });
   }
 
+  function showReloadToast(msg) {
+    try {
+      let toast = document.getElementById("gc1-sentinel-toast");
+      if (!toast) {
+        toast = document.createElement("div");
+        toast.id = "gc1-sentinel-toast";
+        toast.style.position = "fixed";
+        toast.style.bottom = "16px";
+        toast.style.right = "16px";
+        toast.style.backgroundColor = "rgba(15, 23, 42, 0.92)";
+        toast.style.color = "#38BDF8";
+        toast.style.padding = "8px 14px";
+        toast.style.borderRadius = "8px";
+        toast.style.fontSize = "12px";
+        toast.style.fontFamily = "system-ui, -apple-system, sans-serif";
+        toast.style.fontWeight = "600";
+        toast.style.zIndex = "999999";
+        toast.style.boxShadow = "0 4px 12px rgba(0,0,0,0.25)";
+        toast.style.transition = "opacity 0.3s ease";
+        toast.style.pointerEvents = "none";
+        document.body.appendChild(toast);
+      }
+      toast.textContent = `⚡ GC 1 Sentinel: ${msg}`;
+      toast.style.opacity = "1";
+      setTimeout(() => {
+        if (toast) toast.style.opacity = "0";
+      }, 2500);
+    } catch (_) {}
+  }
+
+  function getAccessibleDocs() {
+    const docs = [document];
+    try {
+      if (window.top && window.top.document && !docs.includes(window.top.document)) {
+        docs.push(window.top.document);
+      }
+    } catch (_) {}
+    try {
+      if (window.parent && window.parent.document && !docs.includes(window.parent.document)) {
+        docs.push(window.parent.document);
+      }
+    } catch (_) {}
+    return docs;
+  }
+
+  // REFRESH 100% SESUAI ALUR SERVICENOW:
+  // - All Request: Klik menu "Request Management" di bar samping, lalu klik "All Request" di bawahnya.
+  // - All Incident: Klik menu "Incident Management" di bar samping, lalu klik "All Incident" di bawahnya.
+  // - DILARANG KERAS menggunakan location.reload()!
+  function clickServiceNowSubmenu(targetType) {
+    const isIncident = (targetType === "incident");
+    const parentKeywords = isIncident
+      ? ["incident management", "manajemen insiden", "incident mgmt", "gangguan"]
+      : ["request management", "manajemen request", "manajemen permohonan", "request mgmt", "permohonan"];
+    const subKeywords = isIncident
+      ? ["all incident", "all incidents", "semua insiden", "incidents"]
+      : ["all request", "all requests", "semua permohonan", "semua request", "requests"];
+    const hrefKeywords = isIncident
+      ? ["incident_list.do", "incident.do"]
+      : ["sc_req_item_list.do", "sc_request_list.do", "sc_task_list.do"];
+
+    const labelParent = isIncident ? "Incident Management" : "Request Management";
+    const labelSub = isIncident ? "All Incident" : "All Request";
+
+    console.log(`[GC 1 Sentinel] Memulai alur refresh tanpa reload: ${labelParent} -> ${labelSub}...`);
+    showReloadToast(`Menyegarkan: ${labelParent} → ${labelSub}...`);
+
+    const docs = getAccessibleDocs();
+
+    for (const doc of docs) {
+      try {
+        const allElements = Array.from(doc.querySelectorAll("a, button, li, div, span, [role='treeitem'], [role='menuitem'], .nav-item, .module-link, .sn-widget-list-item, .navpage-nav-app"));
+
+        // 1. Cari elemen menu utama di bar samping (Request Management / Incident Management)
+        let parentEl = null;
+        for (const el of allElements) {
+          const txt = (el.textContent || "").trim().toLowerCase();
+          const title = (el.getAttribute("title") || "").toLowerCase();
+          const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+          if (parentKeywords.some((kw) => txt === kw || txt.startsWith(kw) || title === kw || aria === kw || (txt.includes(kw) && txt.length < kw.length + 25))) {
+            parentEl = el;
+            break;
+          }
+        }
+
+        // 2. Cari elemen submenu di bar samping (All Request / All Incident)
+        let subEl = null;
+        for (const el of allElements) {
+          const txt = (el.textContent || "").trim().toLowerCase();
+          const title = (el.getAttribute("title") || "").toLowerCase();
+          const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+          const href = (el.getAttribute("href") || "").toLowerCase();
+          const dataUrl = (el.getAttribute("data-url") || "").toLowerCase();
+
+          const textMatch = subKeywords.some((kw) => txt === kw || txt.startsWith(kw) || title === kw || aria === kw || (txt.includes(kw) && txt.length < kw.length + 20));
+          const hrefMatch = hrefKeywords.some((kw) => href.includes(kw) || dataUrl.includes(kw));
+
+          if (textMatch || hrefMatch) {
+            subEl = el;
+            if (parentEl && (parentEl.contains(el) || (el.compareDocumentPosition(parentEl) & Node.DOCUMENT_POSITION_PRECEDING))) {
+              break;
+            }
+          }
+        }
+
+        // Langkah 1: Klik Menu Utama di bar samping
+        if (parentEl) {
+          console.log(`[GC 1 Sentinel] [Langkah 1/2] Klik menu samping: "${labelParent}"`);
+          parentEl.click();
+          try {
+            parentEl.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+            parentEl.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+          } catch (_) {}
+
+          // Langkah 2: Klik Submenu di bawahnya setelah jeda singkat (agar accordion membuka)
+          setTimeout(() => {
+            if (subEl) {
+              console.log(`[GC 1 Sentinel] [Langkah 2/2] Klik submenu di bawahnya: "${labelSub}"`);
+              subEl.click();
+              try {
+                subEl.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+                subEl.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+              } catch (_) {}
+            } else {
+              // Cari ulang submenu yang mungkin baru muncul setelah menu utama dibuka
+              const freshSub = Array.from(doc.querySelectorAll("a, button, li, div, [role='treeitem']")).find((el) => {
+                const txt = (el.textContent || "").trim().toLowerCase();
+                return subKeywords.some((kw) => txt === kw || txt.startsWith(kw));
+              });
+              if (freshSub) {
+                console.log(`[GC 1 Sentinel] [Langkah 2/2] Klik submenu setelah dropdown terbuka: "${labelSub}"`);
+                freshSub.click();
+              }
+            }
+          }, 200);
+          return true;
+        } else if (subEl) {
+          // Jika menu utama sudah terbuka sebelumnya, langsung klik submenu
+          console.log(`[GC 1 Sentinel] Klik submenu langsung (menu sudah terbuka): "${labelSub}"`);
+          subEl.click();
+          try {
+            subEl.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+            subEl.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+          } catch (_) {}
+          return true;
+        }
+      } catch (err) {
+        console.warn("[GC 1 Sentinel] Error saat navigasi menu bar samping:", err);
+      }
+    }
+
+    // Fallback: Refresh in-frame via ServiceNow g_list API tanpa reload halaman browser
+    try {
+      if (typeof window.g_list !== "undefined" && typeof window.g_list.refresh === "function") {
+        console.log("[GC 1 Sentinel] Menggunakan ServiceNow g_list.refresh(1) (tanpa reload browser)");
+        window.g_list.refresh(1);
+        return true;
+      }
+    } catch (_) {}
+
+    // Fallback: Tombol refresh di header daftar tabel ServiceNow
+    for (const doc of docs) {
+      try {
+        const snRefreshBtn = doc.querySelector("button[name='refresh'], button[title*='Refresh'], button[aria-label*='Refresh'], .list_nav_refresh, .table-refresh-btn, button#sn_header_refresh");
+        if (snRefreshBtn) {
+          console.log("[GC 1 Sentinel] Mengklik tombol refresh tabel ServiceNow...");
+          snRefreshBtn.click();
+          return true;
+        }
+      } catch (_) {}
+    }
+
+    // CATATAN KETAT: JANGAN PERNAH gunakan location.reload()!
+    console.log("[GC 1 Sentinel] Menu navigasi samping belum dapat diakses dari frame ini, browser tidak direload.");
+    return false;
+  }
+
+  function deduplicateRepeatedText(str) {
+    if (!str) return "";
+    const s = String(str).replace(/\s+/g, " ").trim();
+    const words = s.split(" ");
+    const nw = words.length;
+    if (nw >= 2 && nw % 2 === 0) {
+      const half = nw / 2;
+      const firstHalf = words.slice(0, half).join(" ").toLowerCase();
+      const secondHalf = words.slice(half).join(" ").toLowerCase();
+      if (firstHalf === secondHalf) {
+        return words.slice(0, half).join(" ");
+      }
+    }
+    const n = s.length;
+    if (n >= 4 && n % 2 === 1) {
+      const half = Math.floor(n / 2);
+      if (s[half] === " " && s.slice(0, half).trim().toLowerCase() === s.slice(half + 1).trim().toLowerCase()) {
+        return s.slice(0, half).trim();
+      }
+    }
+    return s;
+  }
+
+  function triggerSubmenuReload(forcedType) {
+    const subInfo = detectSubmenuInfo();
+    const targetType = forcedType || subInfo.key;
+    return clickServiceNowSubmenu(targetType);
+  }
+
   function setupAutoReload() {
     const intervalSec = parseInt(settings.autoRefreshHelpdeskSeconds || 60, 10);
     if (!intervalSec || intervalSec <= 0) return;
@@ -70,20 +276,14 @@
         const isHelpdeskUrl = settings.helpdeskUrlPatterns.some((p) => url.includes(p.toLowerCase()));
         if (!isHelpdeskUrl) return;
 
-        // Jangan reload jika operator sedang aktif berinteraksi dalam 20 detik terakhir
+        // Jangan refresh jika operator sedang aktif berinteraksi dalam 20 detik terakhir
         if (Date.now() - lastUserActivity < 20000) return;
 
-        // Jangan reload jika operator sedang fokus pada kolom input teks atau textarea
+        // Jangan refresh jika operator sedang fokus pada kolom input teks atau textarea
         const activeEl = document.activeElement;
         if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")) return;
 
-        console.log(`[GC 1 Sentinel] Melakukan refresh berkala (${intervalSec}s) halaman ITSM untuk tiket baru...`);
-        const snRefreshBtn = document.querySelector("button[name='refresh'], button[title*='Refresh'], button[aria-label*='Refresh'], .list_nav_refresh, .table-refresh-btn, a[title*='Refresh']");
-        if (snRefreshBtn) {
-          snRefreshBtn.click();
-        } else {
-          location.reload();
-        }
+        triggerSubmenuReload();
       } catch (_) {}
     }, intervalSec * 1000);
   }
@@ -245,10 +445,12 @@
   function isLikelyTicketId(id) {
     if (!id) return false;
     const s = String(id).trim();
-    if (s.length < 2 || s.length > 50) return false;
+    if (s.length < 3 || s.length > 50) return false;
     if (/\s/.test(s)) return false;
+    // Wajib memiliki minimal satu digit angka (menghindari kata bahasa Inggris seperti 'require', 'including', dll)
+    if (!/\d/.test(s)) return false;
     const lower = s.toLowerCase();
-    if (["request", "incident", "requesttask", "task", "ticket", "permohonan", "gangguan"].includes(lower)) return false;
+    if (["request", "incident", "requesttask", "task", "ticket", "permohonan", "gangguan", "require", "including", "requested", "incoming", "income"].includes(lower)) return false;
     const bad = ["homepage", "management", "reporting", "enablement", "assessment", "platform", "setting", "knowledge", "delete", "filter", "search", "logout", "login"];
     if (bad.some((b) => lower.includes(b))) return false;
     return true;
@@ -269,6 +471,26 @@
     return list;
   }
 
+  function extractPaginationInfo(d) {
+    try {
+      if (!d) return null;
+      const candidates = d.querySelectorAll(".list_nav_total_records, .list_row_number_input, span[id*='total_rows'], td.list_nav_bottom, .vcr_counter, .list_nav_records, .list_nav_text");
+      for (const el of candidates) {
+        const txt = (el.textContent || "").trim();
+        const m = txt.match(/(\d+)\s*(?:to|-)\s*(\d+)\s*(?:of|dari)\s*(\d+)/i);
+        if (m) {
+          return {
+            first: parseInt(m[1], 10),
+            last: parseInt(m[2], 10),
+            total: parseInt(m[3], 10),
+            text: txt
+          };
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   async function runPassiveScan() {
     try {
       const knownRegistry = getKnownTicketRegistry();
@@ -278,6 +500,7 @@
 
       const scannedTickets = [];
       const seenTicketIds = new Set();
+      const ticketRegex = /\b(REQ|INC|RITM|TASK|TKT|CHG|PRB|SCTASK)[-_]?[A-Za-z0-9-_./]*\d+[A-Za-z0-9-_./]*/i;
 
       tables.forEach((table) => {
         if (table.id === "sentinelTable" || table.classList.contains("sentinel-table") || table.closest(".dashboard-main")) {
@@ -297,7 +520,7 @@
 
           // 1. Ekstraksi via indeks kolom Number jika berhasil dideteksi
           if (colIdx && colIdx.numberIdx !== -1 && cells[colIdx.numberIdx]) {
-            const m = cells[colIdx.numberIdx].textContent.match(/\b(REQ|INC|RITM|TASK|TKT|CHG|PRB|SCTASK)[A-Z0-9\-_./]+/i);
+            const m = cells[colIdx.numberIdx].textContent.match(ticketRegex);
             if (m) {
               ticketNumber = m[0].trim();
               foundCellIdx = colIdx.numberIdx;
@@ -307,7 +530,7 @@
           // 2. Fallback: pindai seluruh sel di baris untuk mencari format nomor tiket sah
           if (!ticketNumber) {
             for (let ci = 0; ci < cells.length; ci++) {
-              const m = cells[ci].textContent.match(/\b(REQ|INC|RITM|TASK|TKT|CHG|PRB|SCTASK)[A-Z0-9\-_./]+/i);
+              const m = cells[ci].textContent.match(ticketRegex);
               if (m) {
                 ticketNumber = m[0].trim();
                 foundCellIdx = ci;
@@ -347,10 +570,10 @@
           }
 
           shortDesc = shortDesc.replace(/\s+/g, " ").trim();
-          requestedFor = requestedFor.split("\n")[0].replace(/[📍📲📋]/g, "").replace(/\s+/g, " ").trim();
+          requestedFor = deduplicateRepeatedText(requestedFor.split("\n")[0].replace(/[📍📲📋]/g, "").replace(/\s+/g, " ").trim());
           requestState = requestState.replace(/[●•\r\n\t]/g, "").replace(/\s+/g, " ").trim();
           createdDate = createdDate.replace(/\s+/g, " ").trim();
-          locationName = locationName.split("\n")[0].replace(/[📍📲📋]/g, "").replace(/\s+/g, " ").trim();
+          locationName = deduplicateRepeatedText(locationName.split("\n")[0].replace(/[📍📲📋]/g, "").replace(/\s+/g, " ").trim());
           assignmentGroup = assignmentGroup.split("\n")[0].replace(/[📍📲📋]/g, "").replace(/\s+/g, " ").trim();
 
           const fullRowText = `${ticketNumber} ${shortDesc} ${requestedFor} ${requestState} ${createdDate} ${locationName} ${assignmentGroup}`;
@@ -441,13 +664,15 @@
           }
         });
 
+        const paginationInfo = extractPaginationInfo(document);
         const syncPayload = {
           tickets: scannedTickets,
           list: {
             key: subInfo.key,
             label: subInfo.label,
             title: document.title,
-            path: location.pathname
+            path: location.pathname,
+            pagination: paginationInfo
           }
         };
 
@@ -471,6 +696,7 @@
             type: "SYNC_HELPDESK_TICKETS",
             tickets: scannedTickets,
             count: scannedTickets.length,
+            pagination: paginationInfo,
             timestamp: Date.now()
           });
         } catch (_) {}
@@ -508,8 +734,37 @@
         subtree: true
       });
 
+      // Pindai ketika operator menggulir halaman (scroll ke bawah)
+      window.addEventListener("scroll", () => {
+        if (scanTimeout) clearTimeout(scanTimeout);
+        scanTimeout = setTimeout(() => {
+          runPassiveScan();
+        }, 500);
+      }, { passive: true });
+
       // Pindai berkala setiap 5 detik agar data selalu terkini
       setInterval(runPassiveScan, 5000);
+    } catch (_) {}
+  }
+
+  // Dengarkan sinyal reload dari Dashboard atau background worker
+  try {
+    const bus = new BroadcastChannel("gc1_sentinel_bus");
+    bus.addEventListener("message", (evt) => {
+      if (evt.data && (evt.data.type === "RELOAD_ITSM_SUBMENU" || evt.data.type === "RELOAD_ITSM")) {
+        triggerSubmenuReload(evt.data.menu);
+      }
+    });
+  } catch (_) {}
+
+  if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
+    try {
+      chrome.runtime.onMessage.addListener((msg, sender, sendResp) => {
+        if (msg && (msg.type === "RELOAD_ITSM_SUBMENU" || msg.type === "RELOAD_ITSM")) {
+          triggerSubmenuReload(msg.menu);
+          if (sendResp) sendResp({ status: "triggered" });
+        }
+      });
     } catch (_) {}
   }
 

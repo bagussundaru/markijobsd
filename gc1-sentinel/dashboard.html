@@ -522,10 +522,25 @@
             <option value="Insiden">Tiket Insiden (Gangguan)</option>
           </select>
         </div>
+
+        <!-- Filter Lingkup (Tim GC 1 vs Telkom) -->
+        <div class="filter-group enterprise-filter">
+          <label>Lingkup:</label>
+          <select id="filterScopeSelect" class="form-select-enterprise">
+            <option value="team">Tim GC 1 Internal</option>
+            <option value="all">Semua Tiket ITSM (Termasuk Telkom)</option>
+            <option value="telkom">Hanya Telkom (Eksternal)</option>
+          </select>
+        </div>
       </div>
 
       <!-- Action Buttons Group -->
       <div class="action-buttons toolbar-right">
+        <button id="btnReloadItsm" class="btn btn-enterprise btn-secondary" title="Muat ulang submenu All Request / All Incident di portal ServiceNow ITSM">
+          <span>🔄</span>
+          <span>Muat Ulang ITSM</span>
+        </button>
+
         <button id="toggleMarkijoBtn" class="btn btn-enterprise btn-markijo" style="display:none;" title="Otomasi Markijo memantau tiket GC 1 Assigned dan otomatis rekap ke mimi Sandora">
           <span class="dot-online">●</span>
           <span>🤖 Markijo Autopilot: AKTIF</span>

@@ -6,6 +6,7 @@ Tanpa data keluar dari Mini PC, aman dan terstruktur.
 
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -118,6 +119,30 @@ def normalize_service_type(ticket_id, short_desc="", list_key=""):
     return "Request"
 
 
+def deduplicate_name(val):
+    """
+    Menghilangkan pengulangan nama pemohon/instansi yang terduplikasi
+    akibat scraping DOM ganda (misal: 'Ferry Lesmana Ferry Lesmana' -> 'Ferry Lesmana').
+    """
+    if not val:
+        return ""
+    s = re.sub(r"\s+", " ", str(val or "")).strip()
+    words = s.split(" ")
+    nw = len(words)
+    if nw >= 2 and nw % 2 == 0:
+        half = nw // 2
+        first_half = " ".join(words[:half]).lower()
+        second_half = " ".join(words[half:]).lower()
+        if first_half == second_half:
+            return " ".join(words[:half])
+    n = len(s)
+    if n >= 4 and n % 2 == 1:
+        half = n // 2
+        if s[half] == " " and s[:half].strip().lower() == s[half + 1:].strip().lower():
+            return s[:half].strip()
+    return s
+
+
 def save_tickets_to_db(tickets, list_key=None, source_url="", db_path=None):
     """
     Menyimpan atau memperbarui sekumpulan tiket hasil pembacaan ITSM ke SQLite.
@@ -139,10 +164,10 @@ def save_tickets_to_db(tickets, list_key=None, source_url="", db_path=None):
                     continue
 
                 desc = str(t.get("shortDesc") or t.get("desc") or "").strip()
-                req_for = str(t.get("requestedFor") or "").strip()
+                req_for = deduplicate_name(str(t.get("requestedFor") or "").strip())
                 state = str(t.get("requestState") or t.get("state") or "Assigned").replace("●", "").strip()
                 date_val = str(t.get("createdDate") or t.get("date") or "").strip()
-                loc_val = str(t.get("location") or "").strip()
+                loc_val = deduplicate_name(str(t.get("location") or "").strip())
                 grp_val = str(t.get("assignmentGroup") or t.get("group") or "").strip()
                 layer = str(t.get("resolverLayer") or "Helpdesk (L0)").strip()
                 prio = str(t.get("priority") or "Minor").strip()
