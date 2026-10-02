@@ -166,16 +166,27 @@
   };
 
   // ------------------------------------------------------------------ KPI (Aivora Modern Layout)
-  function kpi(cls, label, val, unit, sub, go, icon, badgeText, badgeCls, breakdownHtml) {
+  function kpi(cls, label, val, unit, sub, go, icon, badgeText, badgeCls, chipsHtml, footerText) {
     return `<div class="v3-kpi ${cls}${go ? " link" : ""}" ${go ? `data-go="${esc(go)}"` : ""}>
       <div class="k-top">
         <div class="k-icon-box ${badgeCls || ""}">${icon || "📊"}</div>
         ${badgeText ? `<span class="k-pill ${badgeCls || ""}">${esc(badgeText)}</span>` : ""}
       </div>
-      <div class="k-val">${esc(val)}${unit ? `<small>${esc(unit)}</small>` : ""}</div>
-      <div class="k-label">${esc(label)}</div>
-      <div class="k-sub">${esc(sub || "")}</div>
-      ${breakdownHtml ? `<div class="k-breakdown">${breakdownHtml}</div>` : ""}
+      <div class="k-main">
+        <div class="k-val-row">
+          <span class="k-val">${esc(val)}</span>
+          ${unit ? `<span class="k-unit">${esc(unit)}</span>` : ""}
+        </div>
+        <div class="k-label">${esc(label)}</div>
+        <div class="k-sub">${esc(sub || "")}</div>
+      </div>
+      <div class="k-mid-chips">
+        ${chipsHtml || ""}
+      </div>
+      <div class="k-footer">
+        <span class="k-footer-text">${esc(footerText || "")}</span>
+        <span class="k-action-btn" title="Buka rincian">↗</span>
+      </div>
     </div>`;
   }
   document.addEventListener("click", (e) => {
@@ -232,21 +243,18 @@
     const active = assigned + pending + progress + onHold;
     const chips = [];
     if (!specificList) {
-      chips.push(`<span class="k-chip chip-req" title="Tiket Request">📋 ${req} Request</span>`);
-      chips.push(`<span class="k-chip chip-inc" title="Tiket Insiden">⚡ ${inc} Insiden</span>`);
+      chips.push(`<span class="k-chip chip-req" title="Tiket Request">📋 ${req} Req</span>`);
+      chips.push(`<span class="k-chip chip-inc" title="Tiket Insiden">⚡ ${inc} Inc</span>`);
     }
-    chips.push(`<span class="k-chip chip-gc1" title="Tiket Tim GC 1 Internal">🛡️ ${gc1} Tim GC 1</span>`);
+    chips.push(`<span class="k-chip chip-gc1" title="Tiket Tim GC 1 Internal">🛡️ ${gc1} GC 1</span>`);
     chips.push(`<span class="k-chip chip-telkom" title="Tiket Telkom Eksternal">🏢 ${telkom} Telkom</span>`);
 
-    const subParts = [];
-    if (pending > 0) subParts.push(`${pending} Pending`);
-    if (progress > 0) subParts.push(`${progress} Progress`);
-    if (onHold > 0) subParts.push(`${onHold} Hold`);
-    if (assigned > 0) subParts.push(`${assigned} Assigned`);
-    const statusText = subParts.length > 0 ? ` (${subParts.join(", ")})` : "";
-
-    const subHtml = `<div class="k-breakdown-sub">${active} Aktif${statusText} &middot; ${resolved} Selesai</div>`;
-    return `<div class="k-breakdown-chips">${chips.join("")}</div>${subHtml}`;
+    const footerText = `${active} Aktif · ${resolved} Selesai`;
+    return {
+      chipsHtml: chips.join(""),
+      footerText: footerText,
+      req, inc, gc1, telkom, active, resolved, pending, progress, onHold, assigned
+    };
   }
 
   function snapKpis(s) {
@@ -283,6 +291,7 @@
   function renderItsmKpis(s) {
     const k = snapKpis(s);
     const h = s.sla_health_percent ?? 100;
+    const breachedCount = s.sla_breached_count ?? 0;
 
     let totalLabel = "Total Tiket ITSM";
     let totalIcon = "📁";
@@ -301,15 +310,21 @@
       totalSub = "Total seluruh tiket di menu All Incident";
     }
 
-    const breakdown = computeTicketBreakdown(k.itsm, V3.itsmList || false);
+    const bd = computeTicketBreakdown(k.itsm, V3.itsmList || false);
 
     $("itsmKpis").innerHTML =
-      kpi("itsm link", totalLabel, k.itsm.length, "tiket", totalSub, "tab:all_tickets", totalIcon, totalBadge, "badge-total", breakdown) +
-      kpi("itsm link", "Assigned (Siap Ditangani)", k.assigned, "tiket", "Siap dieksekusi teknis tim GC 1", "tab:team_assigned", "📋", "🚨 Prioritas Tim", "badge-assigned") +
-      kpi("warn link", "Pending Approval", k.pending, "tiket", "Menunggu persetujuan tenan/K/L", "tab:team_pending", "⏳", "⏳ Verifikasi", "badge-pending") +
-      kpi("violet link", "Sedang Dikerjakan (In Progress)", k.progress, "tiket", "Pengerjaan teknis L1/L2/L3", "tab:team_progress", "⚙️", "⚡ Proses Aktif", "badge-progress") +
-      kpi("hold link", "On Hold (Tertunda)", k.on_hold, "tiket", "Menunggu tenan / pihak luar", "list:on_hold", "⏸️", "⏸️ On-Hold", "badge-onhold") +
-      kpi(h >= 95 ? "ok" : h >= 80 ? "warn" : "danger", "Kepatuhan SLA (KAK 18.c)", h, "%", `Target resmi KAK: > 95%`, "list:sla", "🛡️", h >= 95 ? "✓ Target > 95%" : "⚠ Waspada", h >= 95 ? "badge-ok" : "badge-danger");
+      kpi("itsm link", totalLabel, k.itsm.length, "tiket", totalSub, "tab:all_tickets", totalIcon, totalBadge, "badge-total",
+        bd.chipsHtml, bd.footerText) +
+      kpi("itsm link", "Assigned (Siap Ditangani)", k.assigned, "tiket", "Siap dieksekusi teknis tim GC 1", "tab:team_assigned", "📋", "🚨 Prioritas Tim", "badge-assigned",
+        `<span class="k-chip chip-priority">🚨 Prioritas L0/L1</span><span class="k-chip chip-speed">⚡ Target &lt; 15m</span>`, "Antrean prioritas tim GC 1") +
+      kpi("warn link", "Pending Approval", k.pending, "tiket", "Menunggu persetujuan tenan/K/L", "tab:team_pending", "⏳", "⏳ Verifikasi", "badge-pending",
+        `<span class="k-chip chip-pending">⏳ Konfirmasi K/L</span><span class="k-chip chip-doc">📑 Nota Dinas</span>`, `${k.pending} tiket verifikasi`) +
+      kpi("violet link", "Sedang Dikerjakan", k.progress, "tiket", "Pengerjaan teknis resolver L1/L2/L3", "tab:team_progress", "⚙️", "⚡ Proses Aktif", "badge-progress",
+        `<span class="k-chip chip-progress">⚙️ Pengerjaan Aktif</span><span class="k-chip chip-tech">🛠️ Resolusi Teknis</span>`, "Pengerjaan aktif resolver") +
+      kpi("hold link", "On Hold (Tertunda)", k.on_hold, "tiket", "Menunggu tenan / vendor / pihak luar", "list:on_hold", "⏸️", "⏸️ On-Hold", "badge-onhold",
+        `<span class="k-chip chip-onhold">⏸️ Tertunda Eksternal</span><span class="k-chip chip-vendor">🏢 Vendor / Tenan</span>`, `${k.on_hold} tiket tertunda`) +
+      kpi(h >= 95 ? "ok link" : h >= 80 ? "warn link" : "danger link", "Kepatuhan SLA (KAK 18.c)", h, "%", `Standar batas baku resmi KAK 18.c`, "list:sla", "🛡️", h >= 95 ? "✓ Target > 95%" : "⚠ Waspada", h >= 95 ? "badge-ok" : "badge-danger",
+        `<span class="k-chip ${h >= 95 ? "chip-ok" : "chip-danger"}">🛡️ ${h >= 95 ? "✓ Target Terpenuhi" : "⚠ Perlu Perhatian"}</span><span class="k-chip chip-breach">${breachedCount} Lewat SLA</span>`, "Target resmi KAK: > 95%");
   }
 
   function renderWaKpis(s) {
@@ -318,10 +333,14 @@
     const unlinked = k.waOpen.filter((t) => !t.linkedPortalId).length;
     const avg = V3.stats ? V3.stats.wa_reply_avg_min : null;
     $("waKpis").innerHTML =
-      kpi("wa link", "Pra-tiket WhatsApp Aktif", k.waOpen.length, "aduan", "Belum selesai / ditolak", "tab:all_tickets", "💬", "Aduan Baru", "badge-wa") +
-      kpi(k.late.length ? "danger" : k.waiting.length ? "warn" : "ok", "Menunggu Balasan", k.waiting.length, "aduan", k.late.length ? `${k.late.length} lewat target` : "Semua dalam target", "tab:all_tickets", "⏳", k.late.length ? "Lewat Target" : "Tepat Waktu", k.late.length ? "badge-danger" : "badge-ok") +
-      kpi("itsm", "Rata-rata Waktu Respon", num(avg), avg === null || avg === undefined ? "" : "menit", "Target internal 5-10 menit", null, "⚡", "Kecepatan", "badge-assigned") +
-      kpi("warn", "Belum Ada Tiket ITSM", unlinked, "aduan", "Perlu dibuatkan tiket resmi", "list:unlinked", "⚠️", "Menunggu Tiket", "badge-pending");
+      kpi("wa link", "Pra-tiket WhatsApp Aktif", k.waOpen.length, "aduan", "Belum selesai / ditolak", "tab:all_tickets", "💬", "Aduan Baru", "badge-wa",
+        `<span class="k-chip chip-ok">💬 Pra-Tiket Masuk</span><span class="k-chip chip-priority">🚨 Perlu Tindak Lanjut</span>`, "Aduan aktif dari grup WA") +
+      kpi(k.late.length ? "danger link" : k.waiting.length ? "warn link" : "ok link", "Menunggu Balasan", k.waiting.length, "aduan", k.late.length ? `${k.late.length} lewat target` : "Semua dalam target", "tab:all_tickets", "⏳", k.late.length ? "Lewat Target" : "Tepat Waktu", k.late.length ? "badge-danger" : "badge-ok",
+        `<span class="k-chip ${k.late.length ? "chip-danger" : "chip-ok"}">⏳ ${k.late.length ? k.late.length + " Lewat Target" : "✓ Tepat Waktu"}</span>`, "Target balasan &le; 10 menit") +
+      kpi("itsm", "Rata-rata Waktu Respon", num(avg), avg === null || avg === undefined ? "" : "menit", "Target internal 5-10 menit", null, "⚡", "Kecepatan", "badge-assigned",
+        `<span class="k-chip chip-speed">⚡ Respon Cepat</span><span class="k-chip chip-doc">Target 5-10 mnt</span>`, "Standar pelayanan helpdesk") +
+      kpi("warn link", "Belum Ada Tiket ITSM", unlinked, "aduan", "Perlu dibuatkan tiket resmi", "list:unlinked", "⚠️", "Menunggu Tiket", "badge-pending",
+        `<span class="k-chip chip-pending">⚠️ Menunggu Tiket</span><span class="k-chip chip-req">Perlu Dibuatkan Tiket</span>`, "Belum terbit nomor tiket ITSM");
   }
 
   function renderOverviewKpis(s) {
@@ -334,6 +353,7 @@
     const pendingCount = k.pending || kk.itsm_pending || 0;
     const onHoldCount = k.on_hold || kk.itsm_on_hold || 0;
     const progressCount = k.progress || Math.max(0, (kk.itsm_open || 0) - assignedCount - pendingCount - onHoldCount);
+    const breachedCount = st.sla.breached || 0;
 
     const stSnap = getState().snapshot;
     const allScanned = (stSnap && stSnap.all_scanned_tickets && stSnap.all_scanned_tickets.length > 0)
@@ -341,15 +361,21 @@
       : ((stSnap && stSnap.all_tickets) || (s.all_tickets) || []);
     const itsmTotal = allScanned.filter(t => !t.isFromWa).length || (kk.itsm_open || 40);
 
-    const breakdown = computeTicketBreakdown(allScanned.filter(t => !t.isFromWa), false);
+    const bd = computeTicketBreakdown(allScanned.filter(t => !t.isFromWa), false);
 
     $("ovKpis").innerHTML =
-      kpi("itsm link", "Total Tiket ITSM", itsmTotal, "tiket", "Gabungan Request dan Insiden terpantau", "view:itsm", "📁", "📁 Total ITSM", "badge-total", breakdown) +
-      kpi("itsm link", "Assigned (Siap Ditangani)", assignedCount, "tiket", "Siap dieksekusi teknis tim GC 1", "tab:team_assigned", "📋", "🚨 Prioritas Tim", "badge-assigned") +
-      kpi("warn link", "Pending Approval", pendingCount, "tiket", "Menunggu persetujuan tenan/K/L", "tab:team_pending", "⏳", "⏳ Verifikasi", "badge-pending") +
-      kpi("violet link", "Sedang Dikerjakan (In Progress)", progressCount, "tiket", "Pengerjaan teknis L1/L2/L3", "tab:team_progress", "⚙️", "⚡ Proses Aktif", "badge-progress") +
-      kpi("hold link", "On Hold (Tertunda)", onHoldCount, "tiket", "Menunggu tenan / vendor / pihak luar", "list:on_hold", "⏸️", "⏸️ On-Hold", "badge-onhold") +
-      kpi(h >= 95 ? "ok" : h >= 80 ? "warn" : "danger", "Kepatuhan SLA (KAK 18.c)", h, "%", `${st.sla.breached || 0} tiket lewat SLA · target > 95%`, "view:itsm", "🛡️", h >= 95 ? "✓ Target > 95%" : "⚠ Waspada", h >= 95 ? "badge-ok" : "badge-danger");
+      kpi("itsm link", "Total Tiket ITSM", itsmTotal, "tiket", "Gabungan Request dan Insiden terpantau", "view:itsm", "📁", "📁 Total ITSM", "badge-total",
+        bd.chipsHtml, bd.footerText) +
+      kpi("itsm link", "Assigned (Siap Ditangani)", assignedCount, "tiket", "Siap dieksekusi teknis tim GC 1", "tab:team_assigned", "📋", "🚨 Prioritas Tim", "badge-assigned",
+        `<span class="k-chip chip-priority">🚨 Prioritas L0/L1</span><span class="k-chip chip-speed">⚡ Target &lt; 15m</span>`, "Antrean prioritas tim GC 1") +
+      kpi("warn link", "Pending Approval", pendingCount, "tiket", "Menunggu persetujuan tenan/K/L", "tab:team_pending", "⏳", "⏳ Verifikasi", "badge-pending",
+        `<span class="k-chip chip-pending">⏳ Konfirmasi K/L</span><span class="k-chip chip-doc">📑 Nota Dinas</span>`, `${pendingCount} tiket verifikasi`) +
+      kpi("violet link", "Sedang Dikerjakan", progressCount, "tiket", "Pengerjaan teknis resolver L1/L2/L3", "tab:team_progress", "⚙️", "⚡ Proses Aktif", "badge-progress",
+        `<span class="k-chip chip-progress">⚙️ Pengerjaan Aktif</span><span class="k-chip chip-tech">🛠️ Resolusi Teknis</span>`, "Pengerjaan aktif resolver") +
+      kpi("hold link", "On Hold (Tertunda)", onHoldCount, "tiket", "Menunggu tenan / vendor / pihak luar", "list:on_hold", "⏸️", "⏸️ On-Hold", "badge-onhold",
+        `<span class="k-chip chip-onhold">⏸️ Tertunda Eksternal</span><span class="k-chip chip-vendor">🏢 Vendor / Tenan</span>`, `${onHoldCount} tiket tertunda`) +
+      kpi(h >= 95 ? "ok link" : h >= 80 ? "warn link" : "danger link", "Kepatuhan SLA (KAK 18.c)", h, "%", `Standar batas baku resmi KAK 18.c`, "view:itsm", "🛡️", h >= 95 ? "✓ Target > 95%" : "⚠ Waspada", h >= 95 ? "badge-ok" : "badge-danger",
+        `<span class="k-chip ${h >= 95 ? "chip-ok" : "chip-danger"}">🛡️ ${h >= 95 ? "✓ Target Terpenuhi" : "⚠ Perlu Perhatian"}</span><span class="k-chip chip-breach">${breachedCount} Lewat SLA</span>`, "Target resmi KAK: > 95%");
 
     // Update 4 Metric Strip in Left Card (Aivora Style)
     const allTickets = (stSnap && stSnap.all_tickets) || (s.all_tickets) || [];
