@@ -59,18 +59,23 @@
   "itsm_lists": [
     {
       "key": "request",
-      "label": "Request",
+      "label": "Tiket Request",
       "match": [
         "request",
-        "permohonan"
+        "permohonan",
+        "sc_req_item",
+        "sc_task",
+        "all request"
       ]
     },
     {
-      "key": "assign",
-      "label": "Assign",
+      "key": "incident",
+      "label": "Tiket Insiden",
       "match": [
-        "assign",
-        "penugasan"
+        "incident",
+        "insiden",
+        "gangguan",
+        "all incident"
       ]
     }
   ]

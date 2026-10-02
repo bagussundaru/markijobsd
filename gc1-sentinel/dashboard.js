@@ -8,7 +8,7 @@ const SERVER = location.protocol.startsWith("http") ? location.origin : "http://
 
 let state = {
   role: "operator",
-  activeTab: "team_assigned", // "team_assigned", "team_pending", "team_progress", "wa_alerts", "all_tickets"
+  activeTab: "all_tickets", // "all_tickets", "team_assigned", "team_pending", "team_progress", "wa_alerts"
   snapshot: {
     total_helpdesk: 0,
     team_assigned_count: 0,
@@ -28,6 +28,7 @@ let state = {
   alerts: [],
   searchQuery: "",
   filterStatus: "all",
+  filterServiceType: "all",
   settings: {
     targetContact: "mimi Sandora",
     keywords: [
@@ -100,6 +101,7 @@ const emptyDesc = document.getElementById("emptyDesc");
 // Controls
 const searchInput = document.getElementById("searchInput");
 const filterStateSelect = document.getElementById("filterStateSelect");
+const filterServiceTypeSelect = document.getElementById("filterServiceTypeSelect");
 const toggleMarkijoBtn = document.getElementById("toggleMarkijoBtn");
 const sendWaSummaryBtn = document.getElementById("sendWaSummaryBtn");
 const exportCsvBtn = document.getElementById("exportCsvBtn");
@@ -719,7 +721,26 @@ function renderActiveTab() {
 
   // Apply State Filter
   if (filterState !== "all") {
-    list = list.filter((t) => (t.requestState || "").toLowerCase() === filterState.toLowerCase());
+    const fs = filterState.toLowerCase();
+    list = list.filter((t) => {
+      const rs = (t.requestState || "").toLowerCase();
+      if (fs.includes("hold")) return rs.includes("hold");
+      if (fs.includes("assign")) return rs.includes("assign");
+      if (fs.includes("pending")) return rs.includes("pending");
+      if (fs.includes("progress")) return rs.includes("progress");
+      return rs === fs;
+    });
+  }
+
+  // Apply Service Type Filter (Request vs Insiden)
+  const filterService = state.filterServiceType || "all";
+  if (filterService !== "all") {
+    list = list.filter((t) => {
+      const rawSt = (t.serviceType || t.ticketType || "").toLowerCase();
+      const tid = (t.ticketId || "").toUpperCase();
+      const isInc = rawSt.includes("insiden") || rawSt.includes("incident") || tid.startsWith("INC");
+      return filterService === "Insiden" ? isInc : !isInc;
+    });
   }
 
   // Strict Primary Key Deduplication
@@ -767,14 +788,17 @@ function renderHelpdeskTable(tickets) {
       const isAssigned = cleanState.toLowerCase().includes("assign");
       const isPending = cleanState.toLowerCase().includes("pending");
       const isInProgress = cleanState.toLowerCase().includes("progress");
+      const isOnHold = cleanState.toLowerCase().includes("hold");
 
       let rowClass = "";
       if (isAssigned) rowClass = "urgent-row";
       else if (isPending) rowClass = "pending-row";
+      else if (isOnHold) rowClass = "onhold-row";
 
       let statusBadgeClass = "status-badge-pending";
       if (isAssigned) statusBadgeClass = "status-badge-assigned";
       else if (isInProgress) statusBadgeClass = "status-badge-progress";
+      else if (isOnHold) statusBadgeClass = "status-badge-onhold";
 
       const gc1Badge = `<span class="gc1-tag">GC 1</span>`;
       const priorityClass = { Critical: "priority-critical", Major: "priority-major", Minor: "priority-minor", "Service Request": "priority-sr" }[t.priority] || "priority-normal";
@@ -824,6 +848,13 @@ function renderHelpdeskTable(tickets) {
       const slaStatusText = escapeHtml(t.slaStatusText || "Sisa 24j");
       const slaPercent = t.slaPercentRemaining ?? 100;
 
+      // Jenis Layanan (Insiden vs Request)
+      const rawServiceType = String(t.serviceType || t.ticketType || "");
+      const isIncident = rawServiceType.toLowerCase().includes("insiden") || rawServiceType.toLowerCase().includes("incident") || cleanId.toUpperCase().startsWith("INC");
+      const serviceBadgeClass = isIncident ? "service-badge-incident" : "service-badge-request";
+      const serviceBadgeIcon = isIncident ? "⚡" : "📋";
+      const serviceBadgeText = isIncident ? "Insiden" : "Request";
+
       // Action buttons: 🔍 Detail + 📲 WA (if Assigned) - 100% Symmetric & Horizontal
       const actionHtml = `
         <div class="table-actions-cell">
@@ -853,8 +884,13 @@ function renderHelpdeskTable(tickets) {
           </div>
         </td>
         <td>
-          <div style="font-weight:700; color:var(--text-main); font-size:13px;">${escapeHtml(cleanReq)}</div>
-          <span class="location-pill">📍 ${escapeHtml(cleanLoc)}</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="requester-avatar">${escapeHtml((cleanReq.match(/\b\w/g) || ["U"]).slice(0, 2).join("").toUpperCase())}</span>
+            <div>
+              <div style="font-weight:700; color:var(--ink, #0F172A); font-size:13px;">${escapeHtml(cleanReq)}</div>
+              <span class="location-pill">📍 ${escapeHtml(cleanLoc)}</span>
+            </div>
+          </div>
         </td>
         <td>
           <div class="status-pic-group">
@@ -887,6 +923,11 @@ function renderHelpdeskTable(tickets) {
               <div class="sla-mini-fill" style="width:${slaPercent}%;"></div>
             </div>
           </div>
+        </td>
+        <td style="text-align:center;">
+          <span class="service-pill ${serviceBadgeClass}">
+            ${serviceBadgeIcon} ${serviceBadgeText}
+          </span>
         </td>
         <td style="text-align:center;">
           ${actionHtml}
@@ -1043,11 +1084,18 @@ filterStateSelect?.addEventListener("change", (e) => {
   renderActiveTab();
 });
 
+filterServiceTypeSelect?.addEventListener("change", (e) => {
+  state.filterServiceType = e.target.value;
+  renderActiveTab();
+});
+
 clearAllBtn?.addEventListener("click", () => {
   if (searchInput) searchInput.value = "";
   if (filterStateSelect) filterStateSelect.value = "all";
+  if (filterServiceTypeSelect) filterServiceTypeSelect.value = "all";
   state.searchQuery = "";
   state.filterStatus = "all";
+  state.filterServiceType = "all";
   renderActiveTab();
 });
 

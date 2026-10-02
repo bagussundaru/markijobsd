@@ -4,6 +4,7 @@ markijo_reported.json
 markijo_events.log
 ai_audit.log
 config.local.json
+*.db
 .env
 *.key
 __pycache__/

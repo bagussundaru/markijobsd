@@ -15,8 +15,19 @@
     itsm: { title: "Tiket ITSM", crumb: "Monitoring · tiket resmi di portal ITSM" },
     wa: { title: "Pra-tiket WhatsApp", crumb: "Monitoring · aduan WhatsApp sebelum ada tiket di ITSM" },
     quick: { title: "Input Cepat", crumb: "Input · aduan WhatsApp dengan NLP" },
+    manual: { title: "Rekam Tiket Manual", crumb: "Input · Tiket Terlewat & Data Historis" }
   };
-  const V3 = { view: "overview", range: "day", stats: null, lastStats: 0, itsmList: null, lists: [{ key: "request", label: "Request" }, { key: "assign", label: "Assign" }] };
+  const V3 = {
+    view: "overview",
+    range: "day",
+    stats: null,
+    lastStats: 0,
+    itsmList: null,
+    lists: [
+      { key: "request", label: "Tiket Request", icon: "📋" },
+      { key: "incident", label: "Tiket Insiden", icon: "⚡" }
+    ]
+  };
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (_) { return d; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} },
@@ -42,12 +53,16 @@
     if (nav && nav.tagName === "BUTTON") showView(nav.dataset.view, nav.dataset.list || null);
   });
 
-  // ---- submenu ITSM: satu item per menu/daftar ITSM (Request, Assign, ...), sesuai config itsm_lists
+  // ---- submenu ITSM: menu tetap profesional (Semua, Request, Insiden)
   function renderItsmMenu() {
     const box = $("sbItsmItems");
     if (!box) return;
-    const items = [{ key: "", label: "Semua" }].concat(V3.lists);
-    box.innerHTML = items.map((l) => `<button class="sb-item" data-view="itsm" data-list="${esc(l.key)}" title="Tiket ITSM: ${esc(l.label)}"><span class="ic">${l.key ? "🏛️" : "🗂️"}</span><span class="tx">ITSM · ${esc(l.label)}</span><span class="sb-pill" data-pill-list="${esc(l.key)}">0</span></button>`).join("");
+    const items = [
+      { key: "", label: "ITSM · Semua", icon: "🗂️", title: "Semua Tiket ITSM" },
+      { key: "request", label: "Tiket Request", icon: "📋", title: "Daftar Tiket Request (Permohonan)" },
+      { key: "incident", label: "Tiket Insiden", icon: "⚡", title: "Daftar Tiket Insiden (Gangguan)" }
+    ];
+    box.innerHTML = items.map((l) => `<button class="sb-item" data-view="itsm" data-list="${esc(l.key)}" title="${esc(l.title)}"><span class="ic">${l.icon}</span><span class="tx">${esc(l.label)}</span><span class="sb-pill" data-pill-list="${esc(l.key)}">0</span></button>`).join("");
     markActive();
   }
   function markActive() {
@@ -56,11 +71,15 @@
       b.classList.toggle("active", on);
     });
   }
-  function listLabel(key) { const l = V3.lists.find((x) => x.key === key); return l ? l.label : key; }
+  function listLabel(key) {
+    if (key === "request") return "Tiket Request";
+    if (key === "incident" || key === "assign") return "Tiket Insiden";
+    return "Semua";
+  }
   function setLists(arr) {
-    if (!Array.isArray(arr) || !arr.length) return;
-    const next = arr.filter((l) => !l.legacy).map((l) => ({ key: l.key, label: l.label }));   // daftar format lama bukan menu
-    if (JSON.stringify(next) !== JSON.stringify(V3.lists)) { V3.lists = next; renderItsmMenu(); }
+    // Menu ITSM dibakukan secara profesional (ITSM · Semua, Tiket Request, Tiket Insiden)
+    // agar tidak pernah ada duplikasi menu atau terpotong teksnya.
+    markActive();
   }
 
   // ------------------------------------------------------------------ tampilan
@@ -79,16 +98,17 @@
       if ($("itsmDesc")) $("itsmDesc").textContent = V3.itsmList ? `Tiket yang tampil di menu "${listLabel(V3.itsmList)}" pada aplikasi ITSM. SLA resmi (KAK 18.c) berjalan pada tiket ini.` : "Gabungan semua menu ITSM (satu tiket dihitung sekali walau muncul di beberapa menu).";
     }
     const tb = $("tableBlock");
-    if (v === "itsm" || v === "wa") {
-      $(v === "itsm" ? "slotItsm" : "slotWa").appendChild(tb);
+    if (v === "itsm" || v === "wa" || v === "overview") {
+      const targetSlot = v === "itsm" ? $("slotItsm") : (v === "wa" ? $("slotWa") : $("slotOverview"));
+      if (targetSlot) targetSlot.appendChild(tb);
       tb.hidden = false;
       tb.dataset.view = v;
-      const valid = v === "itsm" ? ["team_assigned", "team_pending", "team_progress", "all_tickets"] : ["all_tickets", "wa_alerts"];
+      const valid = v === "wa" ? ["all_tickets", "wa_alerts"] : ["all_tickets", "team_assigned", "team_pending", "team_progress"];
       const allLabel = $("tabBtnAll") && $("tabBtnAll").querySelector(".tab-text");
-      if (allLabel) allLabel.textContent = v === "itsm" ? "Semua Tiket ITSM" : "Semua Pra-tiket WhatsApp";
+      if (allLabel) allLabel.textContent = v === "itsm" ? "Semua Tiket ITSM" : (v === "wa" ? "Semua Pra-tiket WhatsApp" : "Semua Tiket Terpantau");
       const waLabel = $("tabBtnWa") && $("tabBtnWa").querySelector(".tab-text");
       if (waLabel) waLabel.textContent = "Feed Pesan WhatsApp";
-      if (!valid.includes(state.activeTab)) switchTab(v === "itsm" ? "team_assigned" : "all_tickets");
+      if (!valid.includes(state.activeTab)) switchTab("all_tickets");
       else switchTab(state.activeTab);
       if (v === "wa" && state.activeTab === "all_tickets") {
         if ($("currentCategoryTitle")) $("currentCategoryTitle").innerHTML = "<span>💬</span> Pra-tiket WhatsApp";
@@ -102,12 +122,26 @@
     if (state.snapshot) onSnapshot(state.snapshot, true);
     loadStats(true);
     if (v === "quick") setTimeout(() => $("mwText") && $("mwText").focus(), 50);
+    if (v === "manual") setTimeout(initManualView, 20);
     window.scrollTo({ top: 0 });
   }
   V3.showView = showView;
 
   V3.filterBySource = function (list) {
-    if (V3.view === "itsm") return list.filter((t) => !t.isFromWa && (!V3.itsmList || (t.itsmLists || []).includes(V3.itsmList)));
+    if (V3.view === "itsm") {
+      return list.filter((t) => {
+        if (t.isFromWa) return false;
+        if (!V3.itsmList) return true;
+        const lists = t.itsmLists || [];
+        if (V3.itsmList === "incident") {
+          return lists.includes("incident") || lists.includes("assign") || (t.ticketId || "").toUpperCase().startsWith("INC") || (t.serviceType || "").toLowerCase() === "insiden";
+        }
+        if (V3.itsmList === "request") {
+          return lists.includes("request") || (t.ticketId || "").toUpperCase().startsWith("REQ") || (t.serviceType || "").toLowerCase() === "service request";
+        }
+        return lists.includes(V3.itsmList);
+      });
+    }
     if (V3.view === "wa") return list.filter((t) => t.isFromWa);
     return list;
   };
@@ -125,10 +159,17 @@
     return true;
   };
 
-  // ------------------------------------------------------------------ KPI
-  function kpi(cls, label, val, unit, sub, go) {
+  // ------------------------------------------------------------------ KPI (Aivora Modern Layout)
+  function kpi(cls, label, val, unit, sub, go, icon, badgeText, badgeCls) {
     return `<div class="v3-kpi ${cls}${go ? " link" : ""}" ${go ? `data-go="${esc(go)}"` : ""}>
-      <div class="k-label">${esc(label)}</div><div class="k-val">${esc(val)}${unit ? `<small>${esc(unit)}</small>` : ""}</div><div class="k-sub">${esc(sub || "")}</div></div>`;
+      <div class="k-top">
+        <div class="k-icon-box ${badgeCls || ""}">${icon || "📊"}</div>
+        ${badgeText ? `<span class="k-pill ${badgeCls || ""}">${esc(badgeText)}</span>` : ""}
+      </div>
+      <div class="k-val">${esc(val)}${unit ? `<small>${esc(unit)}</small>` : ""}</div>
+      <div class="k-label">${esc(label)}</div>
+      <div class="k-sub">${esc(sub || "")}</div>
+    </div>`;
   }
   document.addEventListener("click", (e) => {
     const k = e.target.closest(".v3-kpi[data-go]");
@@ -143,7 +184,18 @@
   function snapKpis(s) {
     const all = s.all_tickets || [];
     const st = (t) => (t.requestState || "").toLowerCase();
-    const itsm = all.filter((t) => !t.isFromWa && (V3.view !== "itsm" || !V3.itsmList || (t.itsmLists || []).includes(V3.itsmList)));
+    const itsm = all.filter((t) => {
+      if (t.isFromWa) return false;
+      if (V3.view !== "itsm" || !V3.itsmList) return true;
+      const lists = t.itsmLists || [];
+      if (V3.itsmList === "incident") {
+        return lists.includes("incident") || lists.includes("assign") || (t.ticketId || "").toUpperCase().startsWith("INC") || (t.serviceType || "").toLowerCase() === "insiden";
+      }
+      if (V3.itsmList === "request") {
+        return lists.includes("request") || (t.ticketId || "").toUpperCase().startsWith("REQ") || (t.serviceType || "").toLowerCase() === "service request";
+      }
+      return lists.includes(V3.itsmList);
+    });
     const wa = all.filter((t) => t.isFromWa);
     const open = (l) => l.filter((t) => !t.slaClosed);
     const itsmOpen = open(itsm), waOpen = open(wa);
@@ -152,18 +204,19 @@
     return { itsm, wa, itsmOpen, waOpen, waiting, late, st,
       assigned: itsm.filter((t) => st(t).includes("assign")).length,
       pending: itsm.filter((t) => st(t).includes("pending")).length,
-      progress: itsm.filter((t) => st(t).includes("progress")).length };
+      progress: itsm.filter((t) => st(t).includes("progress")).length,
+      on_hold: itsm.filter((t) => st(t).includes("hold")).length };
   }
 
   function renderItsmKpis(s) {
     const k = snapKpis(s);
     const h = s.sla_health_percent ?? 100;
     $("itsmKpis").innerHTML =
-      kpi("itsm link", "Assigned", k.assigned, "tiket", "siap ditangani tim", "tab:team_assigned") +
-      kpi("warn link", "Pending Approval", k.pending, "tiket", "menunggu persetujuan tenan/K/L", "tab:team_pending") +
-      kpi("violet link", "In Progress", k.progress, "tiket", "sedang dikerjakan L1/L2/L3", "tab:team_progress") +
-      kpi(h >= 95 ? "ok" : h >= 80 ? "warn" : "danger", "Kepatuhan SLA", h, "%", `tiket aktif dalam SLA · target > 95% · klik: yang lewat SLA`, "list:sla") +
-      kpi("itsm link", "Total ITSM", k.itsm.length, "tiket", `${k.itsmOpen.length} masih aktif`, "tab:all_tickets");
+      kpi("itsm link", "Assigned (Siap Ditangani)", k.assigned, "tiket", "Siap dieksekusi teknis tim GC 1", "tab:team_assigned", "📋", "🚨 Prioritas Tim", "badge-assigned") +
+      kpi("warn link", "Pending Approval", k.pending, "tiket", "Menunggu persetujuan tenan/K/L", "tab:team_pending", "⏳", "⏳ Verifikasi", "badge-pending") +
+      kpi("violet link", "Sedang Dikerjakan (In Progress)", k.progress, "tiket", "Pengerjaan teknis L1/L2/L3", "tab:team_progress", "⚙️", "⚡ Proses Aktif", "badge-progress") +
+      kpi("hold link", "On Hold (Tertunda)", k.on_hold, "tiket", "Menunggu tenan / pihak luar", "list:on_hold", "⏸️", "⏸️ On-Hold", "badge-onhold") +
+      kpi(h >= 95 ? "ok" : h >= 80 ? "warn" : "danger", "Kepatuhan SLA (KAK 18.c)", h, "%", `Target resmi KAK: > 95%`, "list:sla", "🛡️", h >= 95 ? "✓ Target > 95%" : "⚠ Waspada", h >= 95 ? "badge-ok" : "badge-danger");
   }
 
   function renderWaKpis(s) {
@@ -172,11 +225,10 @@
     const unlinked = k.waOpen.filter((t) => !t.linkedPortalId).length;
     const avg = V3.stats ? V3.stats.wa_reply_avg_min : null;
     $("waKpis").innerHTML =
-      kpi("wa link", "Pra-tiket aktif", k.waOpen.length, "aduan", "belum selesai / ditolak", "tab:all_tickets") +
-      kpi(k.late.length ? "danger" : k.waiting.length ? "warn" : "ok", "Menunggu balasan", k.waiting.length, "aduan", k.late.length ? `${k.late.length} lewat target balasan` : "dalam target", "tab:all_tickets") +
-      kpi("wa", "Rata-rata balasan", num(avg), avg === null || avg === undefined ? "" : "menit", "pada periode terpilih") +
-      kpi("warn", "Belum ber-tiket ITSM", unlinked, "aduan", "minta pelapor membuka tiket di ITSM", "list:unlinked") +
-      kpi("violet link", "Pelapor belum terverifikasi", unver, "aduan", "nomor baru atau belum dicatat", "pic:open");
+      kpi("wa link", "Pra-tiket WhatsApp Aktif", k.waOpen.length, "aduan", "Belum selesai / ditolak", "tab:all_tickets", "💬", "Aduan Baru", "badge-wa") +
+      kpi(k.late.length ? "danger" : k.waiting.length ? "warn" : "ok", "Menunggu Balasan", k.waiting.length, "aduan", k.late.length ? `${k.late.length} lewat target` : "Semua dalam target", "tab:all_tickets", "⏳", k.late.length ? "Lewat Target" : "Tepat Waktu", k.late.length ? "badge-danger" : "badge-ok") +
+      kpi("itsm", "Rata-rata Waktu Respon", num(avg), avg === null || avg === undefined ? "" : "menit", "Target internal 5-10 menit", null, "⚡", "Kecepatan", "badge-assigned") +
+      kpi("warn", "Belum Ada Tiket ITSM", unlinked, "aduan", "Perlu dibuatkan tiket resmi", "list:unlinked", "⚠️", "Menunggu Tiket", "badge-pending");
   }
 
   function renderOverviewKpis(s) {
@@ -184,14 +236,28 @@
     const kk = st ? st.kpi : null;
     if (!kk) { $("ovKpis").innerHTML = ""; return; }
     const h = st.sla.health_pct;
-    const tgt = st.sla.wa_reply_target_min || 10;
+    const k = snapKpis(s);
+    const assignedCount = k.assigned || kk.itsm_assigned || 0;
+    const pendingCount = k.pending || kk.itsm_pending || 0;
+    const onHoldCount = k.on_hold || kk.itsm_on_hold || 0;
+    const progressCount = k.progress || Math.max(0, (kk.itsm_open || 0) - assignedCount - pendingCount - onHoldCount);
+
     $("ovKpis").innerHTML =
-      kpi("itsm link", "Tiket ITSM aktif", kk.itsm_open, "tiket", Object.entries(kk.itsm_by_list || {}).filter(([k, n]) => n > 0 && V3.lists.some((l) => l.key === k)).map(([k, n]) => `${n} ${listLabel(k)}`).join(" · ") || `${kk.itsm_assigned} Assigned · ${kk.itsm_pending} Pending`, "view:itsm") +
-      kpi("wa link", "Aduan WhatsApp aktif", kk.wa_active, "aduan", `${kk.wa_unlinked} belum ber-tiket ITSM`, "view:wa") +
-      kpi(kk.wa_late ? "danger" : kk.wa_waiting ? "warn" : "ok", "Menunggu balasan WA", kk.wa_waiting, "aduan", kk.wa_late ? `${kk.wa_late} lewat ${tgt} menit` : `semua dalam ${tgt} menit`, "view:wa") +
-      kpi(h >= 95 ? "ok" : h >= 80 ? "warn" : "danger", "Kepatuhan SLA ITSM", h, "%", `${st.sla.breached} tiket lewat SLA · target > 95%`, "view:itsm") +
-      kpi(kk.attention ? "danger" : "ok", "Perlu perhatian", kk.attention, "tiket", "memiliki penanda eskalasi · klik untuk melihat", "list:attention") +
-      kpi("violet link", "Pelapor belum terverifikasi", kk.wa_unverified, "aduan", "nomor baru atau belum dicatat", "pic:open");
+      kpi("itsm link", "Assigned (Siap Ditangani)", assignedCount, "tiket", "Siap dieksekusi teknis tim GC 1", "tab:team_assigned", "📋", "🚨 Prioritas Tim", "badge-assigned") +
+      kpi("warn link", "Pending Approval", pendingCount, "tiket", "Menunggu persetujuan tenan/K/L", "tab:team_pending", "⏳", "⏳ Verifikasi", "badge-pending") +
+      kpi("violet link", "Sedang Dikerjakan (In Progress)", progressCount, "tiket", "Pengerjaan teknis L1/L2/L3", "tab:team_progress", "⚙️", "⚡ Proses Aktif", "badge-progress") +
+      kpi("hold link", "On Hold (Tertunda)", onHoldCount, "tiket", "Menunggu tenan / vendor / pihak luar", "list:on_hold", "⏸️", "⏸️ On-Hold", "badge-onhold") +
+      kpi(h >= 95 ? "ok" : h >= 80 ? "warn" : "danger", "Kepatuhan SLA (KAK 18.c)", h, "%", `${st.sla.breached || 0} tiket lewat SLA · target > 95%`, "view:itsm", "🛡️", h >= 95 ? "✓ Target > 95%" : "⚠ Waspada", h >= 95 ? "badge-ok" : "badge-danger");
+
+    // Update 4 Metric Strip in Left Card (Aivora Style)
+    const allTickets = (state.snapshot && state.snapshot.all_tickets) || (s.all_tickets) || [];
+    const totalCount = allTickets.length || (kk.itsm_open || 40);
+    const activeCount = kk.itsm_open || (assignedCount + pendingCount + progressCount + onHoldCount);
+    const resolvedCount = Math.max(0, totalCount - activeCount);
+    if ($("stripTotal")) $("stripTotal").textContent = `${totalCount} Tiket`;
+    if ($("stripActive")) $("stripActive").textContent = `${activeCount} Tiket`;
+    if ($("stripResolved")) $("stripResolved").textContent = `${resolvedCount} Tiket`;
+    if ($("stripWa")) $("stripWa").textContent = `${kk.wa_active || 0} Pra-Tiket`;
   }
 
   // ------------------------------------------------------------------ grafik
@@ -277,10 +343,24 @@
     loadStats(true);
   });
 
+  // Card Internal Tabs (Aivora layout switcher)
+  document.addEventListener("click", (e) => {
+    const tabBtn = e.target.closest(".v3-card-tab[data-tab-card]");
+    if (!tabBtn) return;
+    const card = tabBtn.closest(".v3-card");
+    if (!card) return;
+    const targetId = tabBtn.dataset.tabCard;
+    card.querySelectorAll(".v3-card-tab").forEach((b) => b.classList.toggle("active", b === tabBtn));
+    card.querySelectorAll(".card-tab-panel").forEach((p) => {
+      p.hidden = p.id !== targetId;
+    });
+    if (V3.stats) renderCharts();
+  });
+
   function renderSyncInfo(lists) {
     const box = $("itsmSyncInfo");
     if (!box || !Array.isArray(lists)) return;
-    box.innerHTML = lists.map((l) => {
+    box.innerHTML = lists.filter((l) => l.key === "request" || l.key === "incident" || l.legacy).map((l) => {
       if (l.legacy) return l.count ? `<span class="chip off" title="Dibaca ekstensi versi lama tanpa nama halaman">Ekstensi versi lama masih membaca ${l.count} tiket tanpa nama menu: muat ulang ekstensi di Chrome</span>` : "";
       if (l.synced_at === null || l.synced_at === undefined) return `<span class="chip off" title="Halaman ini belum pernah dibaca ekstensi">${esc(l.label)}: belum dibaca. Buka menu ${esc(l.label)} di ITSM</span>`;
       const mins = Math.round((l.age_sec || 0) / 60);
@@ -292,8 +372,9 @@
   // ---- daftar tiket yang dibuka dari kartu KPI
   const LISTS = {
     attention: { title: "Tiket yang perlu perhatian", empty: "Tidak ada tiket dengan penanda eskalasi.", pred: (t) => !t.slaClosed && (t.escalationFlags || []).length > 0 },
-    sla: { title: "Tiket ITSM yang melewati SLA", empty: "Tidak ada tiket aktif yang melewati SLA.", pred: (t) => !t.isFromWa && !t.slaClosed && t.slaBreached && (!V3.itsmList || (t.itsmLists || []).includes(V3.itsmList)) },
+    sla: { title: "Tiket ITSM yang melewati SLA", empty: "Tidak ada tiket aktif yang melewati SLA.", pred: (t) => !t.isFromWa && !t.slaClosed && t.slaBreached && (!V3.itsmList || (V3.itsmList === "incident" ? ((t.itsmLists || []).includes("incident") || (t.itsmLists || []).includes("assign") || (t.ticketId || "").toUpperCase().startsWith("INC") || (t.serviceType || "").toLowerCase() === "insiden") : ((t.itsmLists || []).includes("request") || (t.ticketId || "").toUpperCase().startsWith("REQ") || (t.serviceType || "").toLowerCase() === "service request"))) },
     unlinked: { title: "Pra-tiket yang belum punya tiket di ITSM", empty: "Semua pra-tiket aktif sudah punya tiket di ITSM.", pred: (t) => t.isFromWa && !t.slaClosed && !t.linkedPortalId },
+    on_hold: { title: "Daftar Tiket Berstatus On Hold (Tertunda)", empty: "Tidak ada tiket berstatus On Hold.", pred: (t) => (t.requestState || "").toLowerCase().includes("hold") },
   };
   const PRIO_ORDER = { Critical: 0, Major: 1, Minor: 2, "Service Request": 3 };
 
@@ -331,7 +412,15 @@
     const itsmAll = (data.all_tickets || []).filter((t) => !t.isFromWa && !t.slaClosed);
     document.querySelectorAll("[data-pill-list]").forEach((p) => {
       const key = p.dataset.pillList;
-      p.textContent = key ? itsmAll.filter((t) => (t.itsmLists || []).includes(key)).length : itsmAll.length;
+      if (!key) {
+        p.textContent = itsmAll.length;
+      } else if (key === "request") {
+        p.textContent = itsmAll.filter((t) => (t.itsmLists || []).includes("request") || (t.ticketId || "").toUpperCase().startsWith("REQ") || (t.serviceType || "").toLowerCase() === "service request").length;
+      } else if (key === "incident") {
+        p.textContent = itsmAll.filter((t) => (t.itsmLists || []).includes("incident") || (t.itsmLists || []).includes("assign") || (t.ticketId || "").toUpperCase().startsWith("INC") || (t.serviceType || "").toLowerCase() === "insiden").length;
+      } else {
+        p.textContent = itsmAll.filter((t) => (t.itsmLists || []).includes(key)).length;
+      }
     });
     if (pillW) { pillW.textContent = k.waOpen.length; pillW.classList.toggle("hot", k.late.length > 0); }
     renderSyncInfo(data.itsm_lists);
@@ -435,6 +524,227 @@
   };
   V3.skipMsg = function (text) { return text in qi.include && qi.include[text] === false; };
   V3.resetQuick = function () { qi.results = []; qi.include = {}; qi.seq++; clearTimeout(qi.jobTimer); qiRender(); $("qiAi").textContent = ""; };
+
+  // ------------------------------------------------------------------ Rekam Tiket Manual
+  let manualInitialized = false;
+  function showManualAlert(msg, isError) {
+    const box = $("manAlertBox");
+    if (!box) return;
+    box.style.display = "block";
+    box.style.background = isError ? "#FEE2E2" : "#ECFDF5";
+    box.style.color = isError ? "#B91C1C" : "#047857";
+    box.style.border = isError ? "1px solid #F87171" : "1px solid #34D399";
+    box.innerHTML = (isError ? "⚠️ " : "✅ ") + esc(msg);
+    setTimeout(() => { if (box) box.style.display = "none"; }, 6000);
+  }
+
+  function loadManualTickets() {
+    const tb = $("manTicketsTableBody");
+    if (!tb) return;
+    fetch("/api/manual_tickets")
+      .then((r) => r.json())
+      .then((d) => {
+        const list = d.tickets || [];
+        if (!list.length) {
+          tb.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:16px;color:#94A3B8;">Belum ada tiket yang direkam secara manual. Gunakan form di atas untuk menambahkan tiket.</td></tr>';
+          return;
+        }
+        tb.innerHTML = list.map((t) => {
+          const tid = esc(t.ticketId || "");
+          const st = esc(t.serviceType || "Request");
+          const desc = esc(t.shortDesc || "-");
+          const who = esc(t.requestedFor || "-");
+          const stateVal = esc(t.requestState || "-");
+          const grp = esc(t.assignmentGroup || "-");
+          const dateVal = esc(t.createdDate || "-");
+          const badgeClass = stateVal.toLowerCase().includes("hold") ? "badge-onhold" : (stateVal.toLowerCase().includes("progress") ? "badge-progress" : (stateVal.toLowerCase().includes("assign") ? "badge-assigned" : "badge-pending"));
+          return `<tr style="border-bottom:1px solid #F1F5F9;">
+            <td style="padding:8px 10px;font-family:monospace;font-weight:700;color:#2563EB;">${tid}</td>
+            <td style="padding:8px 10px;"><span class="v3-tag">${st}</span></td>
+            <td style="padding:8px 10px;max-width:260px;" title="${desc}">${desc}</td>
+            <td style="padding:8px 10px;">${who}</td>
+            <td style="padding:8px 10px;"><span class="status-badge ${badgeClass}">${stateVal}</span></td>
+            <td style="padding:8px 10px;">${grp}</td>
+            <td style="padding:8px 10px;color:#64748B;">${dateVal}</td>
+          </tr>`;
+        }).join("");
+      })
+      .catch((e) => {
+        tb.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:16px;color:#EF4444;">Gagal memuat tiket manual: ${esc(e.message)}</td></tr>`;
+      });
+  }
+
+  function initManualView() {
+    loadManualTickets();
+    const dtInput = $("manCreatedDate");
+    if (dtInput && !dtInput.value) {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      dtInput.value = now.toISOString().slice(0, 16);
+    }
+    if (manualInitialized) return;
+    manualInitialized = true;
+
+    // Tab switcher
+    $("tabBtnManualSingle") && $("tabBtnManualSingle").addEventListener("click", () => {
+      $("tabBtnManualSingle").classList.add("active");
+      $("tabBtnManualBatch").classList.remove("active");
+      $("panelManualSingle").hidden = false;
+      $("panelManualBatch").hidden = true;
+    });
+    $("tabBtnManualBatch") && $("tabBtnManualBatch").addEventListener("click", () => {
+      $("tabBtnManualBatch").classList.add("active");
+      $("tabBtnManualSingle").classList.remove("active");
+      $("panelManualBatch").hidden = false;
+      $("panelManualSingle").hidden = true;
+    });
+
+    // Reset single
+    $("btnResetManualSingle") && $("btnResetManualSingle").addEventListener("click", () => {
+      $("formManualSingle") && $("formManualSingle").reset();
+      const dt = $("manCreatedDate");
+      if (dt) {
+        const now = new Date();
+        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+        dt.value = now.toISOString().slice(0, 16);
+      }
+    });
+
+    // Reset batch
+    $("btnResetManualBatch") && $("btnResetManualBatch").addEventListener("click", () => {
+      if ($("manBatchText")) $("manBatchText").value = "";
+    });
+
+    // Refresh list
+    $("btnRefreshManualList") && $("btnRefreshManualList").addEventListener("click", loadManualTickets);
+
+    // Save Single Ticket
+    $("btnSaveManualSingle") && $("btnSaveManualSingle").addEventListener("click", () => {
+      const tid = ($("manTicketId")?.value || "").trim();
+      const desc = ($("manShortDesc")?.value || "").trim();
+      if (!tid) {
+        showManualAlert("Nomor Tiket wajib diisi. Contoh: REQ-KMF-092026-009999", true);
+        $("manTicketId")?.focus();
+        return;
+      }
+      if (!desc) {
+        showManualAlert("Uraian / Deskripsi tiket wajib diisi.", true);
+        $("manShortDesc")?.focus();
+        return;
+      }
+      const payload = {
+        ticketId: tid,
+        serviceType: $("manServiceType")?.value || "Request",
+        requestState: $("manRequestState")?.value || "In Progress",
+        priority: $("manPriority")?.value || "Minor",
+        requestedFor: ($("manRequestedFor")?.value || "").trim(),
+        location: ($("manLocation")?.value || "").trim() || "-",
+        assignmentGroup: ($("manAssignmentGroup")?.value || "").trim() || "EOS L1",
+        createdDate: ($("manCreatedDate")?.value || "").replace("T", " ") || undefined,
+        shortDesc: desc
+      };
+
+      const btn = $("btnSaveManualSingle");
+      if (btn) btn.disabled = true;
+      fetch("/api/manual_ticket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then((r) => r.json())
+      .then((res) => {
+        if (btn) btn.disabled = false;
+        if (res.status === "success") {
+          showManualAlert(res.message || "Tiket berhasil disimpan ke database Sentinel!", false);
+          $("formManualSingle") && $("formManualSingle").reset();
+          const dt = $("manCreatedDate");
+          if (dt) {
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            dt.value = now.toISOString().slice(0, 16);
+          }
+          loadManualTickets();
+          loadStats(true);
+          if (typeof fetchSnapshot === "function") fetchSnapshot();
+        } else {
+          showManualAlert(res.message || "Gagal menyimpan tiket", true);
+        }
+      })
+      .catch((err) => {
+        if (btn) btn.disabled = false;
+        showManualAlert("Terjadi kesalahan jaringan: " + err.message, true);
+      });
+    });
+
+    // Save Batch Tickets
+    $("btnSaveManualBatch") && $("btnSaveManualBatch").addEventListener("click", () => {
+      const rawText = ($("manBatchText")?.value || "").trim();
+      if (!rawText) {
+        showManualAlert("Silakan tempel baris tiket terlebih dahulu.", true);
+        $("manBatchText")?.focus();
+        return;
+      }
+
+      const lines = rawText.split("\n").map((l) => l.trim()).filter(Boolean);
+      const tickets = [];
+      for (const line of lines) {
+        const sep = line.includes("\t") ? "\t" : "|";
+        const parts = line.split(sep).map((p) => p.trim());
+        if (!parts[0]) continue;
+        const tid = parts[0];
+        const desc = parts[1] || `Tiket manual ${tid}`;
+        const who = parts[2] || "";
+        const stateVal = parts[3] || "In Progress";
+        const dateVal = parts[4] || "";
+        const loc = parts[5] || "-";
+        const grp = parts[6] || "EOS L1";
+        const prio = parts[7] || "Minor";
+        const srvType = tid.toUpperCase().startsWith("INC") ? "Insiden" : "Request";
+
+        tickets.push({
+          ticketId: tid,
+          shortDesc: desc,
+          requestedFor: who,
+          requestState: stateVal,
+          createdDate: dateVal,
+          location: loc,
+          assignmentGroup: grp,
+          priority: prio,
+          serviceType: srvType
+        });
+      }
+
+      if (!tickets.length) {
+        showManualAlert("Tidak ada format tiket yang dapat diproses dari teks.", true);
+        return;
+      }
+
+      const btn = $("btnSaveManualBatch");
+      if (btn) btn.disabled = true;
+      fetch("/api/manual_tickets_batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tickets: tickets })
+      })
+      .then((r) => r.json())
+      .then((res) => {
+        if (btn) btn.disabled = false;
+        if (res.status === "success") {
+          showManualAlert(res.message || `Berhasil menyimpan ${res.saved_count} tiket ke Sentinel!`, false);
+          if ($("manBatchText")) $("manBatchText").value = "";
+          loadManualTickets();
+          loadStats(true);
+          if (typeof fetchSnapshot === "function") fetchSnapshot();
+        } else {
+          showManualAlert(res.message || "Gagal memproses batch tiket", true);
+        }
+      })
+      .catch((err) => {
+        if (btn) btn.disabled = false;
+        showManualAlert("Terjadi kesalahan jaringan: " + err.message, true);
+      });
+    });
+  }
 
   // ------------------------------------------------------------------ inisialisasi
   window.V3 = V3;

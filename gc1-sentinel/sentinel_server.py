@@ -47,6 +47,17 @@ try:
     import hermes_agent as _HA
 except Exception:
     _HA = None
+import sentinel_db
+def is_valid_ticket_id(tid):
+    if not tid or not isinstance(tid, str): return False
+    s = tid.strip()
+    if len(s) < 2 or len(s) > 50: return False
+    if " " in s or "\t" in s or "\n" in s: return False
+    lower = s.lower()
+    if lower in ("request", "incident", "requesttask", "task", "ticket", "permohonan", "gangguan"): return False
+    bad = ("homepage", "management", "reporting", "enablement", "assessment", "platform", "setting", "knowledge", "delete", "filter", "search", "logout", "login")
+    if any(b in lower for b in bad): return False
+    return True
 CONFIG_PATH = APP_DIR / "config.json"
 DATA_FILE = APP_DIR / "sentinel_data.json"
 
@@ -84,8 +95,8 @@ DEFAULT_CONFIG = {
     "ai_hermes_exe": "",
     "ai_hermes_home": "",
     "itsm_lists": [
-        {"key": "request", "label": "Request", "match": ["request", "permohonan"]},
-        {"key": "assign", "label": "Assign", "match": ["assign", "penugasan"]}
+        {"key": "request", "label": "Tiket Request", "match": ["request", "permohonan", "sc_req_item", "sc_task", "all request"]},
+        {"key": "incident", "label": "Tiket Insiden", "match": ["incident", "insiden", "gangguan", "all incident"]}
     ],
     "wa_reply_warn_minutes": 5,
     "wa_reply_breach_minutes": 10,
@@ -177,6 +188,21 @@ def load_persisted_data():
                 MONITOR_START = data.get("monitor_start", 0)
         except Exception as e:
             print(f"[Sentinel Server] Error loading data file: {e}")
+
+    # Fallback dari database SQLite jika snapshot memori masih kosong
+    if not HELPDESK_SNAPSHOT and 'sentinel_db' in globals():
+        try:
+            db_tickets = sentinel_db.get_all_tickets_from_db()
+            if db_tickets:
+                HELPDESK_SNAPSHOT = db_tickets
+                req_t = [t for t in db_tickets if (t.get("serviceType") or "").lower() == "request"]
+                inc_t = [t for t in db_tickets if (t.get("serviceType") or "").lower() == "insiden"]
+                if req_t and "request" not in HELPDESK_LISTS:
+                    HELPDESK_LISTS["request"] = {"label": "Tiket Request", "tickets": req_t, "synced_at": time.time(), "title": "Tiket Request", "path": "/itsm/request"}
+                if inc_t and "incident" not in HELPDESK_LISTS:
+                    HELPDESK_LISTS["incident"] = {"label": "Tiket Insiden", "tickets": inc_t, "synced_at": time.time(), "title": "Tiket Insiden", "path": "/itsm/incident"}
+        except Exception as e:
+            print(f"[Sentinel Server] Error loading from SQLite: {e}")
 
 
 def save_persisted_data():
@@ -702,6 +728,9 @@ def enrich_ticket_with_sop(t):
     t["autoPriority"] = prio
     t["ticketType"] = ttype
     t["priorityReason"] = reason
+    if "serviceType" not in t:
+        lk = (t.get("itsmLists") or [""])[0] if isinstance(t.get("itsmLists"), list) else ""
+        t["serviceType"] = sentinel_db.normalize_service_type(tid, desc, lk)
 
     pic_name, pic_role, milestone, step_num = pic_for(resolver_layer, state_val)
     t["picName"] = pic_name
@@ -996,8 +1025,12 @@ def apply_docs(t):
 
 
 def resolve_itsm_list(info):
-    """Tentukan daftar ITSM (Request/Assign/...) dari judul dan path halaman yang dibaca ekstensi."""
+    """Tentukan daftar ITSM (Request/Insiden/...) dari judul, path, atau explicit key dari ekstensi."""
     info = info if isinstance(info, dict) else {}
+    explicit_key = str(info.get("key") or "").strip().lower()
+    if explicit_key:
+        label = str(info.get("label") or ("Tiket Insiden" if ("inc" in explicit_key or "assign" in explicit_key) else "Tiket Request"))
+        return explicit_key, label, str(info.get("title") or "")[:160], str(info.get("path") or "")[:200]
     title = str(info.get("title") or "")[:160]
     path = str(info.get("path") or "")[:200]
     text = f"{title} {path}".lower()
@@ -1006,6 +1039,8 @@ def resolve_itsm_list(info):
     for e in CONFIG.get("itsm_lists") or []:
         if any(str(m).lower() in text for m in e.get("match", [])):
             return e["key"], e.get("label", e["key"]), title, path
+    if "assign" in text or "penugasan" in text:
+        return "assign", "Assign", title, path
     return "lainnya", "ITSM (halaman lain)", title, path
 
 
@@ -1453,11 +1488,12 @@ def compute_stats(rng, itsm_list=None):
         "itsm_list": itsm_list,
         "itsm_lists": itsm_lists_info(),
         "kpi": {
-            "itsm_by_list": {i["key"]: len([t for t in itsm_all if i["key"] in (t.get("itsmLists") or []) and not t.get("slaClosed")]) for i in itsm_lists_info()},
+            "itsm_by_list": {i["key"]: len([t for t in itsm_all if i["key"] in (t.get("itsmLists") or []) and not t.get("slaClosed")]) for i in itsm_lists_info() if i["key"] in HELPDESK_LISTS or any(i["key"] in (t.get("itsmLists") or []) for t in itsm_all)},
             "itsm_total": len(itsm), "itsm_open": len(itsm_open),
             "itsm_assigned": len([t for t in itsm if group_state(t) == "Assigned"]),
             "itsm_pending": len([t for t in itsm if group_state(t) == "Pending Approval"]),
             "itsm_progress": len([t for t in itsm if group_state(t) == "In Progress"]),
+            "itsm_on_hold": len([t for t in itsm if group_state(t) == "On-Hold"]),
             "wa_total": len(wa), "wa_active": len(wa_open), "wa_waiting": len(waiting),
             "wa_late": len([t for t in waiting if t.get("responseStatus") == "late"]),
             "wa_unlinked": len([t for t in wa_open if not t.get("linkedPortalId")]),
@@ -1776,8 +1812,22 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     "wa_monitored_groups": CONFIG.get("wa_monitored_groups", []),
                     "wa_queue_len": len([m for m in WA_QUEUE if m.get("status") == "pending"]),
                     "target_contact": CONFIG.get("target_contact", "mimi Sandora"),
+                    "sqlite": sentinel_db.get_db_stats() if 'sentinel_db' in globals() else {},
                     "server_time": time.strftime("%Y-%m-%d %H:%M:%S")
                 })
+
+            elif path == "/api/db_stats":
+                try:
+                    self.send_json(sentinel_db.get_db_stats())
+                except Exception as e:
+                    self.send_json({"error": str(e), "total": 0})
+
+            elif path == "/api/manual_tickets":
+                try:
+                    manuals = sentinel_db.get_manual_tickets()
+                    self.send_json({"status": "ok", "tickets": manuals, "count": len(manuals)})
+                except Exception as e:
+                    self.send_json({"status": "error", "message": str(e), "tickets": []}, 500)
 
             elif path == "/api/alerts":
                 self.send_json({"alerts": ALERTS})
@@ -1947,7 +1997,7 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 for t in raw_tickets:
                     raw_id = t.get("ticketId") or t.get("number") or t.get("ticketNumber") or ""
                     tid = re.sub(r"[\r\n\t📋]", "", str(raw_id)).strip()
-                    if not tid or tid in seen_sync_ids:
+                    if not tid or not is_valid_ticket_id(tid) or tid in seen_sync_ids:
                         continue
                     seen_sync_ids.add(tid)
 
@@ -1968,11 +2018,11 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     full_text = f"{tid} {desc} {req_for} {loc_val} {grp_val}"
                     is_gc1 = any(k.lower() in full_text.lower() for k in CONFIG.get("keywords", []))
 
-                    # SOP OPERASIONAL: Yang di luar ruang lingkup HANYA Telkom (Abaikan sepenuhnya)
-                    is_telkom = "telkom" in grp_val.lower() or "telkom" in full_text.lower()
-                    if is_telkom:
+                    # SOP OPERASIONAL: Klasifikasi tim Telkom vs Tim Internal
+                    is_telkom = "telkom" in grp_val.lower()
+                    if is_telkom and CONFIG.get("filter_telkom_out", False):
                         telkom_skipped += 1
-                        continue  # Abaikan tiket Telkom (GC 2), tidak masuk ke GC 1 Sentinel
+                        continue
 
                     is_assigned = (state_val.lower() == "assigned" or "assign" in state_val.lower())
                     is_pending = "pending" in state_val.lower()
@@ -1987,7 +2037,9 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     else:
                         cat = "team_assigned"
 
-                    if "eos l1" in grp_val.lower():
+                    if is_telkom:
+                        resolver_layer = "Telkom (Eksternal)"
+                    elif "eos l1" in grp_val.lower():
                         resolver_layer = "EOS L1"
                     elif "eos l2" in grp_val.lower():
                         resolver_layer = "EOS L2 (Engineer)"
@@ -2009,10 +2061,11 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                         "location": loc_val,
                         "assignmentGroup": grp_val,
                         "isGc1": is_gc1,
-                        "isTelkom": False,
+                        "isTelkom": is_telkom,
                         "resolverLayer": resolver_layer,
                         "category": cat,
-                        "itsmLists": [list_key]
+                        "itsmLists": [list_key],
+                        "serviceType": t.get("serviceType") or sentinel_db.normalize_service_type(tid, desc, list_key)
                     }
                     track_ticket(tid, state_val, grp_val)
                     norm_t = enrich_ticket_with_sop(norm_t)
@@ -2060,6 +2113,10 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 if not MONITOR_START:
                     MONITOR_START = time.time()
                 LAST_SYNC_TIME = time.strftime("%H:%M:%S WIB")
+                try:
+                    sentinel_db.save_tickets_to_db(normalized_tickets, list_key=list_key, source_url=list_path)
+                except Exception as db_err:
+                    print(f"[Sentinel Server] SQLite save error: {db_err}")
                 save_persisted_data()
                 self.send_json({"status": "synced", "count": len(normalized_tickets), "list": list_key, "total": len(HELPDESK_SNAPSHOT), "last_sync": LAST_SYNC_TIME})
 
@@ -2398,6 +2455,199 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 print(f"[Sentinel Server] WhatsApp -> pra-tiket {wa_ticket['ticketId']} dari {sender} [{group}] ({wa_ticket['autoPriority']})")
                 self.send_json({"status": "success", "ticket": wa_ticket, "identity": identity_for(wa_ticket.get("senderPhone", ""))})
 
+            elif path == "/api/manual_ticket":
+                def parse_single_manual(t):
+                    raw_id = t.get("ticketId") or t.get("number") or t.get("ticketNumber") or ""
+                    tid = re.sub(r"[\r\n\t📋]", "", str(raw_id)).strip()
+                    if not tid or not is_valid_ticket_id(tid):
+                        return None, "Nomor tiket tidak valid. Contoh: REQ-KMF-092026-001234 atau INC-KMF-092026-005678"
+                    desc = re.sub(r"\s+", " ", str(t.get("shortDesc") or t.get("desc") or "")).strip()
+                    if not desc:
+                        return None, "Uraian / Deskripsi singkat tiket wajib diisi"
+                    req_for = re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(t.get("requestedFor") or ""))).strip()
+                    state_val = re.sub(r"[●•\r\n\t]", "", str(t.get("requestState") or t.get("state") or "In Progress")).strip()
+                    date_val = re.sub(r"\s+", " ", str(t.get("createdDate") or t.get("date") or time.strftime("%Y-%m-%d %H:%M"))).strip()
+                    loc_val = re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(t.get("location") or "-"))).strip()
+                    grp_val = re.sub(r"\s+", " ", str(t.get("assignmentGroup") or t.get("group") or "EOS L1")).strip()
+                    prio_val = str(t.get("priority") or "Minor").strip()
+                    srv_type = str(t.get("serviceType") or "").strip()
+                    if not srv_type:
+                        srv_type = sentinel_db.normalize_service_type(tid, desc)
+                    list_key = "incident" if srv_type.lower() == "insiden" else "request"
+                    is_telkom = "telkom" in grp_val.lower()
+
+                    created_ts = None
+                    try:
+                        if t.get("createdTs"):
+                            created_ts = float(t.get("createdTs"))
+                    except Exception:
+                        pass
+                    if not created_ts:
+                        created_ts = time.time()
+
+                    is_assigned = (state_val.lower() == "assigned" or "assign" in state_val.lower())
+                    is_pending = ("pending" in state_val.lower() or "hold" in state_val.lower())
+                    cat = "team_assigned" if is_assigned else ("team_pending" if is_pending else "team_progress")
+
+                    if is_telkom:
+                        layer = "Telkom (Eksternal)"
+                    elif "eos l1" in grp_val.lower() or "l1" in grp_val.lower():
+                        layer = "EOS L1"
+                    elif "eos l2" in grp_val.lower() or "l2" in grp_val.lower():
+                        layer = "EOS L2 (Engineer)"
+                    elif "eos l3" in grp_val.lower() or "l3" in grp_val.lower():
+                        layer = "EOS L3 (Expert)"
+                    elif "noc" in grp_val.lower():
+                        layer = "NOC"
+                    elif "soc" in grp_val.lower():
+                        layer = "SOC"
+                    else:
+                        layer = "Helpdesk (L0)"
+
+                    norm_t = {
+                        "ticketId": tid,
+                        "shortDesc": desc,
+                        "requestedFor": req_for,
+                        "requestState": state_val,
+                        "createdDate": date_val,
+                        "createdTs": created_ts,
+                        "location": loc_val,
+                        "assignmentGroup": grp_val,
+                        "isGc1": True,
+                        "isTelkom": is_telkom,
+                        "resolverLayer": layer,
+                        "category": cat,
+                        "itsmLists": [list_key],
+                        "serviceType": srv_type,
+                        "priority": prio_val,
+                        "isManual": True
+                    }
+                    track_ticket(tid, state_val, grp_val)
+                    norm_t = enrich_ticket_with_sop(norm_t)
+                    archive_ticket(norm_t)
+                    return norm_t, None
+
+                norm_t, err = parse_single_manual(data)
+                if err:
+                    self.send_json({"status": "error", "message": err}, 400)
+                    return
+
+                list_key = norm_t["itsmLists"][0]
+                try:
+                    sentinel_db.save_tickets_to_db([norm_t], list_key=list_key, source_url="manual_entry")
+                except Exception as db_err:
+                    print(f"[Sentinel Server] SQLite save error on manual ticket: {db_err}")
+
+                if list_key not in HELPDESK_LISTS:
+                    HELPDESK_LISTS[list_key] = {"label": "Tiket " + norm_t["serviceType"], "tickets": [], "synced_at": time.time(), "title": "Tiket " + norm_t["serviceType"], "path": f"/itsm/{list_key}"}
+                existing_list = [t for t in HELPDESK_LISTS[list_key]["tickets"] if t.get("ticketId") != norm_t["ticketId"]]
+                existing_list.insert(0, norm_t)
+                HELPDESK_LISTS[list_key]["tickets"] = existing_list
+                HELPDESK_LISTS[list_key]["synced_at"] = time.time()
+                HELPDESK_SNAPSHOT = merge_itsm_lists()
+                LAST_SYNC_TIME = time.strftime("%H:%M:%S WIB")
+                save_persisted_data()
+                print(f"[Sentinel Server] 📝 Tiket manual dicatat: {norm_t['ticketId']} - {norm_t['shortDesc'][:60]}")
+                self.send_json({"status": "success", "message": f"Tiket {norm_t['ticketId']} berhasil disimpan ke database Sentinel", "ticket": norm_t})
+
+            elif path == "/api/manual_tickets_batch":
+                tickets_input = data.get("tickets") or []
+                if not isinstance(tickets_input, list) or len(tickets_input) == 0:
+                    self.send_json({"status": "error", "message": "Daftar tiket kosong"}, 400)
+                    return
+
+                saved_tickets = []
+                errors = []
+                by_list = {}
+                for idx, item in enumerate(tickets_input, 1):
+                    raw_id = item.get("ticketId") or item.get("number") or item.get("ticketNumber") or ""
+                    tid = re.sub(r"[\r\n\t📋]", "", str(raw_id)).strip()
+                    if not tid or not is_valid_ticket_id(tid):
+                        errors.append(f"Baris {idx}: nomor tiket '{tid}' tidak valid")
+                        continue
+                    desc = re.sub(r"\s+", " ", str(item.get("shortDesc") or item.get("desc") or "")).strip()
+                    if not desc:
+                        errors.append(f"Baris {idx} ({tid}): deskripsi kosong")
+                        continue
+
+                    req_for = re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(item.get("requestedFor") or ""))).strip()
+                    state_val = re.sub(r"[●•\r\n\t]", "", str(item.get("requestState") or item.get("state") or "In Progress")).strip()
+                    date_val = re.sub(r"\s+", " ", str(item.get("createdDate") or item.get("date") or time.strftime("%Y-%m-%d %H:%M"))).strip()
+                    loc_val = re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(item.get("location") or "-"))).strip()
+                    grp_val = re.sub(r"\s+", " ", str(item.get("assignmentGroup") or item.get("group") or "EOS L1")).strip()
+                    prio_val = str(item.get("priority") or "Minor").strip()
+                    srv_type = str(item.get("serviceType") or "").strip()
+                    if not srv_type:
+                        srv_type = sentinel_db.normalize_service_type(tid, desc)
+                    list_key = "incident" if srv_type.lower() == "insiden" else "request"
+                    is_telkom = "telkom" in grp_val.lower()
+
+                    created_ts = None
+                    try:
+                        if item.get("createdTs"):
+                            created_ts = float(item.get("createdTs"))
+                    except Exception:
+                        pass
+                    if not created_ts:
+                        created_ts = time.time()
+
+                    is_assigned = (state_val.lower() == "assigned" or "assign" in state_val.lower())
+                    is_pending = ("pending" in state_val.lower() or "hold" in state_val.lower())
+                    cat = "team_assigned" if is_assigned else ("team_pending" if is_pending else "team_progress")
+
+                    layer = "Telkom (Eksternal)" if is_telkom else ("EOS L1" if "l1" in grp_val.lower() else ("EOS L2 (Engineer)" if "l2" in grp_val.lower() else ("EOS L3 (Expert)" if "l3" in grp_val.lower() else "Helpdesk (L0)")))
+
+                    norm_t = {
+                        "ticketId": tid,
+                        "shortDesc": desc,
+                        "requestedFor": req_for,
+                        "requestState": state_val,
+                        "createdDate": date_val,
+                        "createdTs": created_ts,
+                        "location": loc_val,
+                        "assignmentGroup": grp_val,
+                        "isGc1": True,
+                        "isTelkom": is_telkom,
+                        "resolverLayer": layer,
+                        "category": cat,
+                        "itsmLists": [list_key],
+                        "serviceType": srv_type,
+                        "priority": prio_val,
+                        "isManual": True
+                    }
+                    track_ticket(tid, state_val, grp_val)
+                    norm_t = enrich_ticket_with_sop(norm_t)
+                    archive_ticket(norm_t)
+                    saved_tickets.append(norm_t)
+                    if list_key not in by_list:
+                        by_list[list_key] = []
+                    by_list[list_key].append(norm_t)
+
+                if saved_tickets:
+                    for lk, t_list in by_list.items():
+                        try:
+                            sentinel_db.save_tickets_to_db(t_list, list_key=lk, source_url="manual_batch")
+                        except Exception as db_err:
+                            print(f"[Sentinel Server] SQLite batch save error: {db_err}")
+                        if lk not in HELPDESK_LISTS:
+                            HELPDESK_LISTS[lk] = {"label": "Tiket " + t_list[0]["serviceType"], "tickets": [], "synced_at": time.time(), "title": "Tiket " + t_list[0]["serviceType"], "path": f"/itsm/{lk}"}
+                        new_ids = {t["ticketId"] for t in t_list}
+                        existing = [t for t in HELPDESK_LISTS[lk]["tickets"] if t.get("ticketId") not in new_ids]
+                        HELPDESK_LISTS[lk]["tickets"] = t_list + existing
+                        HELPDESK_LISTS[lk]["synced_at"] = time.time()
+
+                    HELPDESK_SNAPSHOT = merge_itsm_lists()
+                    LAST_SYNC_TIME = time.strftime("%H:%M:%S WIB")
+                    save_persisted_data()
+
+                self.send_json({
+                    "status": "success",
+                    "saved_count": len(saved_tickets),
+                    "error_count": len(errors),
+                    "errors": errors[:10],
+                    "message": f"Berhasil menyimpan {len(saved_tickets)} tiket manual ke database Sentinel."
+                })
+
             elif path == "/api/ai_suggestion":
                 # Saran dari agen AI: hanya disimpan sebagai usulan, tidak mengubah prioritas/SLA sampai Helpdesk menerima
                 tid = str(data.get("ticketId") or "").strip()
@@ -2643,6 +2893,7 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
             elif path == "/api/clear_data":
                 # KOSONGKAN SELURUH DATA GC 1 DASHBOARD UNTUK KEPERLUAN PENGUJIAN / TESTING
                 HELPDESK_SNAPSHOT = []
+                HELPDESK_LISTS.clear()
                 TELKOM_SKIPPED = 0
                 ALERTS = []
                 WA_TICKETS = []
@@ -2650,7 +2901,12 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 SENT_RECAP_HASHES.clear()
                 WA_QUEUE.clear()
                 WA_HISTORY.clear()
+                TICKET_ARCHIVE.clear()
                 LAST_SYNC_TIME = time.strftime("%H:%M:%S WIB")
+                try:
+                    sentinel_db.clear_db()
+                except Exception as db_err:
+                    print(f"[Sentinel Server] SQLite clear error: {db_err}")
                 save_persisted_data()
 
                 try:

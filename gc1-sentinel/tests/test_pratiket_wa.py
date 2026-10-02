@@ -70,7 +70,7 @@ try:
     # tiket ITSM: SLA resmi tetap jalan seperti biasa
     call('/api/sync_helpdesk', {"tickets": [
         {"ticketId": "REQ-OLD", "shortDesc": "Website tenan down", "requestedFor": "x", "requestState": "Assigned", "createdDate": time.strftime("%d %b %Y %H:%M:%S WIB", time.localtime(now - 9*3600)), "location": "BPS", "assignmentGroup": "EOS L1"},
-        {"ticketId": "REQ-OK", "shortDesc": "Permohonan reset password", "requestedFor": "y", "requestState": "Closed", "createdDate": "01 Okt 2026 08:00:00 WIB", "location": "BPS", "assignmentGroup": "EOS L1"}]})
+        {"ticketId": "REQ-OK", "shortDesc": "Permohonan reset password", "requestedFor": "y", "requestState": "Closed", "createdDate": time.strftime("%d %b %Y %H:%M:%S WIB", time.localtime(now - 2*3600)), "location": "BPS", "assignmentGroup": "EOS L1"}]})
     s = snap(); snp = call('/api/helpdesk_snapshot')
     check('ITSM lama (Major >8 jam) tetap melewati SLA resmi', s['REQ-OLD']['slaBreached'] is True and not s['REQ-OLD']['slaMode'], s['REQ-OLD']['slaStatusText'])
     check('SLA health turun karena tiket ITSM, bukan pra-tiket', snp['sla_breached_count'] == 1 and snp['sla_health_percent'] == 0, (snp['sla_breached_count'], snp['sla_health_percent']))

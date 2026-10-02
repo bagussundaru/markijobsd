@@ -22,7 +22,7 @@ const DEFAULT_SETTINGS = {
   soundEnabled: true,
   soundVolume: 0.8,
   desktopNotifications: true,
-  autoRefreshHelpdeskSeconds: 0 // 0 = nonaktif
+  autoRefreshHelpdeskSeconds: 60 // Refresh berkala halaman ITSM setiap 60 detik
 };
 
 // Initialize settings and storage on installation
@@ -106,6 +106,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         }
 
+        case "SYNC_HELPDESK_TICKETS": {
+          await forwardTicketsToServer(message.tickets, message.list);
+          sendResponse({ status: "ok" });
+          break;
+        }
+
         default:
           sendResponse({ status: "ignored" });
       }
@@ -180,6 +186,9 @@ async function handleNewAlert(alertData, sender) {
     });
   }
 
+  // Forward alert to local Sentinel Server (with fallback)
+  await forwardAlertToServer(alertData);
+
   // Broadcast to any open dashboard or popup safely without throwing errors
   try {
     chrome.runtime.sendMessage({
@@ -194,6 +203,61 @@ async function handleNewAlert(alertData, sender) {
     });
   } catch (_) {}
 }
+
+async function forwardTicketsToServer(tickets, listInfo) {
+  if (!tickets || !Array.isArray(tickets) || tickets.length === 0) return;
+  const payload = JSON.stringify({
+    tickets: tickets,
+    list: listInfo || {}
+  });
+
+  const endpoints = [
+    "http://127.0.0.1:8765/api/sync_helpdesk",
+    "http://localhost:8765/api/sync_helpdesk"
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload
+      });
+      if (resp.ok) {
+        console.log(`[GC 1 Sentinel] Berhasil sinkronisasi ${tickets.length} tiket ke ${url}`);
+        break;
+      }
+    } catch (_) {}
+  }
+}
+
+async function forwardAlertToServer(alertData) {
+  if (!alertData) return;
+  const payload = JSON.stringify(alertData);
+  const endpoints = [
+    "http://127.0.0.1:8765/api/alerts",
+    "http://localhost:8765/api/alerts"
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload
+      });
+      if (resp.ok) break;
+    } catch (_) {}
+  }
+}
+
+// Keep-alive alarm to prevent service worker from becoming permanently inactive
+chrome.alarms.create("sentinel_keepalive", { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "sentinel_keepalive") {
+    // Keep-alive heartbeat
+  }
+});
 
 // When notification is clicked, open dashboard or focus source tab
 chrome.notifications.onClicked.addListener(async (notificationId) => {
