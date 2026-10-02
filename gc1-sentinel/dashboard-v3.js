@@ -187,7 +187,9 @@
   });
 
   function snapKpis(s) {
-    const all = s.all_tickets || [];
+    const all = (s.all_scanned_tickets && s.all_scanned_tickets.length > 0)
+      ? s.all_scanned_tickets
+      : (s.all_tickets || []);
     const st = (t) => (t.requestState || "").toLowerCase();
     const itsm = all.filter((t) => {
       if (t.isFromWa) return false;
@@ -218,7 +220,26 @@
   function renderItsmKpis(s) {
     const k = snapKpis(s);
     const h = s.sla_health_percent ?? 100;
+
+    let totalLabel = "Total Tiket ITSM";
+    let totalIcon = "📁";
+    let totalBadge = "📁 Total ITSM";
+    let totalSub = "Total tiket di semua menu ITSM";
+
+    if (V3.itsmList === "request") {
+      totalLabel = "Total Tiket Request";
+      totalIcon = "📋";
+      totalBadge = "📋 Total Request";
+      totalSub = "Total seluruh tiket di menu All Request";
+    } else if (V3.itsmList === "incident") {
+      totalLabel = "Total Tiket Insiden";
+      totalIcon = "⚡";
+      totalBadge = "⚡ Total Insiden";
+      totalSub = "Total seluruh tiket di menu All Incident";
+    }
+
     $("itsmKpis").innerHTML =
+      kpi("itsm link", totalLabel, k.itsm.length, "tiket", totalSub, "tab:all_tickets", totalIcon, totalBadge, "badge-total") +
       kpi("itsm link", "Assigned (Siap Ditangani)", k.assigned, "tiket", "Siap dieksekusi teknis tim GC 1", "tab:team_assigned", "📋", "🚨 Prioritas Tim", "badge-assigned") +
       kpi("warn link", "Pending Approval", k.pending, "tiket", "Menunggu persetujuan tenan/K/L", "tab:team_pending", "⏳", "⏳ Verifikasi", "badge-pending") +
       kpi("violet link", "Sedang Dikerjakan (In Progress)", k.progress, "tiket", "Pengerjaan teknis L1/L2/L3", "tab:team_progress", "⚙️", "⚡ Proses Aktif", "badge-progress") +
@@ -249,7 +270,14 @@
     const onHoldCount = k.on_hold || kk.itsm_on_hold || 0;
     const progressCount = k.progress || Math.max(0, (kk.itsm_open || 0) - assignedCount - pendingCount - onHoldCount);
 
+    const stSnap = getState().snapshot;
+    const allScanned = (stSnap && stSnap.all_scanned_tickets && stSnap.all_scanned_tickets.length > 0)
+      ? stSnap.all_scanned_tickets
+      : ((stSnap && stSnap.all_tickets) || (s.all_tickets) || []);
+    const itsmTotal = allScanned.filter(t => !t.isFromWa).length || (kk.itsm_open || 40);
+
     $("ovKpis").innerHTML =
+      kpi("itsm link", "Total Tiket ITSM", itsmTotal, "tiket", "Gabungan Request dan Insiden terpantau", "view:itsm", "📁", "📁 Total ITSM", "badge-total") +
       kpi("itsm link", "Assigned (Siap Ditangani)", assignedCount, "tiket", "Siap dieksekusi teknis tim GC 1", "tab:team_assigned", "📋", "🚨 Prioritas Tim", "badge-assigned") +
       kpi("warn link", "Pending Approval", pendingCount, "tiket", "Menunggu persetujuan tenan/K/L", "tab:team_pending", "⏳", "⏳ Verifikasi", "badge-pending") +
       kpi("violet link", "Sedang Dikerjakan (In Progress)", progressCount, "tiket", "Pengerjaan teknis L1/L2/L3", "tab:team_progress", "⚙️", "⚡ Proses Aktif", "badge-progress") +
@@ -257,7 +285,6 @@
       kpi(h >= 95 ? "ok" : h >= 80 ? "warn" : "danger", "Kepatuhan SLA (KAK 18.c)", h, "%", `${st.sla.breached || 0} tiket lewat SLA · target > 95%`, "view:itsm", "🛡️", h >= 95 ? "✓ Target > 95%" : "⚠ Waspada", h >= 95 ? "badge-ok" : "badge-danger");
 
     // Update 4 Metric Strip in Left Card (Aivora Style)
-    const stSnap = getState().snapshot;
     const allTickets = (stSnap && stSnap.all_tickets) || (s.all_tickets) || [];
     const totalCount = allTickets.length || (kk.itsm_open || 40);
     const activeCount = kk.itsm_open || (assignedCount + pendingCount + progressCount + onHoldCount);
