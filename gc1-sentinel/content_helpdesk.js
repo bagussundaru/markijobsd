@@ -91,35 +91,55 @@
   }
 
   function getAccessibleDocs() {
-    const docs = [document];
+    const docs = [];
+    function collect(w) {
+      if (!w) return;
+      try {
+        if (w.document && !docs.includes(w.document)) {
+          docs.push(w.document);
+        }
+      } catch (_) {}
+      try {
+        if (w.frames && w.frames.length > 0) {
+          for (let i = 0; i < w.frames.length; i++) {
+            try { collect(w.frames[i]); } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
     try {
-      if (window.top && window.top.document && !docs.includes(window.top.document)) {
-        docs.push(window.top.document);
-      }
-    } catch (_) {}
-    try {
-      if (window.parent && window.parent.document && !docs.includes(window.parent.document)) {
-        docs.push(window.parent.document);
-      }
-    } catch (_) {}
+      const topWin = window.top || window;
+      collect(topWin);
+    } catch (_) {
+      collect(window);
+    }
+    if (!docs.includes(document)) docs.push(document);
     return docs;
+  }
+
+  function dispatchClick(el) {
+    if (!el) return;
+    try { el.focus(); } catch (_) {}
+    try { el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window })); } catch (_) {}
+    try { el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window })); } catch (_) {}
+    try { el.click(); } catch (_) {}
   }
 
   // REFRESH 100% SESUAI ALUR SERVICENOW:
   // - All Request: Klik menu "Request Management" di bar samping, lalu klik "All Request" di bawahnya.
   // - All Incident: Klik menu "Incident Management" di bar samping, lalu klik "All Incident" di bawahnya.
-  // - DILARANG KERAS menggunakan location.reload()!
+  // - DILARANG KERAS menggunakan location.reload() agar tab tidak kembali ke default!
   function clickServiceNowSubmenu(targetType) {
     const isIncident = (targetType === "incident");
     const parentKeywords = isIncident
-      ? ["incident management", "manajemen insiden", "incident mgmt", "gangguan"]
-      : ["request management", "manajemen request", "manajemen permohonan", "request mgmt", "permohonan"];
+      ? ["incident management", "manajemen insiden", "incident mgmt", "incident", "insiden", "gangguan"]
+      : ["request management", "manajemen request", "manajemen permohonan", "request mgmt", "service catalog", "katalog layanan", "permohonan", "request"];
     const subKeywords = isIncident
-      ? ["all incident", "all incidents", "semua insiden", "incidents"]
-      : ["all request", "all requests", "semua permohonan", "semua request", "requests"];
+      ? ["all incident", "all incidents", "semua insiden", "daftar insiden", "incidents", "all"]
+      : ["all request", "all requests", "semua permohonan", "semua request", "daftar permohonan", "requests", "all"];
     const hrefKeywords = isIncident
-      ? ["incident_list.do", "incident.do"]
-      : ["sc_req_item_list.do", "sc_request_list.do", "sc_task_list.do"];
+      ? ["incident_list.do", "incident.do", "table=incident"]
+      : ["sc_req_item_list.do", "sc_request_list.do", "sc_task_list.do", "table=sc_req_item"];
 
     const labelParent = isIncident ? "Incident Management" : "Request Management";
     const labelSub = isIncident ? "All Incident" : "All Request";
@@ -131,7 +151,7 @@
 
     for (const doc of docs) {
       try {
-        const allElements = Array.from(doc.querySelectorAll("a, button, li, div, span, [role='treeitem'], [role='menuitem'], .nav-item, .module-link, .sn-widget-list-item, .navpage-nav-app"));
+        const allElements = Array.from(doc.querySelectorAll("a, button, li, div, span, [role='treeitem'], [role='menuitem'], .nav-item, .module-link, .sn-widget-list-item, .navpage-nav-app, .app-node"));
 
         // 1. Cari elemen menu utama di bar samping (Request Management / Incident Management)
         let parentEl = null;
@@ -154,10 +174,10 @@
           const href = (el.getAttribute("href") || "").toLowerCase();
           const dataUrl = (el.getAttribute("data-url") || "").toLowerCase();
 
-          const textMatch = subKeywords.some((kw) => txt === kw || txt.startsWith(kw) || title === kw || aria === kw || (txt.includes(kw) && txt.length < kw.length + 20));
+          const textMatch = subKeywords.some((kw) => txt === kw || (txt.startsWith(kw) && txt.length < kw.length + 20) || title === kw || aria === kw);
           const hrefMatch = hrefKeywords.some((kw) => href.includes(kw) || dataUrl.includes(kw));
 
-          if (textMatch || hrefMatch) {
+          if (hrefMatch || textMatch) {
             subEl = el;
             if (parentEl && (parentEl.contains(el) || (el.compareDocumentPosition(parentEl) & Node.DOCUMENT_POSITION_PRECEDING))) {
               break;
@@ -168,42 +188,33 @@
         // Langkah 1: Klik Menu Utama di bar samping
         if (parentEl) {
           console.log(`[GC 1 Sentinel] [Langkah 1/2] Klik menu samping: "${labelParent}"`);
-          parentEl.click();
-          try {
-            parentEl.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-            parentEl.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
-          } catch (_) {}
+          dispatchClick(parentEl);
 
           // Langkah 2: Klik Submenu di bawahnya setelah jeda singkat (agar accordion membuka)
           setTimeout(() => {
             if (subEl) {
               console.log(`[GC 1 Sentinel] [Langkah 2/2] Klik submenu di bawahnya: "${labelSub}"`);
-              subEl.click();
-              try {
-                subEl.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-                subEl.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
-              } catch (_) {}
+              dispatchClick(subEl);
             } else {
-              // Cari ulang submenu yang mungkin baru muncul setelah menu utama dibuka
-              const freshSub = Array.from(doc.querySelectorAll("a, button, li, div, [role='treeitem']")).find((el) => {
+              // Cari ulang submenu yang baru muncul setelah menu utama dibuka
+              const freshSub = Array.from(doc.querySelectorAll("a, button, li, div, [role='treeitem'], [role='menuitem']")).find((el) => {
                 const txt = (el.textContent || "").trim().toLowerCase();
-                return subKeywords.some((kw) => txt === kw || txt.startsWith(kw));
+                const href = (el.getAttribute("href") || "").toLowerCase();
+                const dataUrl = (el.getAttribute("data-url") || "").toLowerCase();
+                return hrefKeywords.some((kw) => href.includes(kw) || dataUrl.includes(kw)) ||
+                       subKeywords.some((kw) => txt === kw || txt.startsWith(kw));
               });
               if (freshSub) {
                 console.log(`[GC 1 Sentinel] [Langkah 2/2] Klik submenu setelah dropdown terbuka: "${labelSub}"`);
-                freshSub.click();
+                dispatchClick(freshSub);
               }
             }
-          }, 200);
+          }, 250);
           return true;
         } else if (subEl) {
-          // Jika menu utama sudah terbuka sebelumnya, langsung klik submenu
-          console.log(`[GC 1 Sentinel] Klik submenu langsung (menu sudah terbuka): "${labelSub}"`);
-          subEl.click();
-          try {
-            subEl.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-            subEl.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
-          } catch (_) {}
+          // Jika menu utama sudah terbuka sebelumnya atau link modul langsung tersedia
+          console.log(`[GC 1 Sentinel] Klik submenu langsung: "${labelSub}"`);
+          dispatchClick(subEl);
           return true;
         }
       } catch (err) {
@@ -211,16 +222,19 @@
       }
     }
 
-    // Fallback: Refresh in-frame via ServiceNow g_list API tanpa reload halaman browser
-    try {
-      if (typeof window.g_list !== "undefined" && typeof window.g_list.refresh === "function") {
-        console.log("[GC 1 Sentinel] Menggunakan ServiceNow g_list.refresh(1) (tanpa reload browser)");
-        window.g_list.refresh(1);
-        return true;
-      }
-    } catch (_) {}
+    // Fallback 1: Cari frame utama gsft_main dan panggil g_list.refresh(1)
+    for (const doc of docs) {
+      try {
+        const win = doc.defaultView;
+        if (win && typeof win.g_list !== "undefined" && typeof win.g_list.refresh === "function") {
+          console.log("[GC 1 Sentinel] Menggunakan ServiceNow in-frame g_list.refresh(1) (tanpa reload browser)");
+          win.g_list.refresh(1);
+          return true;
+        }
+      } catch (_) {}
+    }
 
-    // Fallback: Tombol refresh di header daftar tabel ServiceNow
+    // Fallback 2: Tombol refresh di header daftar tabel ServiceNow
     for (const doc of docs) {
       try {
         const snRefreshBtn = doc.querySelector("button[name='refresh'], button[title*='Refresh'], button[aria-label*='Refresh'], .list_nav_refresh, .table-refresh-btn, button#sn_header_refresh");
@@ -233,7 +247,7 @@
     }
 
     // CATATAN KETAT: JANGAN PERNAH gunakan location.reload()!
-    console.log("[GC 1 Sentinel] Menu navigasi samping belum dapat diakses dari frame ini, browser tidak direload.");
+    console.log("[GC 1 Sentinel] Selesai alur refresh tanpa reload (tidak mereload halaman browser).");
     return false;
   }
 
@@ -262,7 +276,19 @@
 
   function triggerSubmenuReload(forcedType) {
     const subInfo = detectSubmenuInfo();
-    const targetType = forcedType || subInfo.key;
+    let targetType = subInfo.key;
+
+    // Jika forcedType spesifik ('request' atau 'incident') diberikan:
+    // Pastikan tab ini tidak dialihkan secara keliru jika tab ini adalah jenis yang berlawanan!
+    if (forcedType && forcedType !== "active" && forcedType !== "all") {
+      const cleanForced = (forcedType === "incident" || forcedType.includes("inc")) ? "incident" : "request";
+      if (subInfo.key && subInfo.key !== cleanForced) {
+        console.log(`[GC 1 Sentinel] Permintaan reload '${forcedType}' dilewati pada tab '${subInfo.key}' agar peran tab tidak tertukar.`);
+        return false;
+      }
+      targetType = cleanForced;
+    }
+
     return clickServiceNowSubmenu(targetType);
   }
 
@@ -360,16 +386,35 @@
   }
 
   function detectSubmenuInfo(tickets) {
+    // 0. Cek session storage tab ini jika sebelumnya sudah tersimpan perannya
+    let savedRole = "";
+    try {
+      savedRole = sessionStorage.getItem("gc1_itsm_tab_role") || "";
+    } catch (_) {}
+
     const url = (location.href || "").toLowerCase();
     const title = (document.title || "").toLowerCase();
     const pageHeading = (document.querySelector("h1, h2, .navbar-title, .title, .breadcrumb, [class*='title']")?.textContent || "").toLowerCase();
     const fullHeader = `${title} ${pageHeading}`;
 
+    // Periksa juga URL iframe gsft_main jika berada di frame induk
+    let frameUrl = "";
+    try {
+      const mainFrame = document.querySelector("iframe#gsft_main, iframe[name='gsft_main'], iframe");
+      if (mainFrame && mainFrame.contentWindow) {
+        frameUrl = (mainFrame.contentWindow.location.href || "").toLowerCase();
+      }
+    } catch (_) {}
+
+    const combinedUrl = `${url} ${frameUrl}`;
+
     // 1. Deteksi dari Judul Halaman / Banner ("Show All Incident" vs "Show All Request") & URL
-    if (fullHeader.includes("incident") || url.includes("incident") || fullHeader.includes("insiden") || url.includes("insiden") || fullHeader.includes("gangguan") || url.includes("gangguan")) {
+    if (fullHeader.includes("incident") || combinedUrl.includes("incident") || fullHeader.includes("insiden") || combinedUrl.includes("insiden") || fullHeader.includes("gangguan") || combinedUrl.includes("gangguan")) {
+      try { sessionStorage.setItem("gc1_itsm_tab_role", "incident"); } catch (_) {}
       return { key: "incident", label: "Tiket Insiden", type: "Insiden" };
     }
-    if (fullHeader.includes("request") || url.includes("request") || fullHeader.includes("permohonan") || url.includes("permohonan") || url.includes("sc_req_item") || url.includes("sc_task")) {
+    if (fullHeader.includes("request") || combinedUrl.includes("request") || fullHeader.includes("permohonan") || combinedUrl.includes("permohonan") || combinedUrl.includes("sc_req_item") || combinedUrl.includes("sc_task") || combinedUrl.includes("sc_request")) {
+      try { sessionStorage.setItem("gc1_itsm_tab_role", "request"); } catch (_) {}
       return { key: "request", label: "Tiket Request", type: "Request" };
     }
 
@@ -381,10 +426,20 @@
       if (tid.startsWith("INC")) incCount++;
       else if (tid.startsWith("REQ") || tid.startsWith("RITM")) reqCount++;
     }
-    if (incCount > reqCount) {
+    if (incCount > reqCount && incCount > 0) {
+      try { sessionStorage.setItem("gc1_itsm_tab_role", "incident"); } catch (_) {}
       return { key: "incident", label: "Tiket Insiden", type: "Insiden" };
     }
-    if (reqCount > 0) {
+    if (reqCount >= incCount && reqCount > 0) {
+      try { sessionStorage.setItem("gc1_itsm_tab_role", "request"); } catch (_) {}
+      return { key: "request", label: "Tiket Request", type: "Request" };
+    }
+
+    // 3. Fallback ke savedRole di session storage tab ini
+    if (savedRole === "incident") {
+      return { key: "incident", label: "Tiket Insiden", type: "Insiden" };
+    }
+    if (savedRole === "request") {
       return { key: "request", label: "Tiket Request", type: "Request" };
     }
 
@@ -767,6 +822,22 @@
       });
     } catch (_) {}
   }
+
+  // Mencegah F5 / Ctrl+R mereload halaman browser secara tidak sengaja
+  // Alihkan F5 menjadi klik native submenu ServiceNow sesuai peran tab
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "F5" || (e.ctrlKey && (e.key === "r" || e.key === "R"))) {
+      const subInfo = detectSubmenuInfo();
+      if (subInfo.key === "request" || subInfo.key === "incident") {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log(`[GC 1 Sentinel] F5/Ctrl+R dicegah. Mengalihkan ke refresh native ServiceNow submenu: ${subInfo.label}...`);
+        showReloadToast(`Mencegah reload browser! Menyegarkan via menu ${subInfo.label}...`);
+        triggerSubmenuReload(subInfo.key);
+        return false;
+      }
+    }
+  }, true);
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", loadSettings);

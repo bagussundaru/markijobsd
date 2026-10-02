@@ -47,6 +47,8 @@ let state = {
     markijoAuto: true,
     serverPort: 8765
   }
+};
+
 function deduplicateRepeatedText(str) {
   if (!str) return "";
   const s = String(str).replace(/\s+/g, " ").trim();

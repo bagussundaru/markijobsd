@@ -33,6 +33,7 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} },
   };
   const num = (v) => (v === null || v === undefined ? "-" : v);
+  const getState = () => (typeof state !== "undefined" ? state : (window.state || { role: "operator", activeTab: "all_tickets", snapshot: {} }));
 
   // ------------------------------------------------------------------ sidebar
   const shell = $("appShell");
@@ -86,7 +87,8 @@
   function showView(v, list) {
     if (!VIEWS[v]) v = "overview";
     if (v === "itsm") V3.itsmList = list || null;
-    if (v === "quick" && state.role === "team") v = "overview";
+    const st = getState();
+    if (v === "quick" && st.role === "team") v = "overview";
     V3.view = v;
     document.querySelectorAll(".v3-view").forEach((s) => { s.hidden = s.id !== "view-" + v; });
     markActive();
@@ -108,9 +110,10 @@
       if (allLabel) allLabel.textContent = v === "itsm" ? "Semua Tiket ITSM" : (v === "wa" ? "Semua Pra-tiket WhatsApp" : "Semua Tiket Terpantau");
       const waLabel = $("tabBtnWa") && $("tabBtnWa").querySelector(".tab-text");
       if (waLabel) waLabel.textContent = "Feed Pesan WhatsApp";
-      if (!valid.includes(state.activeTab)) switchTab("all_tickets");
-      else switchTab(state.activeTab);
-      if (v === "wa" && state.activeTab === "all_tickets") {
+      const curTab = st.activeTab || "all_tickets";
+      if (!valid.includes(curTab)) switchTab("all_tickets");
+      else switchTab(curTab);
+      if (v === "wa" && curTab === "all_tickets") {
         if ($("currentCategoryTitle")) $("currentCategoryTitle").innerHTML = "<span>💬</span> Pra-tiket WhatsApp";
         if ($("currentCategoryDesc")) $("currentCategoryDesc").textContent = "Aduan dari grup WhatsApp. SLA resmi baru berjalan setelah tiket dibuat di ITSM.";
       }
@@ -119,7 +122,7 @@
     }
     store.set("gc1_view", v);
     store.set("gc1_list", V3.itsmList || "");
-    if (state.snapshot) onSnapshot(state.snapshot, true);
+    if (st.snapshot) onSnapshot(st.snapshot, true);
     loadStats(true);
     if (v === "quick") setTimeout(() => $("mwText") && $("mwText").focus(), 50);
     if (v === "manual") setTimeout(initManualView, 20);
@@ -254,7 +257,8 @@
       kpi(h >= 95 ? "ok" : h >= 80 ? "warn" : "danger", "Kepatuhan SLA (KAK 18.c)", h, "%", `${st.sla.breached || 0} tiket lewat SLA · target > 95%`, "view:itsm", "🛡️", h >= 95 ? "✓ Target > 95%" : "⚠ Waspada", h >= 95 ? "badge-ok" : "badge-danger");
 
     // Update 4 Metric Strip in Left Card (Aivora Style)
-    const allTickets = (state.snapshot && state.snapshot.all_tickets) || (s.all_tickets) || [];
+    const stSnap = getState().snapshot;
+    const allTickets = (stSnap && stSnap.all_tickets) || (s.all_tickets) || [];
     const totalCount = allTickets.length || (kk.itsm_open || 40);
     const activeCount = kk.itsm_open || (assignedCount + pendingCount + progressCount + onHoldCount);
     const resolvedCount = Math.max(0, totalCount - activeCount);
@@ -296,7 +300,7 @@
     const s = V3.stats;
     if (!s) return;
     if (V3.view === "overview") {
-      renderOverviewKpis(state.snapshot || {});
+      renderOverviewKpis(getState().snapshot || {});
       const t = trendSeries(s);
       C.stackedBars($("chOvTrend"), { labels: t.labels, series: t.series, aria: "Tren tiket masuk ITSM dan WhatsApp" });
       C.donut($("chOvSource"), { items: [{ label: "Tiket ITSM", value: s.totals.itsm, color: C.colors.itsm }, { label: "Aduan WhatsApp", value: s.totals.wa, color: C.colors.wa }], centerLabel: "masuk" });
@@ -320,7 +324,7 @@
       C.hbars($("chWaReply"), { items: objItems(s.wa_reply_dist) });
       C.hbars($("chWaGroups"), { items: objItems(s.wa_groups).map((x) => ({ ...x, color: "#10B981" })) });
       C.gauge($("chWaGauge"), { value: s.sla.wa_reply_pct, label: `Dibalas ≤ ${s.sla.wa_reply_target_min} menit`, sub: s.wa_reply_avg_min === null ? "" : `Rata-rata ${s.wa_reply_avg_min} menit`, emptyText: "Belum ada balasan tercatat" });
-      renderWaKpis(state.snapshot || {});
+      renderWaKpis(getState().snapshot || {});
     }
     const pillW = $("sbPillWa");
     if (pillW) { pillW.textContent = s.kpi.wa_active; pillW.classList.toggle("hot", s.kpi.wa_late > 0); }
@@ -384,7 +388,7 @@
 
   function showTicketList(name) {
     const cfg = LISTS[name];
-    const snap = state.snapshot || {};
+    const snap = getState().snapshot || {};
     if (!cfg) return;
     const rows = (snap.all_tickets || []).filter(cfg.pred)
       .sort((a, b) => (PRIO_ORDER[a.priority] ?? 9) - (PRIO_ORDER[b.priority] ?? 9) || (a.createdTs || 0) - (b.createdTs || 0));
@@ -446,7 +450,7 @@
     if (V3.view === "itsm") renderItsmKpis(data);
     if (V3.view === "wa") renderWaKpis(data);
     const role = $("sbRole");
-    if (role) role.innerHTML = `<b>Peran:</b> ${state.role === "team" ? "tampilan tim (hanya-baca)" : "operator"}`;
+    if (role) role.innerHTML = `<b>Peran:</b> ${getState().role === "team" ? "tampilan tim (hanya-baca)" : "operator"}`;
     if (immediate) return;
     loadStats(false);
   }
