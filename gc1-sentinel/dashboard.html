@@ -964,7 +964,11 @@
     </div>
   </div>
 
-  <audio id="alertAudio" src="sounds/alert.wav" preload="auto"></audio>
+  <audio id="alertAudio" preload="auto">
+    <source src="sounds/tiketmasuk.mp3" type="audio/mpeg">
+    <source src="sounds/tiketmasuk.wav" type="audio/wav">
+    <source src="sounds/alert.wav" type="audio/wav">
+  </audio>
 <script src="wa_paste.js"></script>
 <script src="dashboard.js"></script>
 <script src="charts.js"></script>

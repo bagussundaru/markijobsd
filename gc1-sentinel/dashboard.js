@@ -274,10 +274,16 @@ function playAlertSound() {
       alertAudio.volume = state.settings.soundVolume || 0.8;
       const playPromise = alertAudio.play();
       if (playPromise !== undefined) {
-        playPromise.catch(() => playSynthesizedChime());
+        playPromise.catch(() => {
+          const direct = new Audio("sounds/tiketmasuk.mp3");
+          direct.volume = state.settings.soundVolume || 0.8;
+          direct.play().catch(() => playSynthesizedChime());
+        });
       }
     } else {
-      playSynthesizedChime();
+      const direct = new Audio("sounds/tiketmasuk.mp3");
+      direct.volume = state.settings.soundVolume || 0.8;
+      direct.play().catch(() => playSynthesizedChime());
     }
   } catch (_) {
     playSynthesizedChime();
@@ -559,6 +565,7 @@ ticketActivityModal?.addEventListener("click", (e) => {
 // ----------------------------------------------------
 let lastKnownAssignedCount = -1;
 let lastKnownEscalationCount = -1;
+let lastKnownTotalTickets = -1;
 
 async function fetchHelpdeskSnapshot() {
   try {
@@ -577,6 +584,17 @@ async function fetchHelpdeskSnapshot() {
       playAlertSound();
     }
     lastKnownAssignedCount = currentAssigned;
+
+    // Check if new tickets arrived in total scanned pool -> chime alarm!
+    const currentTotal = (data.all_scanned_tickets && data.all_scanned_tickets.length)
+      || (data.all_tickets && data.all_tickets.length)
+      || (data.total_itsm_scanned)
+      || (data.total_helpdesk)
+      || 0;
+    if (lastKnownTotalTickets !== -1 && currentTotal > lastKnownTotalTickets) {
+      playAlertSound();
+    }
+    lastKnownTotalTickets = currentTotal;
 
     const escCount = data.escalation_count ?? 0;
     if (lastKnownEscalationCount !== -1 && escCount > lastKnownEscalationCount) {

@@ -90,6 +90,17 @@
     } catch (_) {}
   }
 
+  function playTicketIncomingAudio() {
+    try {
+      if (typeof chrome !== "undefined" && chrome.runtime?.getURL) {
+        const soundUrl = chrome.runtime.getURL("sounds/tiketmasuk.mp3");
+        const audio = new Audio(soundUrl);
+        audio.volume = 0.8;
+        audio.play().catch(() => {});
+      }
+    } catch (_) {}
+  }
+
   function getAccessibleDocs() {
     const docs = [];
     function collect(w) {
@@ -692,6 +703,7 @@
           registryModified = true;
 
           console.log(`[GC 1 Sentinel Expert] 🚨 ${updateType}: ${ticketNumber} - ${shortDesc}`);
+          playTicketIncomingAudio();
 
           safeSendMessage({
             type: "NEW_ALERT",

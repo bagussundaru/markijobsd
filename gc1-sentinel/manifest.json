@@ -41,6 +41,8 @@
     {
       "resources": [
         "sounds/alert.wav",
+        "sounds/tiketmasuk.mp3",
+        "sounds/tiketmasuk.wav",
         "icons/icon48.png"
       ],
       "matches": [
