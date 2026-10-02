@@ -108,7 +108,7 @@ if "%HELPDESK_URL%"=="" set "HELPDESK_URL=https://pdn.layanan.go.id"
 if exist "%CHROME_EXE%" (
     echo       -^> Chrome ditemukan: %CHROME_EXE%
     echo       -^> Membuka WhatsApp Web, Monitor GC 1, dan Portal Helpdesk (%HELPDESK_URL%)...
-    start "" "%CHROME_EXE%" --load-extension="%EXT_DIR%" "https://web.whatsapp.com" "http://localhost:8765/dashboard.html" "%HELPDESK_URL%"
+    start "" "%CHROME_EXE%" --remote-debugging-port=9222 --load-extension="%EXT_DIR%" "https://web.whatsapp.com" "http://localhost:8765/dashboard.html" "%HELPDESK_URL%"
 ) else (
     echo       [PERINGATAN] Google Chrome tidak ditemukan di direktori standar.
     echo       Membuka Dashboard melalui browser default...
