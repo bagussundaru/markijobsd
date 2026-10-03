@@ -54,14 +54,28 @@
     if (nav && nav.tagName === "BUTTON") showView(nav.dataset.view, nav.dataset.list || null);
   });
 
+  // ---- V3 SVG Icon Library (Enterprise Feather Icons)
+  const V3_ICONS = {
+    total: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`,
+    request: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>`,
+    incident: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`,
+    assigned: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect><path d="M12 11h4"></path><path d="M12 16h4"></path><path d="M8 11h.01"></path><path d="M8 16h.01"></path></svg>`,
+    pending: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`,
+    progress: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>`,
+    onhold: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="10" y1="15" x2="10" y2="9"></line><line x1="14" y1="15" x2="14" y2="9"></line></svg>`,
+    sla: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline></svg>`,
+    wa: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>`,
+    arrowRight: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>`
+  };
+
   // ---- submenu ITSM: menu tetap profesional (Semua, Request, Insiden)
   function renderItsmMenu() {
     const box = $("sbItsmItems");
     if (!box) return;
     const items = [
-      { key: "", label: "ITSM · Semua", icon: "🗂️", title: "Semua Tiket ITSM" },
-      { key: "request", label: "Tiket Request", icon: "📋", title: "Daftar Tiket Request (Permohonan)" },
-      { key: "incident", label: "Tiket Insiden", icon: "⚡", title: "Daftar Tiket Insiden (Gangguan)" }
+      { key: "", label: "ITSM · Semua", icon: V3_ICONS.total, title: "Semua Tiket ITSM" },
+      { key: "request", label: "Tiket Request", icon: V3_ICONS.request, title: "Daftar Tiket Request (Permohonan)" },
+      { key: "incident", label: "Tiket Insiden", icon: V3_ICONS.incident, title: "Daftar Tiket Insiden (Gangguan)" }
     ];
     box.innerHTML = items.map((l) => `<button class="sb-item" data-view="itsm" data-list="${esc(l.key)}" title="${esc(l.title)}"><span class="ic">${l.icon}</span><span class="tx">${esc(l.label)}</span><span class="sb-pill" data-pill-list="${esc(l.key)}">0</span></button>`).join("");
     markActive();
@@ -165,27 +179,73 @@
     return true;
   };
 
-  // ------------------------------------------------------------------ KPI (Aivora Modern Layout)
-  function kpi(cls, label, val, unit, sub, go, icon, badgeText, badgeCls, chipsHtml, footerText) {
-    return `<div class="v3-kpi ${cls}${go ? " link" : ""}" ${go ? `data-go="${esc(go)}"` : ""}>
+  // ------------------------------------------------------------------ KPI (Enterprise Layout)
+  function kpi(arg1, label, val, unit, sub, go, icon, badgeText, badgeCls, chipsHtml, footerText) {
+    let opts = {};
+    if (typeof arg1 === "object" && arg1 !== null) {
+      opts = arg1;
+    } else {
+      opts = {
+        cls: arg1,
+        label: label,
+        val: val,
+        unit: unit,
+        sub: sub,
+        go: go,
+        iconSvg: icon,
+        badgeText: badgeText,
+        badgeCls: badgeCls,
+        visualHtml: chipsHtml,
+        footerText: footerText
+      };
+    }
+
+    const {
+      cls = "",
+      category = "",
+      label: cardLabel = "",
+      val: cardVal = 0,
+      unit: cardUnit = "",
+      sub: cardSub = "",
+      go: cardGo = "",
+      iconSvg = V3_ICONS.total,
+      badgeText: cardBadgeText = "",
+      badgeCls: cardBadgeCls = "",
+      visualHtml = "",
+      footerText: cardFooterText = "",
+      isAssignedActive = false
+    } = opts;
+
+    const activeCls = isAssignedActive ? " is-assigned-active" : "";
+    const goAttr = cardGo ? ` data-go="${esc(cardGo)}"` : "";
+    const linkCls = cardGo ? " link" : "";
+
+    return `<div class="v3-kpi ${cls}${linkCls}${activeCls}"${goAttr}>
       <div class="k-top">
-        <div class="k-icon-box ${badgeCls || ""}">${icon || "📊"}</div>
-        ${badgeText ? `<span class="k-pill ${badgeCls || ""}">${esc(badgeText)}</span>` : ""}
+        <div class="k-title-col">
+          ${category ? `<span class="k-category">${esc(category)}</span>` : ""}
+          <div class="k-label">${esc(cardLabel)}</div>
+        </div>
+        <div class="k-icon-box ${cardBadgeCls || ""}">${iconSvg}</div>
       </div>
       <div class="k-main">
         <div class="k-val-row">
-          <span class="k-val">${esc(val)}</span>
-          ${unit ? `<span class="k-unit">${esc(unit)}</span>` : ""}
+          <div class="k-val-group">
+            <span class="k-val">${esc(cardVal)}</span>
+            ${cardUnit ? `<span class="k-unit">${esc(cardUnit)}</span>` : ""}
+          </div>
+          ${cardBadgeText ? `<span class="k-pill ${cardBadgeCls || ""}">${cardBadgeText}</span>` : ""}
         </div>
-        <div class="k-label">${esc(label)}</div>
-        <div class="k-sub">${esc(sub || "")}</div>
+        <div class="k-sub">${esc(cardSub || "")}</div>
       </div>
-      <div class="k-mid-chips">
-        ${chipsHtml || ""}
+      <div class="k-visual-body">
+        ${visualHtml || ""}
       </div>
       <div class="k-footer">
-        <span class="k-footer-text">${esc(footerText || "")}</span>
-        <span class="k-action-btn" title="Buka rincian">↗</span>
+        <span class="k-footer-text">${esc(cardFooterText || "")}</span>
+        <span class="k-action-btn" title="Buka rincian">
+          ${V3_ICONS.arrowRight}
+        </span>
       </div>
     </div>`;
   }
@@ -240,7 +300,28 @@
       }
     }
 
+    const total = (specificList === "request") ? (req || 20) : (specificList === "incident") ? (inc || 20) : ((req + inc) || 40);
     const active = assigned + pending + progress + onHold;
+
+    let ratioBarHtml = "";
+    let legendHtml = "";
+
+    if (!specificList) {
+      const reqPct = Math.round((req / total) * 100) || 50;
+      const incPct = 100 - reqPct;
+      ratioBarHtml = `<div class="k-ratio-bar"><span class="k-bar-seg seg-req" style="width:${reqPct}%" title="${req} Request (${reqPct}%)"></span><span class="k-bar-seg seg-inc" style="width:${incPct}%" title="${inc} Insiden (${incPct}%)"></span></div>`;
+      legendHtml = `<div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-req"></i><b>${req}</b> Request</span><span class="leg-item"><i class="leg-dot dot-inc"></i><b>${inc}</b> Insiden</span><span class="leg-sep">·</span><span class="leg-item"><i class="leg-dot dot-gc1"></i><b>${gc1}</b> GC 1</span><span class="leg-item"><i class="leg-dot dot-telkom"></i><b>${telkom}</b> Telkom</span></div>`;
+    } else {
+      const gc1Pct = Math.round((gc1 / total) * 100) || 80;
+      const telkPct = 100 - gc1Pct;
+      ratioBarHtml = `<div class="k-ratio-bar"><span class="k-bar-seg seg-gc1" style="width:${gc1Pct}%" title="${gc1} Tim GC 1 (${gc1Pct}%)"></span><span class="k-bar-seg seg-telkom" style="width:${telkPct}%" title="${telkom} Telkom (${telkPct}%)"></span></div>`;
+      legendHtml = `<div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-gc1"></i><b>${gc1}</b> Tim GC 1</span><span class="leg-item"><i class="leg-dot dot-telkom"></i><b>${telkom}</b> Telkom Eksternal</span><span class="leg-sep">·</span><span class="leg-item"><i class="leg-dot dot-progress"></i><b>${active}</b> Aktif</span></div>`;
+    }
+
+    const visualHtml = ratioBarHtml + legendHtml;
+    const footerText = `${active} Aktif · ${resolved} Selesai`;
+
+    // Backward compatible chips
     const chips = [];
     if (!specificList) {
       chips.push(`<span class="k-chip chip-req" title="Tiket Request">📋 ${req} Req</span>`);
@@ -249,8 +330,10 @@
     chips.push(`<span class="k-chip chip-gc1" title="Tiket Tim GC 1 Internal">🛡️ ${gc1} GC 1</span>`);
     chips.push(`<span class="k-chip chip-telkom" title="Tiket Telkom Eksternal">🏢 ${telkom} Telkom</span>`);
 
-    const footerText = `${active} Aktif · ${resolved} Selesai`;
     return {
+      visualHtml,
+      ratioBarHtml,
+      legendHtml,
       chipsHtml: chips.join(""),
       footerText: footerText,
       req, inc, gc1, telkom, active, resolved, pending, progress, onHold, assigned
@@ -281,8 +364,13 @@
     const itsmOpen = open(itsm), waOpen = open(wa);
     const waiting = waOpen.filter((t) => t.responseStatus !== "ok");
     const late = waiting.filter((t) => t.responseStatus === "late");
+    const snapAssigned = (s && (s.team_assigned_count ?? s.gc1_assigned_count))
+      ?? (s && Array.isArray(s.team_assigned) ? s.team_assigned.filter((t) => t.waTier !== 3).length : null);
+    const assignedCount = (snapAssigned !== null && snapAssigned !== undefined)
+      ? snapAssigned
+      : itsm.filter((t) => st(t).includes("assign")).length;
     return { itsm, wa, itsmOpen, waOpen, waiting, late, st,
-      assigned: itsm.filter((t) => st(t).includes("assign")).length,
+      assigned: assignedCount,
       pending: itsm.filter((t) => st(t).includes("pending")).length,
       progress: itsm.filter((t) => st(t).includes("progress")).length,
       on_hold: itsm.filter((t) => st(t).includes("hold")).length };
@@ -294,37 +382,125 @@
     const breachedCount = s.sla_breached_count ?? 0;
 
     let totalLabel = "Total Tiket ITSM";
-    let totalIcon = "📁";
-    let totalBadge = "📁 Total ITSM";
+    let totalCat = "PORTAL ITSM";
+    let totalIcon = V3_ICONS.total;
     let totalSub = "Total tiket di semua menu ITSM";
 
     if (V3.itsmList === "request") {
       totalLabel = "Total Tiket Request";
-      totalIcon = "📋";
-      totalBadge = "📋 Total Request";
+      totalCat = "PERMOHONAN";
+      totalIcon = V3_ICONS.request;
       totalSub = "Total seluruh tiket di menu All Request";
     } else if (V3.itsmList === "incident") {
       totalLabel = "Total Tiket Insiden";
-      totalIcon = "⚡";
-      totalBadge = "⚡ Total Insiden";
+      totalCat = "GANGGUAN";
+      totalIcon = V3_ICONS.incident;
       totalSub = "Total seluruh tiket di menu All Incident";
     }
 
     const bd = computeTicketBreakdown(k.itsm, V3.itsmList || false);
 
+    const isAssignedActive = k.assigned > 0;
+    const assignedBadgeText = isAssignedActive
+      ? `<span class="beacon-pulse-indicator"><span class="beacon-ping"></span><span class="beacon-dot"></span></span> ${k.assigned} Tiket Menunggu`
+      : `✓ Terkendali`;
+    const assignedBadgeCls = isAssignedActive ? "badge-assigned-live" : "badge-calm";
+    const assignedVisualHtml = isAssignedActive
+      ? `<div class="k-ratio-bar"><span class="k-bar-seg seg-assigned-pulse" style="width:100%"></span></div>
+         <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-assigned-active"></i><b>Prioritas L0/L1</b></span><span class="leg-item"><i class="leg-dot dot-speed"></i><b>Target &lt; 15m</b></span></div>`
+      : `<div class="k-ratio-bar"><span class="k-bar-seg seg-calm" style="width:100%"></span></div>
+         <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Antrean Bersih</b></span><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Siap Menerima Tiket</b></span></div>`;
+
     $("itsmKpis").innerHTML =
-      kpi("itsm link", totalLabel, k.itsm.length, "tiket", totalSub, "tab:all_tickets", totalIcon, totalBadge, "badge-total",
-        bd.chipsHtml, bd.footerText) +
-      kpi("itsm link", "Assigned (Siap Ditangani)", k.assigned, "tiket", "Siap dieksekusi teknis tim GC 1", "tab:team_assigned", "📋", "🚨 Prioritas Tim", "badge-assigned",
-        `<span class="k-chip chip-priority">🚨 Prioritas L0/L1</span><span class="k-chip chip-speed">⚡ Target &lt; 15m</span>`, "Antrean prioritas tim GC 1") +
-      kpi("warn link", "Pending Approval", k.pending, "tiket", "Menunggu persetujuan tenan/K/L", "tab:team_pending", "⏳", "⏳ Verifikasi", "badge-pending",
-        `<span class="k-chip chip-pending">⏳ Konfirmasi K/L</span><span class="k-chip chip-doc">📑 Nota Dinas</span>`, `${k.pending} tiket verifikasi`) +
-      kpi("violet link", "Sedang Dikerjakan", k.progress, "tiket", "Pengerjaan teknis resolver L1/L2/L3", "tab:team_progress", "⚙️", "⚡ Proses Aktif", "badge-progress",
-        `<span class="k-chip chip-progress">⚙️ Pengerjaan Aktif</span><span class="k-chip chip-tech">🛠️ Resolusi Teknis</span>`, "Pengerjaan aktif resolver") +
-      kpi("hold link", "On Hold (Tertunda)", k.on_hold, "tiket", "Menunggu tenan / vendor / pihak luar", "list:on_hold", "⏸️", "⏸️ On-Hold", "badge-onhold",
-        `<span class="k-chip chip-onhold">⏸️ Tertunda Eksternal</span><span class="k-chip chip-vendor">🏢 Vendor / Tenan</span>`, `${k.on_hold} tiket tertunda`) +
-      kpi(h >= 95 ? "ok link" : h >= 80 ? "warn link" : "danger link", "Kepatuhan SLA (KAK 18.c)", h, "%", `Standar batas baku resmi KAK 18.c`, "list:sla", "🛡️", h >= 95 ? "✓ Target > 95%" : "⚠ Waspada", h >= 95 ? "badge-ok" : "badge-danger",
-        `<span class="k-chip ${h >= 95 ? "chip-ok" : "chip-danger"}">🛡️ ${h >= 95 ? "✓ Target Terpenuhi" : "⚠ Perlu Perhatian"}</span><span class="k-chip chip-breach">${breachedCount} Lewat SLA</span>`, "Target resmi KAK: > 95%");
+      kpi({
+        cls: "itsm",
+        category: totalCat,
+        label: totalLabel,
+        val: k.itsm.length,
+        unit: "tiket",
+        sub: totalSub,
+        go: "tab:all_tickets",
+        iconSvg: totalIcon,
+        badgeText: "📁 Terpantau",
+        badgeCls: "badge-total",
+        visualHtml: bd.visualHtml,
+        footerText: bd.footerText
+      }) +
+      kpi({
+        cls: "itsm",
+        category: "TIM GC 1",
+        label: "Assigned (Siap Ditangani)",
+        val: k.assigned,
+        unit: "tiket",
+        sub: isAssignedActive ? "Segera eksekusi tiket di antrean ini" : "Siap dieksekusi teknis tim GC 1",
+        go: "tab:team_assigned",
+        iconSvg: V3_ICONS.assigned,
+        badgeText: assignedBadgeText,
+        badgeCls: assignedBadgeCls,
+        visualHtml: assignedVisualHtml,
+        footerText: isAssignedActive ? "Antrean prioritas siap eksekusi" : "Semua tiket sudah ditugaskan",
+        isAssignedActive: isAssignedActive
+      }) +
+      kpi({
+        cls: "warn",
+        category: "VERIFIKASI",
+        label: "Pending Approval",
+        val: k.pending,
+        unit: "tiket",
+        sub: "Menunggu persetujuan tenan/K/L",
+        go: "tab:team_pending",
+        iconSvg: V3_ICONS.pending,
+        badgeText: "⏳ Verifikasi K/L",
+        badgeCls: "badge-pending",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-pending" style="width:100%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-pending"></i><b>Konfirmasi K/L</b></span><span class="leg-item"><i class="leg-dot dot-doc"></i><b>Nota Dinas</b></span></div>`,
+        footerText: `${k.pending} tiket verifikasi K/L`
+      }) +
+      kpi({
+        cls: "violet",
+        category: "PENGERJAAN TEKNIS",
+        label: "Sedang Dikerjakan",
+        val: k.progress,
+        unit: "tiket",
+        sub: "Pengerjaan teknis resolver L1/L2/L3",
+        go: "tab:team_progress",
+        iconSvg: V3_ICONS.progress,
+        badgeText: "⚡ Proses Aktif",
+        badgeCls: "badge-progress",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-progress" style="width:100%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-progress"></i><b>Resolver L1/L2/L3</b></span><span class="leg-item"><i class="leg-dot dot-tech"></i><b>Pengerjaan Aktif</b></span></div>`,
+        footerText: "Pengerjaan aktif resolver"
+      }) +
+      kpi({
+        cls: "hold",
+        category: "DEPENDENSI",
+        label: "On Hold (Tertunda)",
+        val: k.on_hold,
+        unit: "tiket",
+        sub: "Menunggu tenan / vendor / pihak luar",
+        go: "list:on_hold",
+        iconSvg: V3_ICONS.onhold,
+        badgeText: "⏸️ On-Hold",
+        badgeCls: "badge-onhold",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-onhold" style="width:100%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-onhold"></i><b>Tertunda Eksternal</b></span><span class="leg-item"><i class="leg-dot dot-vendor"></i><b>Vendor / Tenan</b></span></div>`,
+        footerText: `${k.on_hold} tiket tertunda eksternal`
+      }) +
+      kpi({
+        cls: h >= 95 ? "ok" : h >= 80 ? "warn" : "danger",
+        category: "STANDAR KAK 18.c",
+        label: "Kepatuhan SLA (KAK 18.c)",
+        val: h,
+        unit: "%",
+        sub: "Standar batas baku resmi KAK 18.c",
+        go: "list:sla",
+        iconSvg: V3_ICONS.sla,
+        badgeText: h >= 95 ? "✓ Target > 95%" : "⚠️ Waspada",
+        badgeCls: h >= 95 ? "badge-ok" : "badge-danger",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg ${h >= 95 ? "seg-ok" : "seg-danger"}" style="width:${Math.min(100, Math.max(0, h))}%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot ${h >= 95 ? "dot-ok" : "dot-danger"}"></i><b>${h}%</b> Terpenuhi</span><span class="leg-item"><i class="leg-dot dot-breach"></i><b>${breachedCount}</b> Lewat SLA</span></div>`,
+        footerText: "Target resmi KAK: > 95%"
+      });
   }
 
   function renderWaKpis(s) {
@@ -333,59 +509,203 @@
     const unlinked = k.waOpen.filter((t) => !t.linkedPortalId).length;
     const avg = V3.stats ? V3.stats.wa_reply_avg_min : null;
     $("waKpis").innerHTML =
-      kpi("wa link", "Pra-tiket WhatsApp Aktif", k.waOpen.length, "aduan", "Belum selesai / ditolak", "tab:all_tickets", "💬", "Aduan Baru", "badge-wa",
-        `<span class="k-chip chip-ok">💬 Pra-Tiket Masuk</span><span class="k-chip chip-priority">🚨 Perlu Tindak Lanjut</span>`, "Aduan aktif dari grup WA") +
-      kpi(k.late.length ? "danger link" : k.waiting.length ? "warn link" : "ok link", "Menunggu Balasan", k.waiting.length, "aduan", k.late.length ? `${k.late.length} lewat target` : "Semua dalam target", "tab:all_tickets", "⏳", k.late.length ? "Lewat Target" : "Tepat Waktu", k.late.length ? "badge-danger" : "badge-ok",
-        `<span class="k-chip ${k.late.length ? "chip-danger" : "chip-ok"}">⏳ ${k.late.length ? k.late.length + " Lewat Target" : "✓ Tepat Waktu"}</span>`, "Target balasan &le; 10 menit") +
-      kpi("itsm", "Rata-rata Waktu Respon", num(avg), avg === null || avg === undefined ? "" : "menit", "Target internal 5-10 menit", null, "⚡", "Kecepatan", "badge-assigned",
-        `<span class="k-chip chip-speed">⚡ Respon Cepat</span><span class="k-chip chip-doc">Target 5-10 mnt</span>`, "Standar pelayanan helpdesk") +
-      kpi("warn link", "Belum Ada Tiket ITSM", unlinked, "aduan", "Perlu dibuatkan tiket resmi", "list:unlinked", "⚠️", "Menunggu Tiket", "badge-pending",
-        `<span class="k-chip chip-pending">⚠️ Menunggu Tiket</span><span class="k-chip chip-req">Perlu Dibuatkan Tiket</span>`, "Belum terbit nomor tiket ITSM");
+      kpi({
+        cls: "wa",
+        category: "WHATSAPP",
+        label: "Pra-tiket WhatsApp Aktif",
+        val: k.waOpen.length,
+        unit: "aduan",
+        sub: "Belum selesai / ditolak",
+        go: "tab:all_tickets",
+        iconSvg: V3_ICONS.wa,
+        badgeText: "💬 Pra-Tiket",
+        badgeCls: "badge-wa",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-ok" style="width:100%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Pra-Tiket Masuk</b></span><span class="leg-item"><i class="leg-dot dot-speed"></i><b>Tindak Lanjut Segera</b></span></div>`,
+        footerText: "Aduan aktif dari grup WA"
+      }) +
+      kpi({
+        cls: k.late.length ? "danger" : k.waiting.length ? "warn" : "ok",
+        category: "RESPON",
+        label: "Menunggu Balasan",
+        val: k.waiting.length,
+        unit: "aduan",
+        sub: k.late.length ? `${k.late.length} lewat target` : "Semua dalam target",
+        go: "tab:all_tickets",
+        iconSvg: V3_ICONS.pending,
+        badgeText: k.late.length ? "⚠️ Lewat Target" : "✓ Tepat Waktu",
+        badgeCls: k.late.length ? "badge-danger" : "badge-ok",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg ${k.late.length ? "seg-danger" : "seg-ok"}" style="width:100%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot ${k.late.length ? "dot-danger" : "dot-ok"}"></i><b>${k.late.length ? k.late.length + " Lewat Target" : "Tepat Waktu"}</b></span></div>`,
+        footerText: "Target balasan ≤ 10 menit"
+      }) +
+      kpi({
+        cls: "itsm",
+        category: "KECEPATAN",
+        label: "Rata-rata Waktu Respon",
+        val: num(avg),
+        unit: avg === null || avg === undefined ? "" : "menit",
+        sub: "Target internal 5-10 menit",
+        go: null,
+        iconSvg: V3_ICONS.progress,
+        badgeText: "⚡ Respon Cepat",
+        badgeCls: "badge-assigned",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-progress" style="width:100%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-speed"></i><b>Target 5-10 mnt</b></span><span class="leg-item"><i class="leg-dot dot-doc"></i><b>Standar Helpdesk</b></span></div>`,
+        footerText: "Standar pelayanan helpdesk"
+      }) +
+      kpi({
+        cls: "warn",
+        category: "SINKRONISASI",
+        label: "Belum Ada Tiket ITSM",
+        val: unlinked,
+        unit: "aduan",
+        sub: "Perlu dibuatkan tiket resmi",
+        go: "list:unlinked",
+        iconSvg: V3_ICONS.request,
+        badgeText: "⏳ Menunggu Tiket",
+        badgeCls: "badge-pending",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-pending" style="width:100%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-pending"></i><b>Menunggu Tiket</b></span><span class="leg-item"><i class="leg-dot dot-doc"></i><b>Buka di Portal</b></span></div>`,
+        footerText: "Belum terbit nomor tiket ITSM"
+      });
   }
 
   function renderOverviewKpis(s) {
     const st = V3.stats;
     const kk = st ? st.kpi : null;
-    if (!kk) { $("ovKpis").innerHTML = ""; return; }
-    const h = st.sla.health_pct;
-    const k = snapKpis(s);
-    const assignedCount = k.assigned || kk.itsm_assigned || 0;
-    const pendingCount = k.pending || kk.itsm_pending || 0;
-    const onHoldCount = k.on_hold || kk.itsm_on_hold || 0;
-    const progressCount = k.progress || Math.max(0, (kk.itsm_open || 0) - assignedCount - pendingCount - onHoldCount);
-    const breachedCount = st.sla.breached || 0;
+    const snapObj = (s && s.snapshot) || s || getState().snapshot || {};
+    const h = (st && st.sla && st.sla.health_pct !== undefined) ? st.sla.health_pct : (snapObj.sla_health_percent ?? 100);
+    const breachedCount = (st && st.sla && st.sla.breached) ? st.sla.breached : (snapObj.sla_breached_count ?? 0);
+    const k = snapKpis(snapObj);
+    const assignedCount = k.assigned || (kk ? kk.itsm_assigned : 0) || (snapObj.team_assigned_count ?? 0);
+    const pendingCount = k.pending || (kk ? kk.itsm_pending : 0) || (snapObj.team_pending_count ?? 0);
+    const onHoldCount = k.on_hold || (kk ? kk.itsm_on_hold : 0) || 0;
+    const progressCount = k.progress || (kk ? Math.max(0, (kk.itsm_open || 0) - assignedCount - pendingCount - onHoldCount) : (snapObj.team_progress_count ?? 0));
 
-    const stSnap = getState().snapshot;
+    const stSnap = getState().snapshot || snapObj;
     const allScanned = (stSnap && stSnap.all_scanned_tickets && stSnap.all_scanned_tickets.length > 0)
       ? stSnap.all_scanned_tickets
-      : ((stSnap && stSnap.all_tickets) || (s.all_tickets) || []);
-    const itsmTotal = allScanned.filter(t => !t.isFromWa).length || (kk.itsm_open || 40);
+      : ((stSnap && stSnap.all_tickets) || (snapObj.all_tickets) || []);
+    const itsmTotal = allScanned.filter(t => !t.isFromWa).length || (kk ? kk.itsm_open : null) || (snapObj.total_helpdesk) || 40;
 
     const bd = computeTicketBreakdown(allScanned.filter(t => !t.isFromWa), false);
 
+    // Card 2: Assigned (Siap Ditangani) - Active glowing pulse when assignedCount > 0!
+    const isAssignedActive = assignedCount > 0;
+    const assignedBadgeText = isAssignedActive
+      ? `<span class="beacon-pulse-indicator"><span class="beacon-ping"></span><span class="beacon-dot"></span></span> ${assignedCount} Tiket Menunggu`
+      : `✓ Terkendali`;
+    const assignedBadgeCls = isAssignedActive ? "badge-assigned-live" : "badge-calm";
+    const assignedVisualHtml = isAssignedActive
+      ? `<div class="k-ratio-bar"><span class="k-bar-seg seg-assigned-pulse" style="width:100%"></span></div>
+         <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-assigned-active"></i><b>Prioritas L0/L1</b></span><span class="leg-item"><i class="leg-dot dot-speed"></i><b>Target &lt; 15m</b></span></div>`
+      : `<div class="k-ratio-bar"><span class="k-bar-seg seg-calm" style="width:100%"></span></div>
+         <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Antrean Bersih</b></span><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Siap Menerima Tiket</b></span></div>`;
+    const assignedFooter = isAssignedActive
+      ? "Antrean prioritas siap eksekusi tim"
+      : "Semua tiket sudah ditugaskan";
+
     $("ovKpis").innerHTML =
-      kpi("itsm link", "Total Tiket ITSM", itsmTotal, "tiket", "Gabungan Request dan Insiden terpantau", "view:itsm", "📁", "📁 Total ITSM", "badge-total",
-        bd.chipsHtml, bd.footerText) +
-      kpi("itsm link", "Assigned (Siap Ditangani)", assignedCount, "tiket", "Siap dieksekusi teknis tim GC 1", "tab:team_assigned", "📋", "🚨 Prioritas Tim", "badge-assigned",
-        `<span class="k-chip chip-priority">🚨 Prioritas L0/L1</span><span class="k-chip chip-speed">⚡ Target &lt; 15m</span>`, "Antrean prioritas tim GC 1") +
-      kpi("warn link", "Pending Approval", pendingCount, "tiket", "Menunggu persetujuan tenan/K/L", "tab:team_pending", "⏳", "⏳ Verifikasi", "badge-pending",
-        `<span class="k-chip chip-pending">⏳ Konfirmasi K/L</span><span class="k-chip chip-doc">📑 Nota Dinas</span>`, `${pendingCount} tiket verifikasi`) +
-      kpi("violet link", "Sedang Dikerjakan", progressCount, "tiket", "Pengerjaan teknis resolver L1/L2/L3", "tab:team_progress", "⚙️", "⚡ Proses Aktif", "badge-progress",
-        `<span class="k-chip chip-progress">⚙️ Pengerjaan Aktif</span><span class="k-chip chip-tech">🛠️ Resolusi Teknis</span>`, "Pengerjaan aktif resolver") +
-      kpi("hold link", "On Hold (Tertunda)", onHoldCount, "tiket", "Menunggu tenan / vendor / pihak luar", "list:on_hold", "⏸️", "⏸️ On-Hold", "badge-onhold",
-        `<span class="k-chip chip-onhold">⏸️ Tertunda Eksternal</span><span class="k-chip chip-vendor">🏢 Vendor / Tenan</span>`, `${onHoldCount} tiket tertunda`) +
-      kpi(h >= 95 ? "ok link" : h >= 80 ? "warn link" : "danger link", "Kepatuhan SLA (KAK 18.c)", h, "%", `Standar batas baku resmi KAK 18.c`, "view:itsm", "🛡️", h >= 95 ? "✓ Target > 95%" : "⚠ Waspada", h >= 95 ? "badge-ok" : "badge-danger",
-        `<span class="k-chip ${h >= 95 ? "chip-ok" : "chip-danger"}">🛡️ ${h >= 95 ? "✓ Target Terpenuhi" : "⚠ Perlu Perhatian"}</span><span class="k-chip chip-breach">${breachedCount} Lewat SLA</span>`, "Target resmi KAK: > 95%");
+      kpi({
+        cls: "itsm",
+        category: "PORTAL ITSM",
+        label: "Total Tiket ITSM",
+        val: itsmTotal,
+        unit: "tiket",
+        sub: "Gabungan Request dan Insiden terpantau",
+        go: "view:itsm",
+        iconSvg: V3_ICONS.total,
+        badgeText: "📁 Terpantau",
+        badgeCls: "badge-total",
+        visualHtml: bd.visualHtml,
+        footerText: bd.footerText
+      }) +
+      kpi({
+        cls: "itsm",
+        category: "TIM GC 1",
+        label: "Assigned (Siap Ditangani)",
+        val: assignedCount,
+        unit: "tiket",
+        sub: isAssignedActive ? "Segera eksekusi tiket di antrean ini" : "Siap dieksekusi teknis tim GC 1",
+        go: "tab:team_assigned",
+        iconSvg: V3_ICONS.assigned,
+        badgeText: assignedBadgeText,
+        badgeCls: assignedBadgeCls,
+        visualHtml: assignedVisualHtml,
+        footerText: assignedFooter,
+        isAssignedActive: isAssignedActive
+      }) +
+      kpi({
+        cls: "warn",
+        category: "VERIFIKASI",
+        label: "Pending Approval",
+        val: pendingCount,
+        unit: "tiket",
+        sub: "Menunggu persetujuan tenan/K/L",
+        go: "tab:team_pending",
+        iconSvg: V3_ICONS.pending,
+        badgeText: "⏳ Verifikasi K/L",
+        badgeCls: "badge-pending",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-pending" style="width:100%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-pending"></i><b>Konfirmasi K/L</b></span><span class="leg-item"><i class="leg-dot dot-doc"></i><b>Nota Dinas</b></span></div>`,
+        footerText: `${pendingCount} tiket verifikasi K/L`
+      }) +
+      kpi({
+        cls: "violet",
+        category: "PENGERJAAN TEKNIS",
+        label: "Sedang Dikerjakan",
+        val: progressCount,
+        unit: "tiket",
+        sub: "Pengerjaan teknis resolver L1/L2/L3",
+        go: "tab:team_progress",
+        iconSvg: V3_ICONS.progress,
+        badgeText: "⚡ Proses Aktif",
+        badgeCls: "badge-progress",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-progress" style="width:100%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-progress"></i><b>Resolver L1/L2/L3</b></span><span class="leg-item"><i class="leg-dot dot-tech"></i><b>Pengerjaan Aktif</b></span></div>`,
+        footerText: "Pengerjaan aktif resolver"
+      }) +
+      kpi({
+        cls: "hold",
+        category: "DEPENDENSI",
+        label: "On Hold (Tertunda)",
+        val: onHoldCount,
+        unit: "tiket",
+        sub: "Menunggu tenan / vendor / pihak luar",
+        go: "list:on_hold",
+        iconSvg: V3_ICONS.onhold,
+        badgeText: "⏸️ On-Hold",
+        badgeCls: "badge-onhold",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-onhold" style="width:100%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-onhold"></i><b>Tertunda Eksternal</b></span><span class="leg-item"><i class="leg-dot dot-vendor"></i><b>Vendor / Tenan</b></span></div>`,
+        footerText: `${onHoldCount} tiket tertunda eksternal`
+      }) +
+      kpi({
+        cls: h >= 95 ? "ok" : h >= 80 ? "warn" : "danger",
+        category: "STANDAR KAK 18.c",
+        label: "Kepatuhan SLA (KAK 18.c)",
+        val: h,
+        unit: "%",
+        sub: "Standar batas baku resmi KAK 18.c",
+        go: "view:itsm",
+        iconSvg: V3_ICONS.sla,
+        badgeText: h >= 95 ? "✓ Target > 95%" : "⚠️ Waspada",
+        badgeCls: h >= 95 ? "badge-ok" : "badge-danger",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg ${h >= 95 ? "seg-ok" : "seg-danger"}" style="width:${Math.min(100, Math.max(0, h))}%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot ${h >= 95 ? "dot-ok" : "dot-danger"}"></i><b>${h}%</b> Terpenuhi</span><span class="leg-item"><i class="leg-dot dot-breach"></i><b>${breachedCount}</b> Lewat SLA</span></div>`,
+        footerText: "Target resmi KAK: > 95%"
+      });
 
     // Update 4 Metric Strip in Left Card (Aivora Style)
     const allTickets = (stSnap && stSnap.all_tickets) || (s.all_tickets) || [];
-    const totalCount = allTickets.length || (kk.itsm_open || 40);
-    const activeCount = kk.itsm_open || (assignedCount + pendingCount + progressCount + onHoldCount);
+    const totalCount = allTickets.length || (kk?.itsm_open) || itsmTotal || 40;
+    const activeCount = (kk?.itsm_open) || (assignedCount + pendingCount + progressCount + onHoldCount);
     const resolvedCount = Math.max(0, totalCount - activeCount);
     if ($("stripTotal")) $("stripTotal").textContent = `${totalCount} Tiket`;
     if ($("stripActive")) $("stripActive").textContent = `${activeCount} Tiket`;
     if ($("stripResolved")) $("stripResolved").textContent = `${resolvedCount} Tiket`;
-    if ($("stripWa")) $("stripWa").textContent = `${kk.wa_active || 0} Pra-Tiket`;
+    if ($("stripWa")) $("stripWa").textContent = `${kk?.wa_active || 0} Pra-Tiket`;
   }
 
   // ------------------------------------------------------------------ grafik
@@ -534,6 +854,7 @@
 
   V3.onSnapshot = onSnapshot;
   function onSnapshot(data, immediate) {
+    if (data && getState()) getState().snapshot = data;
     const k = snapKpis(data);
     setLists(data.itsm_lists);
     const pillW = $("sbPillWa");
@@ -567,6 +888,7 @@
     });
     if (pillW) { pillW.textContent = k.waOpen.length; pillW.classList.toggle("hot", k.late.length > 0); }
     renderSyncInfo(data.itsm_lists);
+    if (V3.view === "overview") renderOverviewKpis(data);
     if (V3.view === "itsm") renderItsmKpis(data);
     if (V3.view === "wa") renderWaKpis(data);
     const role = $("sbRole");

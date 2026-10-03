@@ -192,18 +192,30 @@ body.enterprise-theme.app-v3 {
   color: var(--ink);
 }
 .sb-item.active {
-  background: #F1F5F9;
-  color: var(--ink);
-  font-weight: 700;
+  background: #EFF6FF;
+  color: #1D4ED8;
+  font-weight: 600;
 }
 .sb-item.active .ic {
-  color: var(--itsm);
+  color: #2563EB;
+}
+.sb-item.active .sb-pill {
+  background: #DBEAFE;
+  color: #1D4ED8;
 }
 .sb-item .ic {
   flex: none;
-  width: 22px;
-  text-align: center;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 15px;
+}
+.sb-item .ic svg {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
 }
 .sb-item .tx {
   flex: 1;
@@ -559,105 +571,254 @@ body.enterprise-theme.app-v3 {
 
 .v3-kpi {
   background: #FFFFFF;
-  border: 1px solid #E9EFF6;
-  border-radius: 20px;
-  padding: 20px 20px 18px;
-  box-shadow: 0 4px 18px -2px rgba(15, 23, 42, 0.03), 0 1px 2px rgba(15, 23, 42, 0.02);
+  border: 1px solid #E2E8F0;
+  border-radius: 16px;
+  padding: 18px 18px 14px;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 2px 6px -1px rgba(15, 23, 42, 0.02);
   position: relative;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
-  min-height: 220px;
+  min-height: 228px;
+  height: 100%;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
 }
 .v3-kpi.link {
   cursor: pointer;
 }
 .v3-kpi.link:hover {
-  transform: translateY(-3px);
+  transform: translateY(-2px);
   border-color: #CBD5E1;
-  box-shadow: 0 14px 30px -4px rgba(15, 23, 42, 0.09), 0 4px 10px -2px rgba(15, 23, 42, 0.03);
+  box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.08), 0 2px 6px -1px rgba(15, 23, 42, 0.04);
 }
 
-/* Card Header: Icon + Badge Pill */
+/* ==========================================================================
+   ASSIGNED CARD: EFEK MENYALA & BERPENDAR-PENDAR (LIVE BEACON PULSE)
+   Aktif jika ada tiket di antrean Assigned (assignedCount > 0)
+   ========================================================================== */
+@keyframes assigned-beacon-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.48), 0 4px 18px rgba(245, 158, 11, 0.16);
+    border-color: #F59E0B;
+  }
+  50% {
+    box-shadow: 0 0 0 9px rgba(245, 158, 11, 0), 0 8px 28px rgba(245, 158, 11, 0.35);
+    border-color: #D97706;
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0), 0 4px 18px rgba(245, 158, 11, 0.16);
+    border-color: #F59E0B;
+  }
+}
+
+.v3-kpi.is-assigned-active {
+  border: 1.5px solid #F59E0B !important;
+  animation: assigned-beacon-pulse 2s infinite ease-in-out;
+  background: linear-gradient(180deg, #FFFFFF 0%, #FFFDF5 100%);
+}
+
+.v3-kpi.is-assigned-active .k-val {
+  color: #D97706 !important;
+  text-shadow: 0 0 14px rgba(245, 158, 11, 0.25);
+}
+
+.v3-kpi.is-assigned-active .k-icon-box {
+  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%) !important;
+  color: #B45309 !important;
+  border: 1.5px solid #F59E0B !important;
+  animation: icon-assigned-breathe 2s ease-in-out infinite;
+}
+
+@keyframes icon-assigned-breathe {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0px rgba(245, 158, 11, 0)); }
+  50% { transform: scale(1.06); filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.5)); }
+}
+
+/* Radar Beacon Ripple Dot for Assigned Badge */
+.beacon-pulse-indicator {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.beacon-pulse-indicator .beacon-ping {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background-color: #F59E0B;
+  opacity: 0.8;
+  animation: beacon-ping-anim 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+.beacon-pulse-indicator .beacon-dot {
+  position: relative;
+  width: 6.5px;
+  height: 6.5px;
+  border-radius: 50%;
+  background-color: #D97706;
+  box-shadow: 0 0 4px #F59E0B;
+}
+@keyframes beacon-ping-anim {
+  70%, 100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+/* ---------- Card Header: Title Column + Icon Box ---------- */
 .v3-kpi .k-top {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 14px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
-
+.v3-kpi .k-title-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.v3-kpi .k-category {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #94A3B8;
+  margin-bottom: 2px;
+}
+.v3-kpi .k-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1E293B;
+  letter-spacing: -0.15px;
+  line-height: 1.22;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
 .v3-kpi .k-icon-box {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 19px;
   transition: transform 0.2s ease;
 }
 .v3-kpi:hover .k-icon-box {
-  transform: scale(1.05);
+  transform: scale(1.06);
+}
+.v3-kpi .k-icon-box svg {
+  width: 19px;
+  height: 19px;
 }
 
+/* Icon Box Pastel Themes */
 .v3-kpi .k-icon-box.badge-total {
-  background: linear-gradient(135deg, #F1F5F9 0%, #E2E8F0 100%);
-  color: #0F172A;
-  border: 1px solid #E2E8F0;
+  background: #EEF2FF;
+  color: #4338CA;
+  border: 1px solid #E0E7FF;
 }
 .v3-kpi .k-icon-box.badge-assigned {
-  background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%);
-  color: #1D4ED8;
-  border: 1px solid #BFDBFE;
-}
-.v3-kpi .k-icon-box.badge-pending {
-  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
-  color: #92400E;
-  border: 1px solid #FDE68A;
-}
-.v3-kpi .k-icon-box.badge-progress {
-  background: linear-gradient(135deg, #F5F3FF 0%, #DDD6FE 100%);
-  color: #6D28D9;
-  border: 1px solid #DDD6FE;
-}
-.v3-kpi .k-icon-box.badge-onhold {
-  background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%);
+  background: #FEF3C7;
   color: #B45309;
   border: 1px solid #FDE68A;
 }
+.v3-kpi .k-icon-box.badge-pending {
+  background: #FFFBEB;
+  color: #D97706;
+  border: 1px solid #FEF3C7;
+}
+.v3-kpi .k-icon-box.badge-progress {
+  background: #F5F3FF;
+  color: #7C3AED;
+  border: 1px solid #DDD6FE;
+}
+.v3-kpi .k-icon-box.badge-onhold {
+  background: #F8FAFC;
+  color: #64748B;
+  border: 1px solid #E2E8F0;
+}
 .v3-kpi .k-icon-box.badge-ok {
-  background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
+  background: #ECFDF5;
   color: #047857;
   border: 1px solid #A7F3D0;
 }
 .v3-kpi .k-icon-box.badge-danger {
-  background: linear-gradient(135deg, #FEF2F2 0%, #FEE2E2 100%);
+  background: #FEF2F2;
   color: #DC2626;
   border: 1px solid #FECACA;
 }
 .v3-kpi .k-icon-box.badge-wa {
-  background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
-  color: #047857;
+  background: #ECFDF5;
+  color: #059669;
   border: 1px solid #A7F3D0;
 }
 
+/* ---------- Card Main: Value + Status Badge Pill ---------- */
+.v3-kpi .k-main {
+  display: flex;
+  flex-direction: column;
+}
+.v3-kpi .k-val-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.v3-kpi .k-val-group {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.v3-kpi .k-val {
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1;
+  color: #0F172A;
+  letter-spacing: -0.6px;
+}
+.v3-kpi .k-unit {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #64748B;
+}
+
 .v3-kpi .k-pill {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
-  padding: 3.5px 10px;
+  padding: 2.5px 8px;
   border-radius: 999px;
-  letter-spacing: 0.15px;
+  letter-spacing: 0.1px;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
 }
 .v3-kpi .k-pill.badge-total {
   background: #F1F5F9;
-  color: #0F172A;
+  color: #334155;
   border: 1px solid #CBD5E1;
 }
 .v3-kpi .k-pill.badge-assigned {
   background: #EFF6FF;
   color: #1D4ED8;
   border: 1px solid #BFDBFE;
+}
+.v3-kpi .k-pill.badge-assigned-live {
+  background: #FEF3C7;
+  color: #92400E;
+  border: 1px solid #F59E0B;
+}
+.v3-kpi .k-pill.badge-calm {
+  background: #ECFDF5;
+  color: #047857;
+  border: 1px solid #A7F3D0;
 }
 .v3-kpi .k-pill.badge-pending {
   background: #FEF3C7;
@@ -670,9 +831,9 @@ body.enterprise-theme.app-v3 {
   border: 1px solid #DDD6FE;
 }
 .v3-kpi .k-pill.badge-onhold {
-  background: #FFFBEB;
-  color: #92400E;
-  border: 1px solid #FDE68A;
+  background: #F8FAFC;
+  color: #475569;
+  border: 1px solid #CBD5E1;
 }
 .v3-kpi .k-pill.badge-ok {
   background: #ECFDF5;
@@ -690,53 +851,101 @@ body.enterprise-theme.app-v3 {
   border: 1px solid #A7F3D0;
 }
 
-/* Primary Metric & Value */
-.v3-kpi .k-main {
-  display: flex;
-  flex-direction: column;
-}
-.v3-kpi .k-val-row {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-  margin-bottom: 4px;
-}
-.v3-kpi .k-val {
-  font-size: 30px;
-  font-weight: 800;
-  line-height: 1;
-  color: #0F172A;
-  letter-spacing: -0.6px;
-}
-.v3-kpi .k-unit {
-  font-size: 13px;
-  font-weight: 600;
-  color: #64748B;
-}
-
-/* Label & Subtitle */
-.v3-kpi .k-label {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1E293B;
-  letter-spacing: -0.2px;
-  margin-bottom: 2px;
-}
 .v3-kpi .k-sub {
   font-size: 11.5px;
   color: #64748B;
   font-weight: 500;
   line-height: 1.35;
-  min-height: 32px;
+  min-height: 30px;
+  margin-bottom: 8px;
 }
 
-/* Middle Contextual Chips Row (Symmetrical) */
+/* ---------- Card Visual Body: Segmented Progress Bar & Micro-Legends ---------- */
+.v3-kpi .k-visual-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+}
+.v3-kpi .k-ratio-bar {
+  height: 5px;
+  width: 100%;
+  border-radius: 999px;
+  background: #F1F5F9;
+  overflow: hidden;
+  display: flex;
+}
+.v3-kpi .k-bar-seg {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+.v3-kpi .k-bar-seg.seg-req { background: #2563EB; }
+.v3-kpi .k-bar-seg.seg-inc { background: #F59E0B; }
+.v3-kpi .k-bar-seg.seg-gc1 { background: #10B981; }
+.v3-kpi .k-bar-seg.seg-telkom { background: #94A3B8; }
+.v3-kpi .k-bar-seg.seg-pending { background: #F59E0B; }
+.v3-kpi .k-bar-seg.seg-progress { background: #8B5CF6; }
+.v3-kpi .k-bar-seg.seg-onhold { background: #94A3B8; }
+.v3-kpi .k-bar-seg.seg-ok { background: #10B981; }
+.v3-kpi .k-bar-seg.seg-danger { background: #EF4444; }
+.v3-kpi .k-bar-seg.seg-calm { background: #E2E8F0; }
+.v3-kpi .k-bar-seg.seg-assigned-pulse {
+  background: linear-gradient(90deg, #F59E0B, #D97706, #F59E0B);
+  background-size: 200% 100%;
+  animation: shimmer-progress 2s infinite linear;
+}
+@keyframes shimmer-progress {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.v3-kpi .k-meta-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: #475569;
+  line-height: 1.3;
+}
+.v3-kpi .leg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3.5px;
+}
+.v3-kpi .leg-dot {
+  display: inline-block;
+  width: 6.5px;
+  height: 6.5px;
+  border-radius: 50%;
+}
+.v3-kpi .leg-dot.dot-req { background: #2563EB; }
+.v3-kpi .leg-dot.dot-inc { background: #F59E0B; }
+.v3-kpi .leg-dot.dot-gc1 { background: #10B981; }
+.v3-kpi .leg-dot.dot-telkom { background: #94A3B8; }
+.v3-kpi .leg-dot.dot-assigned-active { background: #D97706; }
+.v3-kpi .leg-dot.dot-speed { background: #2563EB; }
+.v3-kpi .leg-dot.dot-pending { background: #D97706; }
+.v3-kpi .leg-dot.dot-doc { background: #64748B; }
+.v3-kpi .leg-dot.dot-progress { background: #7C3AED; }
+.v3-kpi .leg-dot.dot-tech { background: #2563EB; }
+.v3-kpi .leg-dot.dot-onhold { background: #B45309; }
+.v3-kpi .leg-dot.dot-vendor { background: #64748B; }
+.v3-kpi .leg-dot.dot-ok { background: #047857; }
+.v3-kpi .leg-dot.dot-danger { background: #DC2626; }
+.v3-kpi .leg-dot.dot-breach { background: #DC2626; }
+.v3-kpi .leg-sep {
+  color: #CBD5E1;
+  margin: 0 1px;
+}
+
+/* Backward compatible chips support */
 .v3-kpi .k-mid-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
-  margin-top: 10px;
-  min-height: 26px;
+  margin-top: 6px;
+  min-height: 24px;
   align-items: center;
 }
 .v3-kpi .k-chip {
@@ -752,87 +961,12 @@ body.enterprise-theme.app-v3 {
   border: 1px solid #E2E8F0;
   line-height: 1.25;
 }
-.v3-kpi .k-chip.chip-req {
-  background: #EFF6FF;
-  color: #1D4ED8;
-  border-color: #BFDBFE;
-}
-.v3-kpi .k-chip.chip-inc {
-  background: #FEF3C7;
-  color: #B45309;
-  border-color: #FDE68A;
-}
-.v3-kpi .k-chip.chip-gc1 {
-  background: #ECFDF5;
-  color: #047857;
-  border-color: #A7F3D0;
-}
-.v3-kpi .k-chip.chip-telkom {
-  background: #F8FAFC;
-  color: #64748B;
-  border-color: #CBD5E1;
-}
-.v3-kpi .k-chip.chip-priority {
-  background: #FEF2F2;
-  color: #DC2626;
-  border-color: #FECACA;
-}
-.v3-kpi .k-chip.chip-speed {
-  background: #EFF6FF;
-  color: #2563EB;
-  border-color: #BFDBFE;
-}
-.v3-kpi .k-chip.chip-pending {
-  background: #FFFBEB;
-  color: #D97706;
-  border-color: #FDE68A;
-}
-.v3-kpi .k-chip.chip-doc {
-  background: #F8FAFC;
-  color: #475569;
-  border-color: #E2E8F0;
-}
-.v3-kpi .k-chip.chip-progress {
-  background: #F5F3FF;
-  color: #7C3AED;
-  border-color: #DDD6FE;
-}
-.v3-kpi .k-chip.chip-tech {
-  background: #EFF6FF;
-  color: #1D4ED8;
-  border-color: #BFDBFE;
-}
-.v3-kpi .k-chip.chip-onhold {
-  background: #FFFBEB;
-  color: #B45309;
-  border-color: #FDE68A;
-}
-.v3-kpi .k-chip.chip-vendor {
-  background: #F8FAFC;
-  color: #64748B;
-  border-color: #CBD5E1;
-}
-.v3-kpi .k-chip.chip-ok {
-  background: #ECFDF5;
-  color: #047857;
-  border-color: #A7F3D0;
-}
-.v3-kpi .k-chip.chip-danger {
-  background: #FEF2F2;
-  color: #DC2626;
-  border-color: #FECACA;
-}
-.v3-kpi .k-chip.chip-breach {
-  background: #FEF2F2;
-  color: #B91C1C;
-  border-color: #FECACA;
-}
 
-/* Card Footer: Status note on left + Circular Action Arrow on right */
+/* ---------- Card Footer: Status Note on left + Subtle Slate Arrow on right ---------- */
 .v3-kpi .k-footer {
   border-top: 1px solid #F1F5F9;
-  padding-top: 12px;
-  margin-top: 12px;
+  padding-top: 10px;
+  margin-top: 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -845,26 +979,85 @@ body.enterprise-theme.app-v3 {
   line-height: 1.3;
 }
 .v3-kpi .k-action-btn {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  border-radius: 50%;
-  background: #00C853;
-  color: #FFFFFF;
-  border: 1px solid #00B048;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
-  font-weight: 800;
-  box-shadow: 0 2px 6px rgba(0, 200, 83, 0.25);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: #94A3B8;
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
-.v3-kpi.link:hover .k-action-btn {
-  background: #00E676;
-  border-color: #00E676;
-  transform: scale(1.12);
-  box-shadow: 0 4px 12px rgba(0, 200, 83, 0.4);
+.v3-kpi:hover .k-action-btn {
+  color: #2563EB;
+  transform: translateX(2px);
+}
+.v3-kpi .k-action-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ==========================================================================
+   ASSIGNED TOAST NOTIFICATION (ENTERPRISE TOAST)
+   ========================================================================== */
+.assigned-toast-alert {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 99999;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #FFFFFF;
+  border: 1.5px solid #F59E0B;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px -5px rgba(245, 158, 11, 0.3), 0 4px 12px rgba(0, 0, 0, 0.08);
+  max-width: 380px;
+  animation: toast-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes toast-slide-in {
+  from { transform: translateX(110%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.assigned-toast-alert.toast-fade-out {
+  animation: toast-fade-out 0.3s forwards ease-in;
+}
+@keyframes toast-fade-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-10px); }
+}
+.assigned-toast-icon {
+  font-size: 24px;
+  line-height: 1;
+  animation: icon-assigned-breathe 1.5s infinite;
+}
+.assigned-toast-title {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #B45309;
+  margin-bottom: 2px;
+}
+.assigned-toast-text {
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.35;
+}
+.assigned-toast-close {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  color: #94A3B8;
+  cursor: pointer;
+  padding: 0 0 0 6px;
+  line-height: 1;
+}
+.assigned-toast-close:hover {
+  color: #0F172A;
 }
 
 /* ---------- TIER 2: 2 SYMMETRICAL ANALYTICS CARDS (Aivora Style) ---------- */

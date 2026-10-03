@@ -290,6 +290,45 @@ function playAlertSound() {
   }
 }
 
+function showAssignedTicketToast(total, newlyArrived) {
+  const existing = document.getElementById("assignedToastNotification");
+  if (existing) existing.remove();
+
+  const toast = document.createElement("div");
+  toast.id = "assignedToastNotification";
+  toast.className = "assigned-toast-alert";
+  toast.setAttribute("role", "alert");
+  toast.innerHTML = `
+    <div class="assigned-toast-icon">🚨</div>
+    <div class="assigned-toast-body">
+      <div class="assigned-toast-title">Tiket Baru Ditugaskan (${newlyArrived} Baru)</div>
+      <div class="assigned-toast-text">Terdapat <b>${total}</b> tiket di antrean Assigned yang siap dieksekusi teknis tim GC 1.</div>
+    </div>
+    <button class="assigned-toast-close" title="Tutup notifikasi" onclick="this.parentElement.remove()">&times;</button>
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    if (toast.parentElement) {
+      toast.classList.add("toast-fade-out");
+      setTimeout(() => toast.remove(), 400);
+    }
+  }, 6500);
+}
+window.showAssignedTicketToast = showAssignedTicketToast;
+
+function setupAudioUnlock() {
+  const unlock = () => {
+    if (alertAudio) {
+      alertAudio.load();
+    }
+    document.removeEventListener("click", unlock);
+    document.removeEventListener("keydown", unlock);
+  };
+  document.addEventListener("click", unlock, { once: true });
+  document.addEventListener("keydown", unlock, { once: true });
+}
+setupAudioUnlock();
+
 // ----------------------------------------------------
 // DIGITAL CLOCK & CALENDAR (ENTERPRISE)
 // ----------------------------------------------------
@@ -582,6 +621,9 @@ async function fetchHelpdeskSnapshot() {
     // Check if new Assigned ticket arrived -> chime alarm!
     if (lastKnownAssignedCount !== -1 && currentAssigned > lastKnownAssignedCount) {
       playAlertSound();
+      if (typeof window.showAssignedTicketToast === "function") {
+        window.showAssignedTicketToast(currentAssigned, currentAssigned - lastKnownAssignedCount);
+      }
     }
     lastKnownAssignedCount = currentAssigned;
 

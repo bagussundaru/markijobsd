@@ -19,20 +19,20 @@
     </div>
     <nav class="sb-nav">
       <div class="sb-label">MONITORING</div>
-      <button class="sb-item active" data-view="overview" title="Ringkasan: ITSM dan WhatsApp dalam satu tampilan"><span class="ic">📊</span><span class="tx">Ringkasan</span></button>
+      <button class="sb-item active" data-view="overview" title="Ringkasan: ITSM dan WhatsApp dalam satu tampilan"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg></span><span class="tx">Ringkasan</span></button>
       <div class="sb-group open" id="sbMonitor">
-        <button class="sb-item" id="sbMonitorToggle" title="Monitoring per sumber" aria-expanded="true"><span class="ic">🧭</span><span class="tx">Monitoring per sumber</span><span class="chev">&#9654;</span></button>
+        <button class="sb-item" id="sbMonitorToggle" title="Monitoring per sumber" aria-expanded="true"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg></span><span class="tx">Monitoring per sumber</span><span class="chev">&#9654;</span></button>
         <div class="sb-sub">
           <div id="sbItsmItems"></div>
-          <button class="sb-item" data-view="wa" title="Pra-tiket: aduan dari WhatsApp sebelum ada tiket di ITSM"><span class="ic">💬</span><span class="tx">Pra-tiket WhatsApp</span><span class="sb-pill" id="sbPillWa">0</span></button>
+          <button class="sb-item" data-view="wa" title="Pra-tiket: aduan dari WhatsApp sebelum ada tiket di ITSM"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg></span><span class="tx">Pra-tiket WhatsApp</span><span class="sb-pill" id="sbPillWa">0</span></button>
         </div>
       </div>
       <div class="sb-label" data-operator-only="1">INPUT</div>
-      <button class="sb-item" data-view="quick" data-operator-only="1" title="Input cepat aduan WhatsApp dengan NLP"><span class="ic">⚡</span><span class="tx">Input Cepat (NLP)</span></button>
-      <button class="sb-item" data-view="manual" data-operator-only="1" title="Rekam tiket ITSM terlewat & data historis"><span class="ic">📝</span><span class="tx">Rekam Tiket Manual</span></button>
+      <button class="sb-item" data-view="quick" data-operator-only="1" title="Input cepat aduan WhatsApp dengan NLP"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></span><span class="tx">Input Cepat (NLP)</span></button>
+      <button class="sb-item" data-view="manual" data-operator-only="1" title="Rekam tiket ITSM terlewat & data historis"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg></span><span class="tx">Rekam Tiket Manual</span></button>
       <div class="sb-label">LAPORAN DAN DATA</div>
-      <button class="sb-item" id="btnReports" title="Laporan harian, mingguan, bulanan"><span class="ic">📑</span><span class="tx">Laporan</span></button>
-      <button class="sb-item" id="btnPic" data-operator-only="1" title="Daftar PIC dan verifikasi nomor"><span class="ic">📇</span><span class="tx">Daftar PIC</span></button>
+      <button class="sb-item" id="btnReports" title="Laporan harian, mingguan, bulanan"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg></span><span class="tx">Laporan</span></button>
+      <button class="sb-item" id="btnPic" data-operator-only="1" title="Daftar PIC dan verifikasi nomor"><span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></span><span class="tx">Daftar PIC</span></button>
     </nav>
     <div class="sb-foot">
       <div class="sb-profile-card">
