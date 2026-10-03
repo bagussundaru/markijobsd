@@ -30,6 +30,18 @@ let state = {
   filterStatus: "all",
   filterServiceType: "all",
   filterScope: "team",
+  sortColumn: "ticketId",
+  sortDirection: "asc",
+  columnFilters: {
+    ticketId: "",
+    shortDesc: "",
+    requester: "",
+    status: "all",
+    milestone: "",
+    sla: "all",
+    serviceType: "all"
+  },
+  showColumnFilters: true,
   settings: {
     targetContact: "mimi Sandora",
     keywords: [
@@ -847,6 +859,49 @@ function renderActiveTab() {
     });
   }
 
+  // Apply Interactive Column Filters (Per-column Filter Row)
+  if (state.columnFilters) {
+    const cf = state.columnFilters;
+    if (cf.ticketId) {
+      const q = cf.ticketId.toLowerCase().trim();
+      list = list.filter((t) => (t.ticketId || "").toLowerCase().includes(q));
+    }
+    if (cf.shortDesc) {
+      const q = cf.shortDesc.toLowerCase().trim();
+      list = list.filter((t) => (t.shortDesc || "").toLowerCase().includes(q));
+    }
+    if (cf.requester) {
+      const q = cf.requester.toLowerCase().trim();
+      list = list.filter((t) => `${t.requestedFor || ""} ${t.location || ""}`.toLowerCase().includes(q));
+    }
+    if (cf.status && cf.status !== "all") {
+      const q = cf.status.toLowerCase().trim();
+      list = list.filter((t) => (t.requestState || "").toLowerCase().includes(q));
+    }
+    if (cf.milestone) {
+      const q = cf.milestone.toLowerCase().trim();
+      list = list.filter((t) => `${t.activityMilestone || ""} ${t.resolverLayer || ""}`.toLowerCase().includes(q));
+    }
+    if (cf.sla && cf.sla !== "all") {
+      if (cf.sla === "breached") {
+        list = list.filter((t) => (t.slaBadgeClass || "").includes("breach") || (t.slaStatusText || "").toLowerCase().includes("lewat") || (t.slaPercentRemaining !== undefined && t.slaPercentRemaining <= 0));
+      } else if (cf.sla === "warning") {
+        list = list.filter((t) => (t.slaBadgeClass || "").includes("warning") || (t.slaPercentRemaining !== undefined && t.slaPercentRemaining < 50 && t.slaPercentRemaining > 0));
+      } else if (cf.sla === "safe") {
+        list = list.filter((t) => (t.slaBadgeClass || "").includes("safe") || (t.slaPercentRemaining !== undefined && t.slaPercentRemaining >= 50));
+      }
+    }
+    if (cf.serviceType && cf.serviceType !== "all") {
+      const isReq = cf.serviceType === "Request";
+      list = list.filter((t) => {
+        const raw = String(t.serviceType || t.ticketType || "");
+        const tid = (t.ticketId || "").toUpperCase();
+        const isInc = raw.toLowerCase().includes("insiden") || raw.toLowerCase().includes("incident") || tid.startsWith("INC");
+        return isReq ? !isInc : isInc;
+      });
+    }
+  }
+
   // Strict Primary Key Deduplication
   const uniqueTicketsMap = new Map();
   for (const t of list) {
@@ -856,6 +911,85 @@ function renderActiveTab() {
     }
   }
   list = Array.from(uniqueTicketsMap.values());
+
+  // Apply Interactive Column Sorting (Ascending / Descending)
+  if (state.sortColumn) {
+    const col = state.sortColumn;
+    const dir = state.sortDirection === "desc" ? -1 : 1;
+
+    list.sort((a, b) => {
+      if (col === "ticketId") {
+        const va = (a.ticketId || "").replace(/📋/g, "").trim();
+        const vb = (b.ticketId || "").replace(/📋/g, "").trim();
+        return va.localeCompare(vb, undefined, { numeric: true, sensitivity: "base" }) * dir;
+      }
+      if (col === "shortDesc") {
+        const va = (a.shortDesc || "").trim();
+        const vb = (b.shortDesc || "").trim();
+        return va.localeCompare(vb, undefined, { sensitivity: "base" }) * dir;
+      }
+      if (col === "requester") {
+        const va = `${a.requestedFor || ""} ${a.location || ""}`.trim();
+        const vb = `${b.requestedFor || ""} ${b.location || ""}`.trim();
+        return va.localeCompare(vb, undefined, { sensitivity: "base" }) * dir;
+      }
+      if (col === "status") {
+        const va = `${a.requestState || ""} ${a.picName || ""}`.trim();
+        const vb = `${b.requestState || ""} ${b.picName || ""}`.trim();
+        return va.localeCompare(vb, undefined, { sensitivity: "base" }) * dir;
+      }
+      if (col === "milestone") {
+        const va = `${a.activityMilestone || ""} ${a.resolverLayer || ""}`.trim();
+        const vb = `${b.activityMilestone || ""} ${b.resolverLayer || ""}`.trim();
+        return va.localeCompare(vb, undefined, { sensitivity: "base" }) * dir;
+      }
+      if (col === "sla") {
+        const sa = a.slaPercentRemaining ?? 100;
+        const sb = b.slaPercentRemaining ?? 100;
+        if (sa !== sb) return (sa - sb) * dir;
+        return (a.slaStatusText || "").localeCompare(b.slaStatusText || "") * dir;
+      }
+      if (col === "serviceType") {
+        const getSt = (t) => {
+          const raw = String(t.serviceType || t.ticketType || "");
+          const tid = (t.ticketId || "").toUpperCase();
+          return (raw.toLowerCase().includes("insiden") || raw.toLowerCase().includes("incident") || tid.startsWith("INC")) ? "Insiden" : "Request";
+        };
+        return getSt(a).localeCompare(getSt(b)) * dir;
+      }
+      return 0;
+    });
+  }
+
+  // Update Sort Header Icons in UI
+  const sortCols = ["ticketId", "shortDesc", "requester", "status", "milestone", "sla", "serviceType"];
+  for (const c of sortCols) {
+    const iconEl = document.getElementById(`sortIcon_${c}`);
+    const thEl = document.querySelector(`.sortable-th[data-sort="${c}"]`);
+    if (iconEl && thEl) {
+      if (state.sortColumn === c) {
+        iconEl.textContent = state.sortDirection === "asc" ? "▲" : "▼";
+        iconEl.className = "sort-icon active";
+        thEl.classList.add("sort-active");
+      } else {
+        iconEl.textContent = "⇅";
+        iconEl.className = "sort-icon neutral";
+        thEl.classList.remove("sort-active");
+      }
+    }
+  }
+
+  // Update Active Column Filter Count
+  const countBadge = document.getElementById("filterActiveCount");
+  if (countBadge && state.columnFilters) {
+    const activeCount = Object.values(state.columnFilters).filter((v) => Boolean(v && v !== "all")).length;
+    if (activeCount > 0) {
+      countBadge.textContent = activeCount;
+      countBadge.style.display = "inline-block";
+    } else {
+      countBadge.style.display = "none";
+    }
+  }
 
   if (feedCountBadge) {
     if (currentScope === "team") {
@@ -1269,6 +1403,7 @@ clearAllBtn?.addEventListener("click", () => {
   state.filterStatus = "all";
   state.filterServiceType = "all";
   state.filterScope = "team";
+  resetColumnFilters();
   renderActiveTab();
 });
 
@@ -2212,3 +2347,107 @@ window.__mwShowReplies = function (items) {
   if (!mwReplies) return;
   mwReplies.innerHTML = items.map((it) => `<button data-copytext="${escapeHtml(waReplyFor(it.identity))}" title="Salin balasan lalu kirim manual di WhatsApp">💬 Salin balasan: ${escapeHtml(it.label)}</button>`).join("");
 };
+
+// ----------------------------------------------------
+// COLUMN SORT & FILTER EVENT LISTENERS (Semua Tiket Lingkup GC 1 & Submenu ITSM)
+// ----------------------------------------------------
+function setupColumnSortAndFilterListeners() {
+  // Sort Header Click Handlers
+  document.querySelectorAll(".sortable-th").forEach((th) => {
+    th.addEventListener("click", () => {
+      const col = th.dataset.sort;
+      if (!col) return;
+      if (state.sortColumn === col) {
+        state.sortDirection = state.sortDirection === "asc" ? "desc" : "asc";
+      } else {
+        state.sortColumn = col;
+        state.sortDirection = "asc";
+      }
+      renderActiveTab();
+    });
+  });
+
+  // Column Filter Input & Select Handlers
+  const bindInput = (id, key) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("input", (e) => {
+      if (!state.columnFilters) state.columnFilters = {};
+      state.columnFilters[key] = e.target.value;
+      renderActiveTab();
+    });
+  };
+
+  const bindSelect = (id, key) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("change", (e) => {
+      if (!state.columnFilters) state.columnFilters = {};
+      state.columnFilters[key] = e.target.value;
+      renderActiveTab();
+    });
+  };
+
+  bindInput("colFilter_ticketId", "ticketId");
+  bindInput("colFilter_shortDesc", "shortDesc");
+  bindInput("colFilter_requester", "requester");
+  bindSelect("colFilter_status", "status");
+  bindInput("colFilter_milestone", "milestone");
+  bindSelect("colFilter_sla", "sla");
+  bindSelect("colFilter_serviceType", "serviceType");
+
+  // Reset Column Filters Button
+  const btnReset = document.getElementById("btnResetColFilters");
+  if (btnReset) {
+    btnReset.addEventListener("click", (e) => {
+      e.stopPropagation();
+      resetColumnFilters();
+      renderActiveTab();
+    });
+  }
+
+  // Toggle Column Filter Row
+  const btnToggle = document.getElementById("btnToggleColFilter");
+  const filterRow = document.getElementById("tableColFilterRow");
+  if (btnToggle && filterRow) {
+    btnToggle.addEventListener("click", () => {
+      const isCollapsed = filterRow.classList.toggle("collapsed");
+      const activeCount = getActiveFilterCount();
+      const style = activeCount > 0 ? "display:inline-block;" : "display:none;";
+      btnToggle.innerHTML = isCollapsed
+        ? `<span>🔽 Filter Kolom</span><span class="filter-active-count" id="filterActiveCount" style="${style}">${activeCount}</span>`
+        : `<span>🔼 Sembunyikan Filter</span><span class="filter-active-count" id="filterActiveCount" style="${style}">${activeCount}</span>`;
+    });
+  }
+}
+
+function resetColumnFilters() {
+  state.columnFilters = {
+    ticketId: "",
+    shortDesc: "",
+    requester: "",
+    status: "all",
+    milestone: "",
+    sla: "all",
+    serviceType: "all"
+  };
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.value = val;
+  };
+  setVal("colFilter_ticketId", "");
+  setVal("colFilter_shortDesc", "");
+  setVal("colFilter_requester", "");
+  setVal("colFilter_status", "all");
+  setVal("colFilter_milestone", "");
+  setVal("colFilter_sla", "all");
+  setVal("colFilter_serviceType", "all");
+}
+
+function getActiveFilterCount() {
+  if (!state.columnFilters) return 0;
+  return Object.values(state.columnFilters).filter((v) => Boolean(v && v !== "all")).length;
+}
+
+setupColumnSortAndFilterListeners();
+

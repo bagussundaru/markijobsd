@@ -592,6 +592,10 @@
           <button id="btnQuickWaRecap" class="btn btn-sm btn-quick-recap" style="display:none;">
             📲 Kirim Rekap Kategori Ini ke WA
           </button>
+          <button id="btnToggleColFilter" class="btn btn-sm btn-enterprise" title="Tampilkan / Sembunyikan baris filter kolom" style="display:inline-flex;align-items:center;gap:5px;">
+            <span>🔽 Filter Kolom</span>
+            <span class="filter-active-count" id="filterActiveCount" style="display:none;">0</span>
+          </button>
           <span class="feed-count-badge enterprise-badge-counter" id="feedCountBadge">Menampilkan 0 data</span>
         </div>
       </div>
@@ -600,15 +604,93 @@
       <div class="table-responsive enterprise-table-wrap" id="tableWrapper">
         <table class="sentinel-table enterprise-data-table" id="sentinelTable">
           <thead>
-            <tr>
-              <th style="width: 195px; min-width: 190px;">Nomor Tiket</th>
-              <th style="min-width: 250px;">Deskripsi / Uraian Permohonan</th>
-              <th style="width: 190px; min-width: 180px;">Pemohon &amp; Instansi</th>
-              <th style="width: 215px; min-width: 200px;">Status &amp; PIC Pelaksana</th>
-              <th style="min-width: 230px;">Aktivitas Terkini (Sampai di Mana)</th>
-              <th style="width: 135px; min-width: 125px; text-align: center;">Sisa SLA</th>
-              <th style="width: 135px; min-width: 125px; text-align: center;">Jenis Layanan</th>
-              <th style="width: 155px; min-width: 150px; text-align: center;">Tindakan</th>
+            <tr class="table-header-row">
+              <th data-sort="ticketId" class="sortable-th" style="width: 175px; min-width: 165px;" title="Klik untuk mengurutkan Nomor Tiket (Asc / Desc)">
+                <div class="th-content">
+                  <span>Nomor Tiket</span>
+                  <span class="sort-icon neutral" id="sortIcon_ticketId">⇅</span>
+                </div>
+              </th>
+              <th data-sort="shortDesc" class="sortable-th" style="min-width: 250px;" title="Klik untuk mengurutkan Deskripsi (Asc / Desc)">
+                <div class="th-content">
+                  <span>Deskripsi / Uraian Permohonan</span>
+                  <span class="sort-icon neutral" id="sortIcon_shortDesc">⇅</span>
+                </div>
+              </th>
+              <th data-sort="requester" class="sortable-th" style="width: 195px; min-width: 180px;" title="Klik untuk mengurutkan Pemohon & Instansi (Asc / Desc)">
+                <div class="th-content">
+                  <span>Pemohon &amp; Instansi</span>
+                  <span class="sort-icon neutral" id="sortIcon_requester">⇅</span>
+                </div>
+              </th>
+              <th data-sort="status" class="sortable-th" style="width: 215px; min-width: 200px;" title="Klik untuk mengurutkan Status & PIC (Asc / Desc)">
+                <div class="th-content">
+                  <span>Status &amp; PIC Pelaksana</span>
+                  <span class="sort-icon neutral" id="sortIcon_status">⇅</span>
+                </div>
+              </th>
+              <th data-sort="milestone" class="sortable-th" style="min-width: 210px;" title="Klik untuk mengurutkan Aktivitas / Resolver (Asc / Desc)">
+                <div class="th-content">
+                  <span>Aktivitas Terkini (Sampai di Mana)</span>
+                  <span class="sort-icon neutral" id="sortIcon_milestone">⇅</span>
+                </div>
+              </th>
+              <th data-sort="sla" class="sortable-th" style="width: 140px; min-width: 130px; text-align: center;" title="Klik untuk mengurutkan Sisa SLA (Asc / Desc)">
+                <div class="th-content" style="justify-content: center;">
+                  <span>Sisa SLA</span>
+                  <span class="sort-icon neutral" id="sortIcon_sla">⇅</span>
+                </div>
+              </th>
+              <th data-sort="serviceType" class="sortable-th" style="width: 135px; min-width: 125px; text-align: center;" title="Klik untuk mengurutkan Jenis Layanan (Asc / Desc)">
+                <div class="th-content" style="justify-content: center;">
+                  <span>Jenis Layanan</span>
+                  <span class="sort-icon neutral" id="sortIcon_serviceType">⇅</span>
+                </div>
+              </th>
+              <th style="width: 140px; min-width: 130px; text-align: center;">Tindakan</th>
+            </tr>
+            <tr class="table-col-filter-row" id="tableColFilterRow">
+              <th class="th-filter-cell">
+                <input type="text" id="colFilter_ticketId" class="col-filter-input" placeholder="🔍 ID..." title="Filter nomor tiket (misal REQ, INC)">
+              </th>
+              <th class="th-filter-cell">
+                <input type="text" id="colFilter_shortDesc" class="col-filter-input" placeholder="🔍 Cari deskripsi..." title="Filter uraian masalah / permohonan">
+              </th>
+              <th class="th-filter-cell">
+                <input type="text" id="colFilter_requester" class="col-filter-input" placeholder="🔍 Pemohon / K/L..." title="Filter nama pemohon atau instansi">
+              </th>
+              <th class="th-filter-cell">
+                <select id="colFilter_status" class="col-filter-select" title="Filter status tiket">
+                  <option value="all">Semua Status</option>
+                  <option value="assigned">Assigned</option>
+                  <option value="pending">Pending Approval</option>
+                  <option value="progress">In Progress</option>
+                  <option value="hold">On-Hold</option>
+                </select>
+              </th>
+              <th class="th-filter-cell">
+                <input type="text" id="colFilter_milestone" class="col-filter-input" placeholder="🔍 Aktivitas / resolver..." title="Filter milestone atau layer teknisi">
+              </th>
+              <th class="th-filter-cell" style="text-align: center;">
+                <select id="colFilter_sla" class="col-filter-select" title="Filter kepatuhan SLA">
+                  <option value="all">Semua SLA</option>
+                  <option value="safe">✓ Aman</option>
+                  <option value="warning">⚠️ Waspada</option>
+                  <option value="breached">⛔ Lewat SLA</option>
+                </select>
+              </th>
+              <th class="th-filter-cell" style="text-align: center;">
+                <select id="colFilter_serviceType" class="col-filter-select" title="Filter Request vs Insiden">
+                  <option value="all">Semua</option>
+                  <option value="Request">📋 Request</option>
+                  <option value="Insiden">⚡ Insiden</option>
+                </select>
+              </th>
+              <th class="th-filter-cell" style="text-align: center;">
+                <button id="btnResetColFilters" class="btn-reset-col-filters" title="Bersihkan semua filter kolom">
+                  <span>🔄 Reset</span>
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody id="sentinelTableBody">
