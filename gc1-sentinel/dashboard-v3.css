@@ -618,8 +618,20 @@ body.enterprise-theme.app-v3 {
 }
 
 .v3-kpi.is-assigned-active .k-val {
-  color: #D97706 !important;
-  text-shadow: 0 0 14px rgba(245, 158, 11, 0.25);
+  color: #EA580C !important;
+  text-shadow: 0 0 18px rgba(234, 88, 12, 0.45);
+  animation: val-assigned-pulse 2s infinite ease-in-out;
+}
+
+@keyframes val-assigned-pulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 4px rgba(234, 88, 12, 0.3));
+  }
+  50% {
+    transform: scale(1.05);
+    filter: drop-shadow(0 0 16px rgba(234, 88, 12, 0.65));
+  }
 }
 
 .v3-kpi.is-assigned-active .k-icon-box {
@@ -672,10 +684,10 @@ body.enterprise-theme.app-v3 {
 /* ---------- Card Header: Title Column + Icon Box ---------- */
 .v3-kpi .k-top {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 .v3-kpi .k-title-col {
   display: flex;
@@ -683,27 +695,16 @@ body.enterprise-theme.app-v3 {
   min-width: 0;
 }
 .v3-kpi .k-category {
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
   color: #94A3B8;
-  margin-bottom: 2px;
-}
-.v3-kpi .k-label {
-  font-size: 13px;
-  font-weight: 700;
-  color: #1E293B;
-  letter-spacing: -0.15px;
-  line-height: 1.22;
-  min-height: 32px;
-  display: flex;
-  align-items: center;
 }
 .v3-kpi .k-icon-box {
   flex: none;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border-radius: 10px;
   display: flex;
   align-items: center;
@@ -714,8 +715,8 @@ body.enterprise-theme.app-v3 {
   transform: scale(1.06);
 }
 .v3-kpi .k-icon-box svg {
-  width: 19px;
-  height: 19px;
+  width: 18px;
+  height: 18px;
 }
 
 /* Icon Box Pastel Themes */
@@ -744,7 +745,8 @@ body.enterprise-theme.app-v3 {
   color: #64748B;
   border: 1px solid #E2E8F0;
 }
-.v3-kpi .k-icon-box.badge-ok {
+.v3-kpi .k-icon-box.badge-ok,
+.v3-kpi .k-icon-box.badge-calm {
   background: #ECFDF5;
   color: #047857;
   border: 1px solid #A7F3D0;
@@ -760,40 +762,109 @@ body.enterprise-theme.app-v3 {
   border: 1px solid #A7F3D0;
 }
 
-/* ---------- Card Main: Value + Status Badge Pill ---------- */
-.v3-kpi .k-main {
+/* ---------- Card Hero Center: Title Above + Big Centered Number + Pill + Sub ---------- */
+.v3-kpi .k-hero-center {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin: 2px 0 10px;
+  flex: 1;
+  justify-content: center;
 }
-.v3-kpi .k-val-row {
+
+.v3-kpi .k-label {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #334155;
+  letter-spacing: -0.2px;
+  line-height: 1.25;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  width: 100%;
+}
+
+.v3-kpi .k-val-center {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 2px;
+  justify-content: center;
+  gap: 3px;
+  margin: 4px 0 6px;
+  text-align: center;
+  width: 100%;
 }
-.v3-kpi .k-val-group {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-}
+
 .v3-kpi .k-val {
-  font-size: 32px;
-  font-weight: 800;
+  font-size: 46px;
+  font-weight: 850;
   line-height: 1;
   color: #0F172A;
-  letter-spacing: -0.6px;
+  letter-spacing: -1.2px;
+  display: inline-block;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s ease;
 }
+
 .v3-kpi .k-unit {
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
   color: #64748B;
+  margin-left: 3px;
+}
+
+/* Distinct Prominent Colors per Card Status */
+.v3-kpi .val-total .k-val,
+.v3-kpi.itsm .val-total .k-val {
+  color: #2563EB;
+}
+.v3-kpi .val-assigned .k-val {
+  color: #059669;
+}
+.v3-kpi .val-assigned-active .k-val,
+.v3-kpi .val-assigned.active .k-val {
+  color: #EA580C;
+  text-shadow: 0 0 18px rgba(234, 88, 12, 0.35);
+}
+.v3-kpi .val-pending .k-val,
+.v3-kpi.warn .val-pending .k-val {
+  color: #D97706;
+}
+.v3-kpi .val-progress .k-val,
+.v3-kpi.violet .val-progress .k-val {
+  color: #7C3AED;
+}
+.v3-kpi .val-onhold .k-val,
+.v3-kpi.hold .val-onhold .k-val {
+  color: #475569;
+}
+.v3-kpi .val-ok .k-val,
+.v3-kpi.ok .val-ok .k-val {
+  color: #059669;
+}
+.v3-kpi .val-danger .k-val,
+.v3-kpi.danger .val-danger .k-val {
+  color: #DC2626;
+}
+.v3-kpi .val-wa .k-val,
+.v3-kpi.wa .val-wa .k-val {
+  color: #059669;
+}
+
+.v3-kpi .k-badge-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2px 0 6px;
+  min-height: 24px;
+  width: 100%;
 }
 
 .v3-kpi .k-pill {
   font-size: 11px;
   font-weight: 700;
-  padding: 2.5px 8px;
+  padding: 2.5px 9px;
   border-radius: 999px;
   letter-spacing: 0.1px;
   display: inline-flex;
@@ -857,7 +928,30 @@ body.enterprise-theme.app-v3 {
   font-weight: 500;
   line-height: 1.35;
   min-height: 30px;
-  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  margin-bottom: 6px;
+  width: 100%;
+}
+
+/* Backward compatibility for any legacy row-based layout */
+.v3-kpi .k-main {
+  display: flex;
+  flex-direction: column;
+}
+.v3-kpi .k-val-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.v3-kpi .k-val-group {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
 }
 
 /* ---------- Card Visual Body: Segmented Progress Bar & Micro-Legends ---------- */

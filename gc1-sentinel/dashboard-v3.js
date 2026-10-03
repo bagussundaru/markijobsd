@@ -202,6 +202,7 @@
 
     const {
       cls = "",
+      valColorCls = "",
       category = "",
       label: cardLabel = "",
       val: cardVal = 0,
@@ -216,26 +217,43 @@
       isAssignedActive = false
     } = opts;
 
+    let effValColor = valColorCls;
+    if (!effValColor) {
+      if (isAssignedActive) effValColor = "val-assigned-active";
+      else if (cardBadgeCls === "badge-total") effValColor = "val-total";
+      else if (cardBadgeCls === "badge-calm" || cardBadgeCls === "badge-assigned") effValColor = "val-assigned";
+      else if (cardBadgeCls === "badge-pending") effValColor = "val-pending";
+      else if (cardBadgeCls === "badge-progress") effValColor = "val-progress";
+      else if (cardBadgeCls === "badge-onhold") effValColor = "val-onhold";
+      else if (cardBadgeCls === "badge-ok") effValColor = "val-ok";
+      else if (cardBadgeCls === "badge-danger") effValColor = "val-danger";
+      else if (cardBadgeCls === "badge-wa") effValColor = "val-wa";
+      else if (cls === "itsm") effValColor = "val-total";
+      else if (cls === "warn") effValColor = "val-pending";
+      else if (cls === "violet") effValColor = "val-progress";
+      else if (cls === "hold") effValColor = "val-onhold";
+      else if (cls === "ok") effValColor = "val-ok";
+      else if (cls === "danger") effValColor = "val-danger";
+      else if (cls === "wa") effValColor = "val-wa";
+      else effValColor = "val-total";
+    }
+
     const activeCls = isAssignedActive ? " is-assigned-active" : "";
     const goAttr = cardGo ? ` data-go="${esc(cardGo)}"` : "";
     const linkCls = cardGo ? " link" : "";
 
     return `<div class="v3-kpi ${cls}${linkCls}${activeCls}"${goAttr}>
       <div class="k-top">
-        <div class="k-title-col">
-          ${category ? `<span class="k-category">${esc(category)}</span>` : ""}
-          <div class="k-label">${esc(cardLabel)}</div>
-        </div>
+        <span class="k-category">${esc(category || "METRIK")}</span>
         <div class="k-icon-box ${cardBadgeCls || ""}">${iconSvg}</div>
       </div>
-      <div class="k-main">
-        <div class="k-val-row">
-          <div class="k-val-group">
-            <span class="k-val">${esc(cardVal)}</span>
-            ${cardUnit ? `<span class="k-unit">${esc(cardUnit)}</span>` : ""}
-          </div>
-          ${cardBadgeText ? `<span class="k-pill ${cardBadgeCls || ""}">${cardBadgeText}</span>` : ""}
+      <div class="k-hero-center">
+        <div class="k-label">${esc(cardLabel)}</div>
+        <div class="k-val-center ${effValColor}">
+          <span class="k-val">${esc(cardVal)}</span>
+          ${cardUnit ? `<span class="k-unit">${esc(cardUnit)}</span>` : ""}
         </div>
+        ${cardBadgeText ? `<div class="k-badge-wrap"><span class="k-pill ${cardBadgeCls || ""}">${cardBadgeText}</span></div>` : `<div class="k-badge-wrap"></div>`}
         <div class="k-sub">${esc(cardSub || "")}</div>
       </div>
       <div class="k-visual-body">
@@ -414,6 +432,7 @@
     $("itsmKpis").innerHTML =
       kpi({
         cls: "itsm",
+        valColorCls: "val-total",
         category: totalCat,
         label: totalLabel,
         val: k.itsm.length,
@@ -428,6 +447,7 @@
       }) +
       kpi({
         cls: "itsm",
+        valColorCls: isAssignedActive ? "val-assigned-active" : "val-assigned",
         category: "TIM GC 1",
         label: "Assigned (Siap Ditangani)",
         val: k.assigned,
@@ -443,6 +463,7 @@
       }) +
       kpi({
         cls: "warn",
+        valColorCls: "val-pending",
         category: "VERIFIKASI",
         label: "Pending Approval",
         val: k.pending,
@@ -458,6 +479,7 @@
       }) +
       kpi({
         cls: "violet",
+        valColorCls: "val-progress",
         category: "PENGERJAAN TEKNIS",
         label: "Sedang Dikerjakan",
         val: k.progress,
@@ -473,6 +495,7 @@
       }) +
       kpi({
         cls: "hold",
+        valColorCls: "val-onhold",
         category: "DEPENDENSI",
         label: "On Hold (Tertunda)",
         val: k.on_hold,
@@ -488,6 +511,7 @@
       }) +
       kpi({
         cls: h >= 95 ? "ok" : h >= 80 ? "warn" : "danger",
+        valColorCls: h >= 95 ? "val-ok" : "val-danger",
         category: "STANDAR KAK 18.c",
         label: "Kepatuhan SLA (KAK 18.c)",
         val: h,
@@ -609,6 +633,7 @@
     $("ovKpis").innerHTML =
       kpi({
         cls: "itsm",
+        valColorCls: "val-total",
         category: "PORTAL ITSM",
         label: "Total Tiket ITSM",
         val: itsmTotal,
@@ -623,6 +648,7 @@
       }) +
       kpi({
         cls: "itsm",
+        valColorCls: isAssignedActive ? "val-assigned-active" : "val-assigned",
         category: "TIM GC 1",
         label: "Assigned (Siap Ditangani)",
         val: assignedCount,
@@ -638,6 +664,7 @@
       }) +
       kpi({
         cls: "warn",
+        valColorCls: "val-pending",
         category: "VERIFIKASI",
         label: "Pending Approval",
         val: pendingCount,
@@ -653,6 +680,7 @@
       }) +
       kpi({
         cls: "violet",
+        valColorCls: "val-progress",
         category: "PENGERJAAN TEKNIS",
         label: "Sedang Dikerjakan",
         val: progressCount,
@@ -668,6 +696,7 @@
       }) +
       kpi({
         cls: "hold",
+        valColorCls: "val-onhold",
         category: "DEPENDENSI",
         label: "On Hold (Tertunda)",
         val: onHoldCount,
@@ -683,6 +712,7 @@
       }) +
       kpi({
         cls: h >= 95 ? "ok" : h >= 80 ? "warn" : "danger",
+        valColorCls: h >= 95 ? "val-ok" : "val-danger",
         category: "STANDAR KAK 18.c",
         label: "Kepatuhan SLA (KAK 18.c)",
         val: h,
