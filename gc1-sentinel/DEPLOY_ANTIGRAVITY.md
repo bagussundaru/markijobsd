@@ -1,55 +1,59 @@
-# Deploy GC 1 Sentinel di Mini PC dengan Antigravity
+# Panduan Deploy GC 1 Sentinel di Mini PC Menggunakan Antigravity
 
-Buka folder ini (`gc1-sentinel`) sebagai workspace di Antigravity, lalu tempel prompt di bawah. Antigravity menyiapkan dan
-memverifikasi; langkah yang butuh manusia ditandai **[MANUSIA]**.
+Jika Anda membuka folder ini di aplikasi **Antigravity** pada Mini PC kantor, cukup salin prompt di bawah ini ke dalam chat Antigravity.
+Antigravity akan secara otomatis memeriksa dependensi, menyiapkan server lokal, membuat shortcut Desktop, menyetel auto-boot Windows 11, dan mematikan sleep monitor.
 
-## Prompt untuk agen Antigravity
+---
 
+## 📋 PROMPT UNTUK AGENT ANTIGRAVITY DI MINI PC
+
+```markdown
+Tolong deploy dan siapkan aplikasi Tools Helpdesk GC 1 Sentinel (Markijo AI) di Mini PC Windows ini secara otomatis. Kerjakan seluruh langkah berikut secara berurutan dan laporkan hasil verifikasinya:
+
+ATURAN KEAMANAN & INTEGRITAS KAK:
+- Sentinel hanya bersifat READ-ONLY pasif terhadap portal ITSM dan WhatsApp. Jangan menambahkan kode untuk mengirim pesan keluar, mengklik tombol submit tiket, atau mengubah data ITSM.
+- Jangan mengaktifkan AI cloud eksternal; biarkan ai_provider="off" dan bind_host="127.0.0.1".
+- Jangan menuliskan password, API key, atau token ke file mana pun.
+
+LANGKAH KERJA OTOMATIS:
+1. PERIKSA LINGKUNGAN SISTEM:
+   - Periksa ketersediaan Python (minimal Python 3.9+, rekomendasi 3.10-3.12). Jika belum ada, beritahu pengguna atau pasang via winget install Python.Python.3.12.
+   - Periksa lokasi Google Chrome (C:\Program Files\Google\Chrome\Application\chrome.exe atau AppData).
+   - Pastikan folder bersih dari folder __pycache__ atau file berawalan "_" agar ekstensi Chrome dapat dimuat tanpa error.
+
+2. UJI COBA SERVER LOKAL PORT 8765:
+   - Jalankan sentinel_server.py di port 8765 secara background/daemon.
+   - Uji respon HTTP GET http://127.0.0.1:8765/api/status (pastikan wa_outbound_enabled bernilai false).
+   - Uji akses dashboard http://127.0.0.1:8765/dashboard.html (pastikan HTTP 200 dan aset logo Markijo AI dapat diakses).
+
+3. PASANG AUTO-STARTUP 24/7 & SHORTCUT DESKTOP:
+   - Jalankan skrip 3-PASANG_STARTUP_OTOMATIS.bat atau buat shortcut Windows untuk 1-JALANKAN_SEMUA.bat di folder Startup Windows ($env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\GC 1 Sentinel AutoStart.lnk).
+   - Buat shortcut resmi di Desktop pengguna ($env:USERPROFILE\Desktop\GC 1 Sentinel Monitor.lnk) dengan ikon icons/icon128.png atau icons/logo.png.
+
+4. OPTIMASI DAYA KIOSK WINDOWS (ANTI-SLEEP):
+   - Jalankan perintah powercfg untuk memastikan monitor TV Helpdesk tidak mati otomatis:
+     powercfg /change monitor-timeout-ac 0
+     powercfg /change standby-timeout-ac 0
+
+5. LUNCURKAN APLIKASI:
+   - Jalankan 1-JALANKAN_SEMUA.bat untuk meluncurkan server lokal, agen Markijo, dan membuka Google Chrome.
+
+6. LAPORAN & PANDUAN LANGKAH MANUSIA:
+   - Tampilkan ringkasan status instalasi (Python, Chrome, Server Port 8765, Shortcut, Auto-Startup).
+   - Berikan panduan 2 langkah manual yang perlu dilakukan oleh petugas:
+     a. [MANUSIA] Buka tab chrome://extensions di Chrome -> Aktifkan Developer mode -> Klik 'Load unpacked' -> Pilih folder workspace ini.
+     b. [MANUSIA] Buka tab WhatsApp Web (scan QR) dan tab Portal Helpdesk ITSM (login petugas); biarkan tab tetap terbuka.
 ```
-Deploy dan verifikasi aplikasi GC 1 Sentinel dari folder ini di Windows 11. Kerjakan berurutan, laporkan hasil tiap langkah
-(lulus/gagal + bukti singkat). Jika ada yang gagal, laporkan apa adanya dan berhenti di langkah itu; jangan mengakali.
 
-ATURAN KERAS
-- Sentinel hanya MEMBACA ITSM dan tidak pernah mengirim apa pun ke WhatsApp. Jangan menambah kode yang mengirim pesan WhatsApp,
-  mengklik/mengisi/menyubmit apa pun di ITSM atau WhatsApp, atau membuka WhatsApp Web.
-- Data tenan tidak boleh keluar dari Mini PC (KAK 15-16). Jangan memakai layanan AI eksternal (DeepSeek, OpenAI, AgentRouter,
-  dst.) dan jangan mengubah ai_external_approved. AI hanya boleh lokal (Ollama).
-- Jangan menulis kunci API, kata sandi, token, atau nomor HP ke file mana pun, dan jangan mencetaknya di laporan.
-- Jangan mengubah bind_host dari 127.0.0.1 (kecuali saya minta tampilan tim) dan jangan mengubah wa_outbound_enabled.
-- Jangan membuat folder/berkas berawalan garis bawah (_) di dalam folder ini (Chrome menolak memuat ekstensi). Pastikan tidak ada
-  folder __pycache__ (gunakan python -B atau set PYTHONDONTWRITEBYTECODE=1).
+---
 
-LANGKAH
-1. Prasyarat: laporkan versi Python (butuh 3.9+) dan Google Chrome. Ollama opsional (hanya untuk AI lokal).
-2. Jalankan uji otomatis: python -B tests/run_all.py
-   Harapan: baris akhir "TOTAL: <jumlah> lulus, 0 gagal" (nol gagal). Tiap uji memakai salinan sementara dan port sendiri; data asli tidak tersentuh.
-3. Pastikan folder bersih untuk Chrome: find/Get-ChildItem nama berawalan "_" dan folder __pycache__ harus kosong.
-4. Jalankan server di jendela terpisah: python -B sentinel_server.py   (port 8765, 127.0.0.1)
-5. Verifikasi server:
-   a. GET http://127.0.0.1:8765/api/status -> "wa_outbound_enabled": false
-   b. GET /api/stats?range=day -> JSON berisi "buckets" (24 elemen) dan "kpi"
-   c. POST /api/clear_data dengan header "Origin: http://evil.example" -> harus 403
-   d. GET /config.json dan GET /sentinel_data.json -> harus 404
-   e. GET /dashboard.html -> 200
-6. Verifikasi tampilan (browser): buka http://localhost:8765/dashboard.html. Pastikan 4 tampilan terbuka tanpa galat konsol:
-   Ringkasan, Tiket ITSM, Aduan WhatsApp (submenu "Monitoring per sumber"), dan Input Cepat. Pastikan sidebar bisa diciutkan
-   (tombol « di kiri atas) dan grafik tampil.
-7. Uji alur dengan dummy (tanpa data nyata): buka http://localhost:8765/dummy_helpdesk.html, klik "Mulai Auto-Simulasi", tunggu
-   sekitar 2 menit, lalu pastikan tiket muncul di tampilan Tiket ITSM. Jeda simulasi setelah itu.
-8. Bersihkan data uji: di dashboard tekan "Clear Data" (tab ITSM atau WhatsApp). Hapus entri PIC uji di Daftar PIC bila ada.
-9. (Opsional, hanya bila Ollama terpasang) AI lokal untuk Input Cepat: di config.json set "ai_provider": "ollama" dan
-   "ai_model": "<nama model lokal>", lalu restart server. Uji: tempel satu pesan di Input Cepat dan pastikan muncul
-   "AI lokal selesai" atau laporkan pesan galatnya. Jika Ollama belum ada, lewati langkah ini (aturan NLP tetap jalan).
-10. Auto-start saat boot: jalankan 3-PASANG_STARTUP_OTOMATIS.bat, lalu laporkan hasilnya.
-11. Laporkan ringkasan: versi, hasil uji (TOTAL), hasil langkah 5-8, dan hal yang perlu tindakan manusia.
-```
+## 👤 2 LANGKAH MANUAL PETUGAS (SETELAH PROMPT SELESAI)
 
-## Langkah manual (manusia)
-1. **[MANUSIA]** Chrome > `chrome://extensions` > aktifkan Developer mode > **Load unpacked** > pilih folder `gc1-sentinel`.
-   Setelah `manifest.json` berubah, tekan ikon muat-ulang pada kartu ekstensi.
-2. **[MANUSIA]** Login ke portal ITSM (`https://pdn.layanan.go.id`) di Chrome yang sama dan biarkan tab terbuka.
-   Bila domain ITSM berbeda, ubah `live_helpdesk_url` di `config.json` dan `manifest.json` (lihat README).
-3. Edit `config.json`: `wa_priority_groups`, `wa_team_senders`, `wa_verified_senders`, `pic_roster` (lihat README).
-4. Impor daftar PIC resmi lewat menu **Daftar PIC > Tambah / Impor** (CSV `nama;instansi;nomor`).
-5. Tampilan tim hanya-baca (opsional): lihat bagian "Tampilan tim" di README.
-6. Peringatan: persetujuan Komdigi/pimpinan tetap diperlukan untuk membaca layar ITSM. Sentinel tidak mengakses WhatsApp sama sekali.
+Setelah Antigravity selesai menjalankan semua langkah di atas:
+1. **Pasang Ekstensi Chrome**:
+   - Di Google Chrome, buka: `chrome://extensions`
+   - Aktifkan toggle **Developer mode** di kanan atas.
+   - Klik **Load unpacked** di kiri atas, lalu arahkan ke folder ini.
+2. **Login Tab Kerja**:
+   - Tab WhatsApp Web: Scan QR code satu kali (pastikan kontak penerima rekap bernama `mimi Sandora`).
+   - Tab Helpdesk ITSM: Login dengan akun helpdesk resmi (`https://pdn.layanan.go.id`).
