@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🏛️ Pusat Kendali Monitoring GC 1 - Layanan Cloud Pemerintah PDN</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="icons/logo.png">
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body class="enterprise-theme">
+  <!-- TOP ENTERPRISE COMMAND HEADER -->
+  <header class="topbar enterprise-topbar">
+    <div class="topbar-container">
+      <!-- Left: Official Branding -->
+      <div class="topbar-left">
+        <div class="gov-badge-box">
+          <div class="gov-emblem-wrap" style="background:#ffffff; padding:2px; border-radius:8px; display:flex; align-items:center; justify-content:center; width:44px; height:44px; box-shadow:0 1px 3px rgba(0,0,0,0.2);">
+            <img src="icons/logo.png" alt="Markijo AI Logo" style="width:100%; height:100%; object-fit:contain; border-radius:6px;">
+          </div>
+          <div class="gov-brand-text">
+            <div class="gov-instansi-title" style="letter-spacing:0.04em;">MARKIJO AI • MODERN NEURAL SOLUTIONS</div>
+            <h1 class="app-title">PUSAT MONITORING & ESKALASI GOVERNMENT CLOUD 1 (GC 1)</h1>
+            <div class="gov-sys-code">SISTEM KENDALI OPERASIONAL HELPDESK PDN & WHATSAPP ENGINE</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Operational Telemetry & Controls -->
+      <div class="topbar-right">
+        <!-- Live SLA & Sync Telemetry -->
+        <div class="telemetry-pill-group">
+          <div class="sla-pill" title="Tingkat ketersediaan layanan sistem">
+            <span class="status-indicator-dot online"></span>
+            <span class="telemetry-label">SLA: <strong>99.98%</strong></span>
+          </div>
+          <div class="live-status-pill" id="liveSyncPill" title="Status integrasi data real-time dengan portal helpdesk">
+            <span class="pulsing-dot"></span>
+            <span id="liveStatusText">100% SELARAS HELPDESK</span>
+          </div>
+        </div>
+
+        <!-- Date & Digital Clock (WIB) -->
+        <div class="clock-box-enterprise">
+          <div class="date-display-enterprise" id="dateDisplay">29 September 2026</div>
+          <div class="clock-display" id="clockDisplay">00:00:00 WIB</div>
+        </div>
+
+        <!-- Audio & Action Buttons -->
+        <div class="topbar-actions">
+          <div class="audio-control-box">
+            <button id="toggleSoundBtn" class="btn btn-audio btn-enterprise" title="Klik untuk mengaktifkan/mematikan suara alarm">
+              <span id="soundIcon">🔔</span>
+              <span id="soundStatusText">Alarm: ON</span>
+            </button>
+            <button id="testSoundBtn" class="btn btn-icon-only btn-enterprise" title="Uji Coba Bunyi Alarm">🔊</button>
+          </div>
+
+          <button id="btnForceSync" class="btn btn-secondary btn-enterprise" title="Paksa sinkronisasi ulang data Helpdesk sekarang">
+            <span class="btn-icon">🔄</span> Sync
+          </button>
+
+          <button id="openSettingsBtn" class="btn btn-secondary btn-enterprise" title="Pengaturan Sistem & Port Sentinel">
+            <span class="btn-icon">⚙️</span> Konfigurasi
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- SUB-COMMAND BAR: OPERATIONAL METADATA -->
+  <div class="sub-command-bar">
+    <div class="sub-command-container">
+      <div class="sub-meta-item">
+        <span class="sub-meta-icon">👤</span>
+        <span class="sub-meta-label">Operator Otomasi:</span>
+        <span class="sub-meta-val">Markijo Autonomous Agent (On-Duty)</span>
+      </div>
+      <div class="sub-meta-item">
+        <span class="sub-meta-icon">🎯</span>
+        <span class="sub-meta-label">Kontak Target Rekap WA:</span>
+        <span class="sub-meta-val highlight-target">mimi Sandora</span>
+      </div>
+      <div class="sub-meta-item">
+        <span class="sub-meta-icon">🛡️</span>
+        <span class="sub-meta-label">Integritas Helpdesk:</span>
+        <span class="sub-meta-val" style="color:#0284c7;">100% Read-Only (Zero DOM Error)</span>
+      </div>
+      <div class="sub-meta-item">
+        <span class="sub-meta-icon">⏱️</span>
+        <span class="sub-meta-label">Sinkronisasi Terakhir:</span>
+        <span class="sub-meta-val" id="lastSyncTimeText">Menghubungkan...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN VIEWPORT CONTAINER -->
+  <main class="dashboard-main enterprise-main">
+    
+    <!-- 5 SYMMETRIC KPI EXECUTIVE SUMMARY CARDS (SOP OPERASIONAL GC 1) -->
+    <section class="stats-grid stats-grid-5">
+      
+      <!-- Card 1: Assigned Tim Kita (Helpdesk, EOS L1, L2, L3, NOC, SOC) -->
+      <div class="stat-card stat-assigned enterprise-kpi" id="cardGc1Assigned" style="cursor:pointer;" title="Klik untuk fokus pada tiket tim kita yang berstatus Assigned">
+        <div class="kpi-top-row">
+          <span class="kpi-tag-enterprise tag-urgent">🚨 PRIORITAS EKSEKUSI</span>
+          <span class="kpi-badge-micro badge-urgent-micro">SIAP DITANGANI</span>
+        </div>
+        <div class="kpi-main-row">
+          <div class="kpi-number-wrap">
+            <span class="stat-value text-urgent" id="kpiGc1Assigned">0</span>
+            <span class="kpi-unit">Tiket</span>
+          </div>
+          <div class="kpi-icon-bubble bg-urgent-subtle">⚡</div>
+        </div>
+        <div class="kpi-footer-row">
+          <span class="kpi-title-label">Assigned (Helpdesk & EOS)</span>
+          <span class="kpi-action-hint">📲 Otomatis Rekap ke WA</span>
+        </div>
+      </div>
+
+      <!-- Card 2: Pending Approval Pipeline (Menunggu Persetujuan K/L) -->
+      <div class="stat-card stat-pending enterprise-kpi" id="cardGc1Pending" style="cursor:pointer;" title="Klik untuk melihat pipeline persetujuan tenan/K/L">
+        <div class="kpi-top-row">
+          <span class="kpi-tag-enterprise tag-pending">⏳ PIPELINE PERSETUJUAN</span>
+          <span class="kpi-badge-micro badge-pending-micro">IN REVIEW</span>
+        </div>
+        <div class="kpi-main-row">
+          <div class="kpi-number-wrap">
+            <span class="stat-value text-pending" id="kpiGc1Pending">0</span>
+            <span class="kpi-unit">Tiket</span>
+          </div>
+          <div class="kpi-icon-bubble bg-pending-subtle">📋</div>
+        </div>
+        <div class="kpi-footer-row">
+          <span class="kpi-title-label">Pending Approval Tenan / K/L</span>
+          <span class="kpi-action-hint">Menunggu Persetujuan</span>
+        </div>
+      </div>
+
+      <!-- Card 3: In Progress (Sedang Dikerjakan Teknisi Tim Kita) -->
+      <div class="stat-card stat-progress enterprise-kpi" id="cardTeamProgress" style="cursor:pointer;" title="Klik untuk memantau tiket yang sedang dikerjakan tim">
+        <div class="kpi-top-row">
+          <span class="kpi-tag-enterprise tag-progress">⚙️ PENANGANAN AKTIF</span>
+          <span class="kpi-badge-micro badge-progress-micro">SLA RUNNING</span>
+        </div>
+        <div class="kpi-main-row">
+          <div class="kpi-number-wrap">
+            <span class="stat-value text-progress" id="kpiTeamProgress">0</span>
+            <span class="kpi-unit">Tiket</span>
+          </div>
+          <div class="kpi-icon-bubble bg-progress-subtle">🛠️</div>
+        </div>
+        <div class="kpi-footer-row">
+          <span class="kpi-title-label">In Progress (Tim L1/L2/L3)</span>
+          <span class="kpi-action-hint">Pengerjaan Aktif</span>
+        </div>
+      </div>
+
+      <!-- Card 4: Kepatuhan SLA GC 1 (Target KAK > 95%) -->
+      <div class="stat-card stat-sla enterprise-kpi" id="cardSlaHealth" style="cursor:pointer;" title="Klik untuk memantau performa kepatuhan SLA tiket internal">
+        <div class="kpi-top-row">
+          <span class="kpi-tag-enterprise tag-sla">⏱️ SLA COMPLIANCE</span>
+          <span class="kpi-badge-micro badge-sla-micro">TARGET &gt;95%</span>
+        </div>
+        <div class="kpi-main-row">
+          <div class="kpi-number-wrap">
+            <span class="stat-value text-sla" id="kpiSlaHealth">100%</span>
+            <span class="kpi-unit">On-Track</span>
+          </div>
+          <div class="kpi-icon-bubble bg-sla-subtle">🛡️</div>
+        </div>
+        <div class="kpi-footer-row">
+          <span class="kpi-title-label">Kepatuhan SLA (Waktu Aman)</span>
+          <span class="kpi-action-hint">Matriks SLA SOP 3.2</span>
+        </div>
+      </div>
+
+      <!-- Card 5: Total Tiket Lingkup GC 1 -->
+      <div class="stat-card stat-total enterprise-kpi" id="cardTotalHelpdesk" style="cursor:pointer;" title="Klik untuk melihat seluruh data tiket internal GC 1">
+        <div class="kpi-top-row">
+          <span class="kpi-tag-enterprise tag-total">📊 RUANG LINGKUP GC 1</span>
+          <span class="kpi-badge-micro badge-total-micro">100% SELARAS</span>
+        </div>
+        <div class="kpi-main-row">
+          <div class="kpi-number-wrap">
+            <span class="stat-value text-total" id="kpiTotalHelpdesk">0</span>
+            <span class="kpi-unit">Total</span>
+          </div>
+          <div class="kpi-icon-bubble bg-total-subtle">🌐</div>
+        </div>
+        <div class="kpi-footer-row">
+          <span class="kpi-title-label">Total Tiket Lingkup GC 1</span>
+          <span class="kpi-action-hint">Internal Tim Helpdesk &amp; EOS</span>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ENTERPRISE SEGMENTED NAVIGATION TABS (SESUAI RUANG LINGKUP GC 1) -->
+    <section class="category-tabs-wrapper enterprise-tabs-bar">
+      <div class="category-tabs enterprise-segmented-tabs">
+        <button class="tab-btn tab-urgent active" id="tabBtnGc1Assigned" data-target="team_assigned">
+          <span class="tab-icon">🚨</span>
+          <span class="tab-text">Assigned Tim Kita (Siap Ditangani)</span>
+          <span class="tab-badge" id="badgeGc1Assigned">0</span>
+        </button>
+
+        <button class="tab-btn tab-pending" id="tabBtnGc1Pending" data-target="team_pending">
+          <span class="tab-icon">⏳</span>
+          <span class="tab-text">Pending Approval Tenan/K/L</span>
+          <span class="tab-badge" id="badgeGc1Pending">0</span>
+        </button>
+
+        <button class="tab-btn tab-progress" id="tabBtnTeamProgress" data-target="team_progress">
+          <span class="tab-icon">⚙️</span>
+          <span class="tab-text">Sedang Dikerjakan (In Progress)</span>
+          <span class="tab-badge" id="badgeTeamProgress">0</span>
+        </button>
+
+        <button class="tab-btn tab-wa" id="tabBtnWa" data-target="wa_alerts">
+          <span class="tab-icon">💬</span>
+          <span class="tab-text">Aduan WhatsApp Ops (Pra-Tiket)</span>
+          <span class="tab-badge" id="badgeWa">0</span>
+        </button>
+
+        <button class="tab-btn tab-all" id="tabBtnAll" data-target="all_tickets">
+          <span class="tab-icon">🌐</span>
+          <span class="tab-text">Semua Tiket Lingkup GC 1</span>
+          <span class="tab-badge" id="badgeAll">0</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- COMMAND TOOLBAR & REFINED FILTERS -->
+    <section class="action-bar enterprise-toolbar">
+      <div class="toolbar-left">
+        <!-- Search Field -->
+        <div class="search-box enterprise-search">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="searchInput" placeholder="Cari nomor tiket (REQ-...), nama pemohon, lokasi, atau rincian...">
+        </div>
+
+        <!-- Filter Status -->
+        <div class="filter-group enterprise-filter">
+          <label>Status:</label>
+          <select id="filterStateSelect" class="form-select-enterprise">
+            <option value="all">Semua Status</option>
+            <option value="Assigned">Assigned (Ditugaskan)</option>
+            <option value="Pending Approval">Pending Approval (Persetujuan)</option>
+            <option value="In Progress">In Progress (Diproses)</option>
+          </select>
+        </div>
+
+        <!-- Filter Sumber Tiket -->
+        <div class="filter-group enterprise-filter">
+          <label>Sumber:</label>
+          <select id="filterSourceSelect" class="form-select-enterprise">
+            <option value="all">Semua Sumber (ITSM &amp; WA)</option>
+            <option value="itsm">🏛️ Portal ITSM Resmi (REQ-...)</option>
+            <option value="wa">💬 Grup WhatsApp (WA-...)</option>
+          </select>
+        </div>
+
+        <!-- Filter Jenis Layanan: Insiden vs Service Request -->
+        <div class="filter-group enterprise-filter">
+          <label>Jenis Layanan:</label>
+          <select id="filterServiceTypeSelect" class="form-select-enterprise">
+            <option value="all">Semua Jenis Layanan</option>
+            <option value="Insiden">🚨 Insiden</option>
+            <option value="Service Request">📋 Service Request</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Action Buttons Group -->
+      <div class="action-buttons toolbar-right">
+        <button id="toggleMarkijoBtn" class="btn btn-enterprise btn-markijo" title="Otomasi Markijo memantau tiket GC 1 Assigned dan otomatis rekap ke mimi Sandora">
+          <span class="dot-online">●</span>
+          <span>🤖 Markijo Autopilot: AKTIF</span>
+        </button>
+
+        <button id="sendWaSummaryBtn" class="btn btn-enterprise btn-primary-wa" title="Kirim rekapitulasi terverifikasi ke WhatsApp mimi Sandora">
+          <span>📲</span>
+          <span>Kirim Rekap ke WA</span>
+        </button>
+
+        <button id="exportCsvBtn" class="btn btn-enterprise btn-secondary" title="Ekspor rekapitulasi dalam format CSV / Excel">
+          <span>📥</span>
+          <span>Ekspor CSV</span>
+        </button>
+
+        <button id="btnSimulateWaMsg" class="btn btn-enterprise btn-simulate-wa" title="Simulasikan aduan baru di Grup WhatsApp untuk langsung otomatis masuk sebagai tiket di dashboard">
+          <span>💬</span>
+          <span>+ Aduan WA Baru</span>
+        </button>
+
+        <button id="clearAllBtn" class="btn btn-enterprise btn-secondary" title="Reset kata kunci pencarian & filter">
+          <span>🔄</span>
+          <span>Reset Filter</span>
+        </button>
+
+        <button id="btnClearData" class="btn btn-enterprise btn-clear-danger" title="Kosongkan seluruh data tiket & alert di GC 1 Dashboard untuk keperluan pengujian">
+          <span>🗑️</span>
+          <span>Clear Data</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- MAIN DATA DISPLAY SECTION -->
+    <section class="feed-section enterprise-section">
+      <!-- Section Header Banner -->
+      <div class="section-title-banner enterprise-banner" id="sectionTitleBanner">
+        <div class="banner-title-box">
+          <h2 id="currentCategoryTitle" class="category-heading">
+            <span>🚨</span> GC 1 - Assigned (Prioritas Eksekusi)
+          </h2>
+          <p id="currentCategoryDesc" class="category-subheading">
+            Tiket khusus Government Cloud 1 berstatus Assigned yang memerlukan tindak lanjut teknis segera.
+          </p>
+        </div>
+        <div class="banner-controls">
+          <button id="btnQuickWaRecap" class="btn btn-sm btn-quick-recap" style="display:none;">
+            📲 Kirim Rekap Kategori Ini ke WA
+          </button>
+          <span class="feed-count-badge enterprise-badge-counter" id="feedCountBadge">Menampilkan 0 data</span>
+        </div>
+      </div>
+
+      <!-- Structured Data Table Container -->
+      <div class="table-responsive enterprise-table-wrap" id="tableWrapper">
+        <table class="sentinel-table enterprise-data-table" id="sentinelTable">
+          <thead>
+            <tr>
+              <th style="width: 195px; min-width: 190px;">Nomor Tiket</th>
+              <th style="min-width: 240px;">Deskripsi / Uraian Permohonan</th>
+              <th style="width: 185px; min-width: 175px;">Pemohon &amp; Instansi</th>
+              <th style="width: 210px; min-width: 195px;">Status &amp; PIC Pelaksana</th>
+              <th style="min-width: 220px;">Aktivitas Terkini (Sampai di Mana)</th>
+              <th style="width: 150px; min-width: 140px; text-align: center;">Jenis Layanan</th>
+              <th style="width: 135px; min-width: 125px; text-align: center;">Sisa SLA</th>
+              <th style="width: 155px; min-width: 150px; text-align: center;">Tindakan</th>
+            </tr>
+          </thead>
+          <tbody id="sentinelTableBody">
+            <!-- Dynamic Enterprise Rows -->
+          </tbody>
+        </table>
+
+        <!-- WhatsApp Feed Cards (Activated on WA Tab) -->
+        <div id="waFeedContainer" class="alerts-container wa-enterprise-feed" style="display:none; padding:18px;">
+          <!-- WA Alerts dynamically rendered here -->
+        </div>
+
+        <!-- Empty State Container -->
+        <div class="empty-state enterprise-empty-state" id="emptyState" style="display:none;">
+          <div class="empty-icon">🛡️</div>
+          <h3 id="emptyTitle">Tidak ada data tiket pada kategori ini</h3>
+          <p id="emptyDesc">Semua data disinkronkan secara otomatis dari portal Helpdesk PDN dan WhatsApp.</p>
+        </div>
+      </div>
+      
+      <!-- Table Footer / Telemetry Bar -->
+      <div class="table-footer-bar">
+        <div class="table-footer-left">
+          <span>Sistem Pemantauan Terpadu PDN • Menampilkan data selaras dengan database Helpdesk</span>
+        </div>
+        <div class="table-footer-right">
+          <span class="heartbeat-indicator">●</span>
+          <span>Pembaruan otomatis tiap <strong>4 detik</strong> (Polling Pasif)</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ENTERPRISE COMPLIANCE FOOTER -->
+  <footer class="enterprise-footer">
+    <div class="footer-container">
+      <div class="footer-left">
+        <strong>PUSAT DATA NASIONAL (PDN)</strong> &copy; 2026 • Layanan Infrastruktur Government Cloud 1 (GC 1)
+      </div>
+      <div class="footer-center">
+        <span>Arsitektur: <strong>Markijo Autonomous Agent Engine v2.4</strong></span>
+        <span class="divider">|</span>
+        <span>Protokol: <strong>Zero DOM Modification (Helpdesk 100% Read-Only)</strong></span>
+      </div>
+      <div class="footer-right">
+        <span>Port Lokal: <strong>8765</strong></span>
+        <span class="divider">|</span>
+        <span>Target Kontak: <strong>mimi Sandora</strong></span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- SETTINGS MODAL -->
+  <div id="settingsModal" class="modal-backdrop">
+    <div class="modal-box enterprise-modal">
+      <div class="modal-header enterprise-modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:18px;">⚙️</span>
+          <h3>Konfigurasi Sistem Monitoring GC 1 Sentinel</h3>
+        </div>
+        <button id="closeSettingsBtn" class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body enterprise-modal-body">
+        <div class="form-group">
+          <label for="settingTargetContact">Kontak WhatsApp Target Rekapitulasi (mimi Sandora):</label>
+          <input type="text" id="settingTargetContact" value="mimi Sandora" class="form-control-enterprise">
+          <small>Nama persis kontak WhatsApp yang menerima kiriman rekapitulasi tiket GC 1 Assigned.</small>
+        </div>
+
+        <div class="form-group">
+          <label for="settingKeywords">Kata Kunci Filter Layanan Cloud GC 1 (pisahkan dengan koma):</label>
+          <input type="text" id="settingKeywords" value="GC 1, GC1, Government Cloud 1, Government Cloud-1, Gov Cloud 1, Gedung C 1, Gedung C1" class="form-control-enterprise">
+          <small>Tiket helpdesk atau chat WA yang memuat kata kunci ini akan otomatis dikategorikan ke GC 1.</small>
+        </div>
+
+        <div class="form-group">
+          <label for="settingServerPort">Port REST API Sentinel Server:</label>
+          <input type="number" id="settingServerPort" value="8765" class="form-control-enterprise">
+          <small>Port komunikasi internal IPC antar tab Helpdesk, Dashboard, dan WhatsApp Web.</small>
+        </div>
+
+        <div class="form-group-checkbox">
+          <label>
+            <input type="checkbox" id="settingMarkijoAuto" checked>
+            <strong>Aktifkan Otomasi Markijo (Anti-Spam Auto-Send ke mimi Sandora)</strong>
+          </label>
+        </div>
+
+        <div class="form-group-checkbox">
+          <label>
+            <input type="checkbox" id="settingSound" checked>
+            Aktifkan Suara Alarm Tiap Ada Tiket GC 1 Assigned Baru
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer enterprise-modal-footer">
+        <button id="saveSettingsBtn" class="btn btn-primary btn-enterprise">Simpan Pengaturan</button>
+        <button id="cancelSettingsBtn" class="btn btn-secondary btn-enterprise">Batal</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WHATSAPP SUMMARY PREVIEW MODAL -->
+  <div id="waSummaryModal" class="modal-backdrop">
+    <div class="modal-box enterprise-modal" style="max-width: 680px;">
+      <div class="enterprise-modal-header" style="background:#065F46; border-bottom:1px solid #047857;">
+        <h3 style="display:flex; align-items:center; gap:8px; font-size:15px; color:#ffffff;">
+          <span>📲</span> Pratinjau Rekapitulasi Eksekutif untuk mimi Sandora
+        </h3>
+        <button id="closeWaSummaryBtn" class="modal-close-btn" style="color:#ffffff;">&times;</button>
+      </div>
+      <div class="modal-body enterprise-modal-body" style="padding: 20px;">
+        <div class="alert-box-success">
+          <span style="font-size:20px;">📋</span>
+          <div>
+            <strong>Pesan Berhasil Disalin ke Clipboard!</strong><br>
+            Format teks telah disesuaikan secara profesional. Anda dapat langsung menekan <strong>Ctrl + V</strong> di chat WhatsApp.
+          </div>
+        </div>
+
+        <label style="font-size:12px; color:#334155; font-weight:700; margin-bottom:6px; display:block;">
+          Format Teks Ringkasan Terstruktur:
+        </label>
+        <textarea id="waSummaryPreview" class="wa-preview-area" readonly></textarea>
+      </div>
+      <div class="modal-footer enterprise-modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+        <button id="copyAgainBtn" class="btn btn-secondary btn-enterprise">📋 Salin Ulang Teks</button>
+        <div style="display:flex; gap:10px;">
+          <button id="goToWaBtn" class="btn btn-enterprise btn-primary-wa">💬 Buka WhatsApp Web</button>
+          <button id="doneWaSummaryBtn" class="btn btn-secondary btn-enterprise">Tutup</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DETAIL AKTIVITAS & PELACAKAN SLA TIKET MODAL (SOP GC 1 v0.2) -->
+  <div id="ticketActivityModal" class="modal-backdrop">
+    <div class="modal-box enterprise-modal" style="max-width: 840px; width: 95%;">
+      <div class="enterprise-modal-header" style="background:#0F172A; border-bottom:1px solid #334155; padding: 14px 20px; display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:22px;">🔍</span>
+          <div>
+            <h3 style="font-size:15px; color:#FFFFFF; margin:0;" id="modalTicketTitle">Pelacakan Aktivitas Tiket: REQ-...</h3>
+            <span style="font-size:11.5px; color:#94A3B8;" id="modalTicketSubtitle">Managed Service Government Cloud 1 - SOP Penanganan Tiket v0.2</span>
+          </div>
+        </div>
+        <button id="closeTicketActivityBtn" class="modal-close-btn" style="color:#FFFFFF; font-size:22px; cursor:pointer;">&times;</button>
+      </div>
+
+      <div class="modal-body enterprise-modal-body" style="padding: 22px; max-height: 80vh; overflow-y: auto;">
+        
+        <!-- TOP EXECUTIVE SUMMARY BOX -->
+        <div class="activity-top-summary" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; background:#F8FAFC; border:1px solid #E2E8F0; padding:14px; border-radius:8px;">
+          <div>
+            <div style="font-size:11px; color:#64748B; font-weight:600; text-transform:uppercase;">Status Tiket:</div>
+            <div style="font-size:14px; font-weight:700; margin-top:3px;" id="modalStateBadge">-</div>
+          </div>
+          <div>
+            <div style="font-size:11px; color:#64748B; font-weight:600; text-transform:uppercase;">Jenis Layanan:</div>
+            <div style="font-size:13px; font-weight:700; margin-top:3px;" id="modalServiceTypeBadge">-</div>
+          </div>
+          <div>
+            <div style="font-size:11px; color:#64748B; font-weight:600; text-transform:uppercase;">PIC / Penanggung Jawab:</div>
+            <div style="font-size:13px; font-weight:700; color:#0F172A; margin-top:3px;" id="modalPicName">-</div>
+            <div style="font-size:11px; color:#0284C7;" id="modalPicRole">-</div>
+          </div>
+          <div>
+            <div style="font-size:11px; color:#64748B; font-weight:600; text-transform:uppercase;">Prioritas &amp; Target SLA:</div>
+            <div style="font-size:13px; font-weight:700; color:#D97706; margin-top:3px;" id="modalPriorityText">-</div>
+            <div style="font-size:11px; color:#64748B;" id="modalTargetTime">-</div>
+          </div>
+          <div>
+            <div style="font-size:11px; color:#64748B; font-weight:600; text-transform:uppercase;">Sisa Waktu SLA:</div>
+            <div style="font-size:14px; font-weight:800; margin-top:3px;" id="modalSlaRemaining">-</div>
+            <div class="sla-progress-wrap" style="height:6px; background:#E2E8F0; border-radius:3px; overflow:hidden; margin-top:4px;">
+              <div id="modalSlaBar" style="height:100%; width:80%; background:#10B981; transition:width 0.3s;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5-STAGE SOP WORKFLOW PROGRESSION STEPPER -->
+        <h4 style="font-size:13px; font-weight:700; color:#1E293B; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+          <span>📌</span> Tahapan Penanganan Tiket (SOP GC 1 Bab 5 &amp; 6)
+        </h4>
+        <div class="sop-stepper-container" id="modalStepperContainer" style="margin-bottom:22px;">
+          <!-- Dynamically generated stepper stages -->
+        </div>
+
+        <!-- TICKET DETAILS ACCORDION -->
+        <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:8px; padding:16px;">
+          <h4 style="font-size:12.5px; font-weight:700; color:#334155; margin-bottom:10px;">📋 Informasi Lengkap Permohonan Tenan:</h4>
+          <div style="display:grid; grid-template-columns: 140px 1fr; row-gap:8px; font-size:12.5px;">
+            <div style="color:#64748B;">Uraian:</div>
+            <div style="font-weight:600; color:#0F172A;" id="modalDescText">-</div>
+            <div style="color:#64748B;">Pemohon:</div>
+            <div id="modalReqText">-</div>
+            <div style="color:#64748B;">Instansi / Lokasi:</div>
+            <div id="modalLocText">-</div>
+            <div style="color:#64748B;">Waktu Pengajuan:</div>
+            <div id="modalDateText">-</div>
+            <div style="color:#64748B;">Aktivitas Terkini:</div>
+            <div style="font-weight:700; color:#2563EB;" id="modalMilestoneText">-</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-footer enterprise-modal-footer" style="display:flex; justify-content:space-between; align-items:center; padding:14px 20px; background:#F8FAFC; border-top:1px solid #E2E8F0;">
+        <button id="modalBtnCopyDetail" class="btn btn-secondary btn-enterprise">📋 Salin Rincian</button>
+        <div style="display:flex; gap:8px;">
+          <button id="modalBtnQuickWa" class="btn btn-enterprise btn-primary-wa" style="display:none;">📲 Kirim Rekap ke WA</button>
+          <button id="modalBtnClose" class="btn btn-secondary btn-enterprise">Tutup</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL INPUT / SIMULASI ADUAN GRUP WHATSAPP -->
+  <div id="waSimulateModal" class="modal-backdrop">
+    <div class="modal-box enterprise-modal" style="max-width: 600px; width: 92%;">
+      <div class="enterprise-modal-header" style="background:#0F172A; border-bottom:1px solid #334155; padding: 14px 20px; display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:22px;">💬</span>
+          <div>
+            <h3 style="font-size:15px; color:#FFFFFF; margin:0;">Input / Simulasi Aduan Grup WhatsApp</h3>
+            <span style="font-size:11.5px; color:#94A3B8;">Otomatis Dikonversi Menjadi Tiket di Dashboard GC 1</span>
+          </div>
+        </div>
+        <button id="closeWaSimulateBtn" class="modal-close-btn" style="color:#FFFFFF; font-size:22px; cursor:pointer;">&times;</button>
+      </div>
+
+      <div class="modal-body enterprise-modal-body" style="padding: 20px; display:flex; flex-direction:column; gap:14px;">
+        <div style="font-size:12px; color:#065F46; background:#ECFDF5; border:1px solid #A7F3D0; padding:10px 14px; border-radius:6px; line-height:1.45;">
+          💡 <strong>Otomatisasi WhatsApp:</strong> Setiap aduan yang terdeteksi di grup WhatsApp (atau diinput melalui form ini) akan langsung dibuatkan <strong>Nomor Tiket (WA-GC1-...)</strong>, berstatus <strong>Assigned</strong>, dan masuk ke tabel antrean tim kita di layar monitor.
+        </div>
+
+        <!-- Quick Preset Buttons -->
+        <div>
+          <label style="font-size:11.5px; font-weight:700; color:#334155; margin-bottom:6px; display:block;">Pilih Contoh Aduan Cepat:</label>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="setWaPreset(1)">🩺 Kemenkes (Resource VM)</button>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="setWaPreset(2)">🏢 Bappenas (Akses &amp; Firewall)</button>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="setWaPreset(3)">💼 Kemenkeu (Backup &amp; Restore)</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="waInputSender">Nama Pengirim (Pemohon):</label>
+          <input type="text" id="waInputSender" class="form-control-enterprise" placeholder="Contoh: Dr. Irwan Setiawan (Kemenkes)" value="Dr. Irwan Setiawan (Kemenkes)">
+        </div>
+
+        <div class="form-group">
+          <label for="waInputGroup">Nama Grup WhatsApp:</label>
+          <input type="text" id="waInputGroup" class="form-control-enterprise" placeholder="Contoh: Grup Koordinasi Teknis GC 1 Komdigi" value="Grup Koordinasi Teknis GC 1 Komdigi">
+        </div>
+
+        <div class="form-group">
+          <label for="waInputText">Isi Pesan Aduan / Permohonan:</label>
+          <textarea id="waInputText" class="form-control-enterprise" style="height:90px; resize:vertical; padding:8px 12px; font-size:12px; line-height:1.4;" placeholder="Tuliskan pesan kendala atau permohonan layanan...">Selamat siang tim Helpdesk GC 1, mohon bantuan penambahan kapasitas disk VM Database SatuData di GC 1 karena sudah mencapai 92%. Terima kasih.</textarea>
+        </div>
+      </div>
+
+      <div class="enterprise-modal-footer" style="padding:14px 20px; background:#F8FAFC; border-top:1px solid #E2E8F0; display:flex; justify-content:flex-end; gap:8px;">
+        <button id="cancelWaSimulateBtn" class="btn btn-secondary btn-enterprise">Batal</button>
+        <button id="submitWaSimulateBtn" class="btn btn-enterprise btn-primary-wa">
+          <span>🚀</span>
+          <span>Konversi Menjadi Tiket</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <audio id="alertAudio" src="sounds/alert.wav" preload="auto"></audio>
+  <script src="dashboard.js"></script>
+</body>
+</html>

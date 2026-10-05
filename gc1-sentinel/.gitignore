@@ -9,6 +9,7 @@ config.local.json
 __pycache__/
 *.pyc
 *.docx
+!*TUTORIAL*.docx
 
 # salinan lokal dan berkas percobaan
 extension/

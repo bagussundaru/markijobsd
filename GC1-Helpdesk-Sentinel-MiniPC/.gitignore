@@ -1,0 +1,12 @@
+# data operasional dan rahasia: jangan masuk repo
+sentinel_data.json
+markijo_reported.json
+markijo_events.log
+ai_audit.log
+config.local.json
+.env
+*.key
+__pycache__/
+*.pyc
+*.docx
+!*TUTORIAL*.docx

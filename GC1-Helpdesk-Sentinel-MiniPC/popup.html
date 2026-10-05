@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" type="image/png" href="icons/logo.png">
+  <title>Markijo AI Sentinel</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    body {
+      width: 320px;
+      background: #0F172A;
+      color: #F8FAFC;
+      padding: 14px;
+      font-size: 13px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1E293B;
+      padding-bottom: 10px;
+      margin-bottom: 12px;
+    }
+    .title-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .title-box h3 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #FFFFFF;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background: #10B981;
+      border-radius: 50%;
+      box-shadow: 0 0 6px #10B981;
+    }
+    .badge-count {
+      background: #EF4444;
+      color: #fff;
+      font-size: 11px;
+      font-weight: bold;
+      padding: 2px 7px;
+      border-radius: 10px;
+    }
+    .btn-main {
+      width: 100%;
+      background: #2563EB;
+      color: #fff;
+      border: none;
+      padding: 10px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      transition: background 0.2s;
+    }
+    .btn-main:hover {
+      background: #1D4ED8;
+    }
+    .btn-action {
+      width: 100%;
+      background: #1E293B;
+      color: #E2E8F0;
+      border: 1px solid #334155;
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .btn-action:hover {
+      background: #334155;
+    }
+    .recent-box {
+      margin-top: 12px;
+      border-top: 1px solid #1E293B;
+      padding-top: 10px;
+    }
+    .recent-header {
+      font-size: 11px;
+      font-weight: 700;
+      color: #94A3B8;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .recent-item {
+      background: #151D2F;
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 6px;
+      font-size: 12px;
+      border-left: 3px solid #EF4444;
+    }
+    .recent-item.hd {
+      border-left-color: #F59E0B;
+    }
+    .recent-top {
+      display: flex;
+      justify-content: space-between;
+      color: #94A3B8;
+      font-size: 10px;
+      margin-bottom: 3px;
+    }
+    .recent-text {
+      color: #E2E8F0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .footer-links {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+      font-size: 11px;
+      color: #64748B;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title-box">
+      <img src="icons/logo.png" alt="Markijo AI" style="width:20px; height:20px; object-fit:contain; border-radius:4px; background:#fff; padding:1px;">
+      <span class="status-dot"></span>
+      <h3>Markijo Sentinel</h3>
+    </div>
+    <span id="unreadBadge" class="badge-count" style="display:none;">0 Baru</span>
+  </div>
+
+  <button id="openDashboardBtn" class="btn-main">
+    🖥️ Buka Layar Monitor GC 1
+  </button>
+
+  <button id="forceTabHelpdeskBtn" class="btn-action">
+    🎯 Pantau Tab Ini Sebagai Helpdesk
+  </button>
+
+  <button id="toggleSoundBtn" class="btn-action">
+    🔔 Suara Alarm: <span id="soundText">ON</span>
+  </button>
+
+  <div class="recent-box">
+    <div class="recent-header">Aduan GC 1 Terakhir</div>
+    <div id="recentList">
+      <div style="color: #64748B; text-align: center; padding: 10px 0;">Belum ada aduan masuk.</div>
+    </div>
+  </div>
+
+  <div class="footer-links">
+    <span>Mini PC Deployment</span>
+    <span>v1.0.0</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
