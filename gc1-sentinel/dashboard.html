@@ -515,22 +515,34 @@
       <div class="table-block" id="tableBlock" data-view="itsm">
         <section class="category-tabs-wrapper enterprise-tabs-bar">
       <div class="category-tabs enterprise-segmented-tabs">
-        <button class="tab-btn tab-urgent active" id="tabBtnGc1Assigned" data-target="team_assigned">
+        <button class="tab-btn tab-active-focus active" id="tabBtnActiveFocus" data-target="active_tickets">
+          <span class="tab-icon">⚡</span>
+          <span class="tab-text">Tiket Aktif Berjalan</span>
+          <span class="tab-badge" id="badgeActiveFocus">0</span>
+        </button>
+
+        <button class="tab-btn tab-urgent" id="tabBtnGc1Assigned" data-target="team_assigned">
           <span class="tab-icon">🚨</span>
           <span class="tab-text">Assigned Tim Kita</span>
           <span class="tab-badge" id="badgeGc1Assigned">0</span>
-        </button>
-
-        <button class="tab-btn tab-pending" id="tabBtnGc1Pending" data-target="team_pending">
-          <span class="tab-icon">⏳</span>
-          <span class="tab-text">Pending Approval</span>
-          <span class="tab-badge" id="badgeGc1Pending">0</span>
         </button>
 
         <button class="tab-btn tab-progress" id="tabBtnTeamProgress" data-target="team_progress">
           <span class="tab-icon">⚙️</span>
           <span class="tab-text">In Progress</span>
           <span class="tab-badge" id="badgeTeamProgress">0</span>
+        </button>
+
+        <button class="tab-btn tab-pending" id="tabBtnGc1Pending" data-target="team_pending">
+          <span class="tab-icon">⏳</span>
+          <span class="tab-text">Pending / On-Hold</span>
+          <span class="tab-badge" id="badgeGc1Pending">0</span>
+        </button>
+
+        <button class="tab-btn tab-closed" id="tabBtnClosed" data-target="team_closed">
+          <span class="tab-icon">✅</span>
+          <span class="tab-text">Riwayat Selesai</span>
+          <span class="tab-badge" id="badgeClosed">0</span>
         </button>
 
         <button class="tab-btn tab-wa" id="tabBtnWa" data-target="wa_alerts">
@@ -563,6 +575,7 @@
             <option value="Pending Approval">Pending Approval (Persetujuan)</option>
             <option value="In Progress">In Progress (Diproses)</option>
             <option value="On-Hold">On Hold (Tertunda)</option>
+            <option value="Closed">Closed / Selesai</option>
           </select>
         </div>
 

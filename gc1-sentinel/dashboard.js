@@ -8,7 +8,7 @@ const SERVER = location.protocol.startsWith("http") ? location.origin : "http://
 
 let state = {
   role: "operator",
-  activeTab: "all_tickets", // "all_tickets", "team_assigned", "team_pending", "team_progress", "wa_alerts"
+  activeTab: "active_tickets", // "active_tickets", "team_assigned", "team_progress", "team_pending", "team_closed", "wa_alerts", "all_tickets"
   snapshot: {
     total_helpdesk: 0,
     team_assigned_count: 0,
@@ -105,20 +105,24 @@ const kpiTeamProgress = document.getElementById("kpiTeamProgress");
 const kpiSlaHealth = document.getElementById("kpiSlaHealth");
 const kpiTotalHelpdesk = document.getElementById("kpiTotalHelpdesk");
 
-// 5 Tab Badges
+// Tab Badges
+const badgeActiveFocus = document.getElementById("badgeActiveFocus");
 const badgeGc1Assigned = document.getElementById("badgeGc1Assigned");
-const badgeGc1Pending = document.getElementById("badgeGc1Pending");
 const badgeTeamProgress = document.getElementById("badgeTeamProgress");
+const badgeGc1Pending = document.getElementById("badgeGc1Pending");
+const badgeClosed = document.getElementById("badgeClosed");
 const badgeWa = document.getElementById("badgeWa");
 const badgeAll = document.getElementById("badgeAll");
 
-// 5 Tab Buttons
+// Tab Buttons
+const tabBtnActiveFocus = document.getElementById("tabBtnActiveFocus");
 const tabBtnGc1Assigned = document.getElementById("tabBtnGc1Assigned");
-const tabBtnGc1Pending = document.getElementById("tabBtnGc1Pending");
 const tabBtnTeamProgress = document.getElementById("tabBtnTeamProgress");
+const tabBtnGc1Pending = document.getElementById("tabBtnGc1Pending");
+const tabBtnClosed = document.getElementById("tabBtnClosed");
 const tabBtnWa = document.getElementById("tabBtnWa");
 const tabBtnAll = document.getElementById("tabBtnAll");
-const allTabBtns = [tabBtnGc1Assigned, tabBtnGc1Pending, tabBtnTeamProgress, tabBtnWa, tabBtnAll];
+const allTabBtns = [tabBtnActiveFocus, tabBtnGc1Assigned, tabBtnTeamProgress, tabBtnGc1Pending, tabBtnClosed, tabBtnWa, tabBtnAll];
 
 // Section Banner
 const currentCategoryTitle = document.getElementById("currentCategoryTitle");
@@ -193,6 +197,18 @@ const modalBtnClose = document.getElementById("modalBtnClose");
 // CATEGORY METADATA (SESUAI SOP GC 1 v0.2 - BEBAS TELKOM)
 // ----------------------------------------------------
 const CATEGORY_META = {
+  active_tickets: {
+    title: "<span>⚡</span> Tiket Aktif Berjalan (Fokus Kerja Tim GC 1)",
+    desc: "Seluruh tiket aktif yang sedang ditangani atau memerlukan tindak lanjut tim GC 1 (In Progress, On-Hold, Assigned, dan Pending).",
+    emptyTitle: "Tidak ada tiket aktif berjalan",
+    emptyDesc: "Luar biasa! Seluruh tiket operasional GC 1 telah selesai ditangani."
+  },
+  team_closed: {
+    title: "<span>✅</span> Riwayat Tiket Selesai (Arsip & Selesai)",
+    desc: "Arsip seluruh tiket yang telah terselesaikan, ditutup, atau dibatalkan (Closed, Resolved, Completed, Rejected, Canceled).",
+    emptyTitle: "Belum ada riwayat tiket selesai",
+    emptyDesc: "Tiket yang telah diselesaikan akan tercatat rapi di sini."
+  },
   team_assigned: {
     title: "<span>🚨</span> Assigned Tim Kita (Helpdesk & EOS L1) - Siap Ditangani",
     desc: "Tiket internal tim kita yang berstatus Assigned. Helpdesk sebagai gerbang utama menugaskan ke EOS L1/L2/L3/NOC/SOC sesuai SOP Bab 5.",
@@ -694,6 +710,14 @@ function updateKpiCards() {
 function updateTabBadges() {
   const s = state.snapshot;
   if (window.V3 && V3.updateBadges && V3.updateBadges(s)) return;
+  const rawPool = (s.all_scanned_tickets && s.all_scanned_tickets.length > 0)
+    ? s.all_scanned_tickets
+    : (s.all_tickets || []);
+  const st = (t) => (t.requestState || "").toLowerCase();
+  const isClosed = (t) => Boolean(t.slaClosed || st(t).includes("closed") || st(t).includes("resolved") || st(t).includes("complete") || st(t).includes("selesai") || st(t).includes("cancel") || st(t).includes("reject") || st(t).includes("batal") || st(t).includes("tolak"));
+
+  if (badgeActiveFocus) badgeActiveFocus.textContent = rawPool.filter(t => !isClosed(t)).length;
+  if (badgeClosed) badgeClosed.textContent = rawPool.filter(t => isClosed(t)).length;
   if (badgeGc1Assigned) badgeGc1Assigned.textContent = s.team_assigned_count ?? s.gc1_assigned_count ?? 0;
   if (badgeGc1Pending) badgeGc1Pending.textContent = s.team_pending_count ?? s.gc1_pending_count ?? 0;
   if (badgeTeamProgress) badgeTeamProgress.textContent = s.team_progress_count ?? 0;
@@ -715,7 +739,7 @@ function switchTab(targetCategory) {
     }
   });
 
-  const meta = CATEGORY_META[targetCategory] || CATEGORY_META.team_assigned || CATEGORY_META.gc1_assigned;
+  const meta = CATEGORY_META[targetCategory] || CATEGORY_META.active_tickets || CATEGORY_META.team_assigned;
   if (currentCategoryTitle) currentCategoryTitle.innerHTML = meta.title;
   if (currentCategoryDesc) currentCategoryDesc.textContent = meta.desc;
 
@@ -744,7 +768,7 @@ document.getElementById("cardGc1Assigned")?.addEventListener("click", () => swit
 document.getElementById("cardGc1Pending")?.addEventListener("click", () => switchTab("team_pending"));
 document.getElementById("cardTeamProgress")?.addEventListener("click", () => switchTab("team_progress"));
 document.getElementById("cardSlaHealth")?.addEventListener("click", () => switchTab("all_tickets"));
-document.getElementById("cardTotalHelpdesk")?.addEventListener("click", () => switchTab("all_tickets"));
+document.getElementById("cardTotalHelpdesk")?.addEventListener("click", () => switchTab("active_tickets"));
 
 // Helper: Resolver Layer Styling
 function getResolverClass(layer) {
@@ -805,7 +829,16 @@ function renderActiveTab() {
     ? state.snapshot.all_scanned_tickets
     : (state.snapshot.all_tickets || []);
 
-  if (state.activeTab === "team_assigned" || state.activeTab === "gc1_assigned") {
+  const isClosedCheck = (t) => {
+    const rs = (t.requestState || "").toLowerCase();
+    return Boolean(t.slaClosed || rs.includes("closed") || rs.includes("resolved") || rs.includes("complete") || rs.includes("selesai") || rs.includes("cancel") || rs.includes("reject") || rs.includes("batal") || rs.includes("tolak"));
+  };
+
+  if (state.activeTab === "active_tickets") {
+    list = rawPool.filter((t) => !isClosedCheck(t));
+  } else if (state.activeTab === "team_closed") {
+    list = rawPool.filter((t) => isClosedCheck(t));
+  } else if (state.activeTab === "team_assigned" || state.activeTab === "gc1_assigned") {
     list = state.snapshot.team_assigned || state.snapshot.gc1_assigned || [];
   } else if (state.activeTab === "team_pending" || state.activeTab === "gc1_pending") {
     list = state.snapshot.team_pending || state.snapshot.gc1_pending || [];
@@ -850,6 +883,7 @@ function renderActiveTab() {
       if (fs.includes("assign")) return rs.includes("assign");
       if (fs.includes("pending")) return rs.includes("pending");
       if (fs.includes("progress")) return rs.includes("progress");
+      if (fs.includes("close") || fs.includes("selesai")) return isClosedCheck(t);
       return rs === fs;
     });
   }
@@ -1033,7 +1067,7 @@ function renderActiveTab() {
   if (list.length === 0) {
     if (sentinelTableBody) sentinelTableBody.innerHTML = "";
     if (emptyState) emptyState.style.display = "block";
-    const meta = CATEGORY_META[state.activeTab] || CATEGORY_META.team_assigned || CATEGORY_META.gc1_assigned;
+    const meta = CATEGORY_META[state.activeTab] || CATEGORY_META.active_tickets || CATEGORY_META.team_assigned;
     if (emptyTitle) emptyTitle.textContent = meta.emptyTitle;
     if (emptyDesc) emptyDesc.textContent = meta.emptyDesc;
     return;

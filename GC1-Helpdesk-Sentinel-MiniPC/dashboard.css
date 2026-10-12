@@ -680,6 +680,30 @@ body.enterprise-theme {
 }
 
 /* SOFT THEME FOR ACTIVE TABS - ELEGAN, SOFT & SYMMETRIC */
+.tab-btn.tab-active-focus.active {
+  background: #EEF2FF;
+  border-color: #C7D2FE;
+  color: #4338CA;
+  box-shadow: 0 1px 4px rgba(79, 70, 229, 0.12);
+}
+.tab-btn.tab-active-focus.active .tab-badge {
+  background: #E0E7FF;
+  color: #3730A3;
+  border-color: #C7D2FE;
+}
+
+.tab-btn.tab-closed.active {
+  background: #F8FAFC;
+  border-color: #CBD5E1;
+  color: #334155;
+  box-shadow: 0 1px 4px rgba(100, 116, 139, 0.12);
+}
+.tab-btn.tab-closed.active .tab-badge {
+  background: #F1F5F9;
+  color: #475569;
+  border-color: #CBD5E1;
+}
+
 .tab-btn.tab-urgent.active {
   background: #FEF2F2;
   border-color: #FCA5A5;

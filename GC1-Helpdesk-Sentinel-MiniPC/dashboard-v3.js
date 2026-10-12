@@ -33,7 +33,7 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} },
   };
   const num = (v) => (v === null || v === undefined ? "-" : v);
-  const getState = () => (typeof state !== "undefined" ? state : (window.state || { role: "operator", activeTab: "all_tickets", snapshot: {} }));
+  const getState = () => (typeof state !== "undefined" ? state : (window.state || { role: "operator", activeTab: "active_tickets", snapshot: {} }));
 
   // ------------------------------------------------------------------ sidebar
   const shell = $("appShell");
@@ -119,13 +119,13 @@
       if (targetSlot) targetSlot.appendChild(tb);
       tb.hidden = false;
       tb.dataset.view = v;
-      const valid = v === "wa" ? ["all_tickets", "wa_alerts"] : ["all_tickets", "team_assigned", "team_pending", "team_progress"];
+      const valid = v === "wa" ? ["all_tickets", "wa_alerts"] : ["active_tickets", "team_assigned", "team_progress", "team_pending", "team_closed", "all_tickets"];
       const allLabel = $("tabBtnAll") && $("tabBtnAll").querySelector(".tab-text");
       if (allLabel) allLabel.textContent = v === "itsm" ? "Semua Tiket ITSM" : (v === "wa" ? "Semua Pra-tiket WhatsApp" : "Semua Tiket Terpantau");
       const waLabel = $("tabBtnWa") && $("tabBtnWa").querySelector(".tab-text");
       if (waLabel) waLabel.textContent = "Feed Pesan WhatsApp";
-      const curTab = st.activeTab || "all_tickets";
-      if (!valid.includes(curTab)) switchTab("all_tickets");
+      const curTab = st.activeTab || "active_tickets";
+      if (!valid.includes(curTab)) switchTab("active_tickets");
       else switchTab(curTab);
       if (v === "wa" && curTab === "all_tickets") {
         if ($("currentCategoryTitle")) $("currentCategoryTitle").innerHTML = "<span>💬</span> Pra-tiket WhatsApp";
@@ -170,10 +170,13 @@
     if (V3.view !== "itsm" && V3.view !== "wa") return false;
     const list = V3.filterBySource(s.all_tickets || []);
     const st = (t) => (t.requestState || "").toLowerCase();
+    const isClosed = (t) => Boolean(t.slaClosed || st(t).includes("closed") || st(t).includes("resolved") || st(t).includes("complete") || st(t).includes("selesai") || st(t).includes("cancel") || st(t).includes("reject") || st(t).includes("batal") || st(t).includes("tolak"));
     const set = (id, n) => { const el = $(id); if (el) el.textContent = n; };
-    set("badgeGc1Assigned", list.filter((t) => st(t).includes("assign")).length);
-    set("badgeGc1Pending", list.filter((t) => st(t).includes("pending")).length);
-    set("badgeTeamProgress", list.filter((t) => st(t).includes("progress")).length);
+    set("badgeActiveFocus", list.filter((t) => !isClosed(t)).length);
+    set("badgeClosed", list.filter((t) => isClosed(t)).length);
+    set("badgeGc1Assigned", list.filter((t) => !isClosed(t) && st(t).includes("assign") && !st(t).includes("hold") && !st(t).includes("pending") && !st(t).includes("progress")).length);
+    set("badgeGc1Pending", list.filter((t) => !isClosed(t) && (st(t).includes("pending") || st(t).includes("hold"))).length);
+    set("badgeTeamProgress", list.filter((t) => !isClosed(t) && st(t).includes("progress")).length);
     set("badgeWa", s.wa_count ?? 0);
     set("badgeAll", list.length);
     return true;
@@ -305,8 +308,10 @@
           progress++;
         } else if (rState.includes("hold")) {
           onHold++;
-        } else {
+        } else if (rState.includes("assign") || rState.includes("ditugaskan")) {
           assigned++;
+        } else {
+          pending++;
         }
       }
     } else {
@@ -439,12 +444,12 @@
         val: k.itsm.length,
         unit: "tiket",
         sub: totalSub,
-        go: "tab:all_tickets",
+        go: "tab:active_tickets",
         iconSvg: totalIcon,
         badgeText: "📁 Terpantau",
         badgeCls: "badge-total",
         visualHtml: bd.visualHtml,
-        footerText: bd.footerText
+        footerText: `${bd.active} Aktif • ${bd.resolved} Selesai (Total ${k.itsm.length})`
       }) +
       kpi({
         cls: "itsm",
@@ -782,21 +787,37 @@
       ? "Antrean prioritas siap eksekusi tim"
       : "Semua tiket sudah ditugaskan";
 
+    // Card 1: Tiket Aktif Berjalan (Opsi A: Fokus Kerja Operasional Tim)
+    const activeTicketsCount = bd.active;
+    const activeSub = `${progressCount} In Progress • ${onHoldCount} On-Hold`;
+    const progPct = activeTicketsCount > 0 ? Math.round((progressCount / activeTicketsCount) * 100) : 0;
+    const holdPct = 100 - progPct;
+    const activeVisualHtml = `
+      <div class="k-ratio-bar">
+        <span class="k-bar-seg seg-progress" style="width:${progPct}%" title="${progressCount} In Progress (${progPct}%)"></span>
+        <span class="k-bar-seg seg-onhold" style="width:${holdPct}%" title="${onHoldCount} On-Hold (${holdPct}%)"></span>
+      </div>
+      <div class="k-meta-legend">
+        <span class="leg-item"><i class="leg-dot dot-progress"></i><b>${progressCount}</b> In Progress</span>
+        <span class="leg-item"><i class="leg-dot dot-onhold"></i><b>${onHoldCount}</b> On-Hold</span>
+      </div>`;
+    const activeFooter = `${activeTicketsCount} Aktif • ${bd.resolved} Riwayat Selesai (Total ${bd.gc1})`;
+
     $("ovKpis").innerHTML =
       kpi({
         cls: "itsm",
         valColorCls: "val-total",
-        category: "PORTAL ITSM",
-        label: "Total Tiket ITSM",
-        val: itsmTotal,
+        category: "OPERASIONAL GC 1",
+        label: "Tiket Aktif Berjalan",
+        val: activeTicketsCount,
         unit: "tiket",
-        sub: "Gabungan Request dan Insiden terpantau",
-        go: "view:itsm",
+        sub: activeSub,
+        go: "tab:active_tickets",
         iconSvg: V3_ICONS.total,
-        badgeText: "● Terpantau",
-        badgeCls: "badge-total",
-        visualHtml: bd.visualHtml,
-        footerText: bd.footerText
+        badgeText: "⚡ Fokus Kerja Tim",
+        badgeCls: "badge-progress",
+        visualHtml: activeVisualHtml,
+        footerText: activeFooter
       }) +
       kpi({
         cls: "itsm",
