@@ -87,27 +87,40 @@ def is_august_2026_or_newer(t):
     return False
 
 def normalize_ticket_state_and_desc(tid, desc, state, req_for=""):
-    KNOWN_STATES = ["closed", "resolved", "in progress", "on hold", "completed", "assigned", "canceled", "cancelled", "open", "pending", "baru", "rejected", "ditugaskan", "diproses", "menunggu"]
-    # Jika state kosong atau tidak dikenal, tapi desc adalah salah satu KNOWN_STATES
-    if not state or state.lower() not in KNOWN_STATES:
-        if desc.lower() in KNOWN_STATES:
-            state = desc
+    s_clean = (state or "").strip()
+    d_clean = (desc or "").strip()
+
+    st_norm = s_clean.lower().replace("-", " ")
+    desc_norm = d_clean.lower().replace("-", " ")
+
+    KNOWN_STATE_KEYS = ["closed", "resolved", "in progress", "on hold", "completed", "assigned", "canceled", "cancelled", "open", "pending", "baru", "rejected", "ditugaskan", "diproses", "menunggu", "selesai", "hold"]
+
+    # Jika state kosong atau tidak dikenal, tapi desc berisi salah satu kata status (kolom tergeser saat scraping)
+    if not s_clean or not any(k in st_norm for k in KNOWN_STATE_KEYS):
+        if any(k in desc_norm for k in KNOWN_STATE_KEYS):
+            state = d_clean
             desc = req_for or ""
-    lower_st = (state or "").strip().lower()
-    if lower_st in ["closed", "completed", "resolved", "complete", "selesai"]:
-        std_state = "Closed" if lower_st in ["closed", "complete"] else ("Resolved" if lower_st == "resolved" else "Completed")
-    elif lower_st in ["in progress", "diproses", "sedang diproses", "progress"]:
+            st_norm = state.lower().replace("-", " ")
+
+    # Klasifikasi status standar baku ITSM
+    if any(k in st_norm for k in ["on hold", "hold", "pending", "menunggu", "tertunda"]):
+        std_state = "On-Hold"
+    elif any(k in st_norm for k in ["in progress", "diproses", "sedang diproses", "progress", "penanganan"]):
         std_state = "In Progress"
-    elif lower_st in ["on hold", "pending", "menunggu", "on-hold", "hold"]:
-        std_state = "On Hold"
-    elif lower_st in ["assigned", "open", "baru", "ditugaskan", "antrean"]:
-        std_state = "Assigned"
-    elif lower_st in ["canceled", "cancelled", "batal"]:
+    elif any(k in st_norm for k in ["closed", "complete", "completed", "selesai"]):
+        std_state = "Closed" if "complete" not in st_norm else "Completed"
+    elif "resolved" in st_norm:
+        std_state = "Resolved"
+    elif any(k in st_norm for k in ["cancel", "canceled", "cancelled", "batal"]):
         std_state = "Canceled"
-    elif lower_st in ["rejected", "tolak"]:
+    elif any(k in st_norm for k in ["reject", "rejected", "tolak"]):
         std_state = "Rejected"
+    elif any(k in st_norm for k in ["assign", "assigned", "open", "baru", "ditugaskan", "antrean"]):
+        std_state = "Assigned"
     else:
-        std_state = state.strip() if state else "Assigned"
+        # Jangan pernah mengasumsikan Assigned jika tidak ada kata kuncinya
+        std_state = s_clean if s_clean else "On-Hold"
+
     return desc, std_state
 
 CONFIG_PATH = APP_DIR / "config.json"
@@ -764,10 +777,15 @@ def enrich_ticket_with_sop(t):
 
     tid = t.get("ticketId", "")
     desc = t.get("shortDesc", "")
-    state_val = t.get("requestState", "Assigned")
+    state_val = t.get("requestState", "")
     resolver_layer = t.get("resolverLayer", "Helpdesk (L0)")
     req_for = t.get("requestedFor", "")
     created_date = t.get("createdDate", "")
+
+    # Normalisasi otomatis status & uraian jika kolom tergeser
+    desc, state_val = normalize_ticket_state_and_desc(tid, desc, state_val, req_for)
+    t["shortDesc"] = desc
+    t["requestState"] = state_val
 
     # Waktu masuk: dari portal; jika tidak terbaca, waktu pertama kali Sentinel melihat tiket (tidak dikarang)
     e = TICKET_REGISTRY.get(tid, {})
@@ -1958,7 +1976,7 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 def st(t):
                     return (t.get("requestState") or "").lower()
 
-                team_assigned = [t for t in our_team_tickets if not t.get("slaClosed") and (any(k in st(t) for k in ("assign", "ditugaskan", "disposisi", "open", "baru", "new", "terbuka", "antrean")) or not any(k in st(t) for k in ("pending", "menunggu", "hold", "progress", "diproses", "selesai", "closed", "resolved", "complete", "cancel", "reject")))]
+                team_assigned = [t for t in our_team_tickets if not t.get("slaClosed") and any(k in st(t) for k in ("assign", "ditugaskan", "disposisi", "open", "baru", "new", "terbuka", "antrean"))]
                 team_pending = [t for t in our_team_tickets if not t.get("slaClosed") and any(k in st(t) for k in ("pending", "menunggu", "hold", "tertunda"))]
                 team_progress = [t for t in our_team_tickets if not t.get("slaClosed") and any(k in st(t) for k in ("progress", "diproses", "penanganan", "analisis"))]
 
