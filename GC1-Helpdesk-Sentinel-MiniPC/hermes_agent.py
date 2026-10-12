@@ -143,8 +143,10 @@ class Hermes:
         env = dict(os.environ)
         if self.cfg.get("ai_hermes_home"):
             env["HERMES_HOME"] = self.cfg["ai_hermes_home"]
+        cflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
         proc = subprocess.run([self.hermes_exe(), "chat", "-Q", "--max-turns", "1", "-t", "none", "-q", prompt],
-                              capture_output=True, text=True, timeout=180, env=env, encoding="utf-8", errors="replace")
+                              capture_output=True, text=True, timeout=180, env=env, encoding="utf-8", errors="replace",
+                              creationflags=cflags)
         out = (proc.stdout or "") + (proc.stderr or "")
         m = re.search(r"HTTP (\d{3}): (.+)", out)
         if m:

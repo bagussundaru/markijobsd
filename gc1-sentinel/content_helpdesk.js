@@ -484,20 +484,33 @@
 
   function getColumnIndexes(tableEl) {
     try {
-      const candidateRows = Array.from(tableEl.querySelectorAll("thead tr, tr"));
+      let candidateRows = Array.from(tableEl.querySelectorAll("thead tr, tr"));
+      // Jika header tidak ada di dalam table ini (seperti pada ZK Listbox/Grid), cari container header di atasnya
+      if (!candidateRows.some(r => r.querySelector("th, .z-listheader, .z-column"))) {
+        const zkBox = tableEl.closest ? tableEl.closest(".z-listbox, .z-grid, .z-div") : null;
+        if (zkBox) {
+          const headerContainer = zkBox.querySelector(".z-listbox-header, .z-grid-header, thead");
+          if (headerContainer) {
+            candidateRows = Array.from(headerContainer.querySelectorAll("tr, .z-listhead, .z-columns"));
+          }
+        } else if (tableEl.previousElementSibling) {
+          candidateRows = Array.from(tableEl.previousElementSibling.querySelectorAll("tr, thead tr"));
+        }
+      }
+
       for (const row of candidateRows) {
-        const headers = Array.from(row.querySelectorAll("th, td")).map((th) => (th.textContent || "").trim().toLowerCase());
-        const numIdx = headers.findIndex((h) => h.includes("number") || h.includes("nomor") || h.includes("ticket") || h.includes("tiket"));
+        const headers = Array.from(row.querySelectorAll("th, td, .z-listheader, .z-column, .z-listheader-content, .z-column-content")).map((th) => (th.textContent || "").trim().toLowerCase());
+        const numIdx = headers.findIndex((h) => h.includes("number") || h.includes("nomor") || h.includes("ticket") || h.includes("tiket") || h.includes("no.") || h.includes("id tiket") || h.includes("no tiket"));
         if (numIdx !== -1) {
           return {
             headerRow: row,
             numberIdx: numIdx,
-            descIdx: headers.findIndex((h) => h.includes("short description") || h.includes("description") || h.includes("deskripsi") || h.includes("uraian")),
-            requestedForIdx: headers.findIndex((h) => h.includes("requested for") || h.includes("pemohon") || h.includes("caller")),
-            stateIdx: headers.findIndex((h) => h.includes("request state") || h.includes("incident state") || h.includes("state") || h.includes("status")),
-            dateIdx: headers.findIndex((h) => h.includes("created date") || h.includes("created") || h.includes("date") || h.includes("tanggal")),
-            locationIdx: headers.findIndex((h) => h.includes("location") || h.includes("lokasi") || h.includes("instansi")),
-            groupIdx: headers.findIndex((h) => h.includes("assignment group") || h.includes("assigment group") || h.includes("group") || h.includes("grup"))
+            descIdx: headers.findIndex((h) => h.includes("short description") || h.includes("description") || h.includes("deskripsi") || h.includes("uraian") || h.includes("judul") || h.includes("subject") || h.includes("perihal") || h.includes("keluhan")),
+            requestedForIdx: headers.findIndex((h) => h.includes("requested for") || h.includes("pemohon") || h.includes("caller") || h.includes("pelapor") || h.includes("nama") || h.includes("user")),
+            stateIdx: headers.findIndex((h) => h.includes("request state") || h.includes("incident state") || h.includes("state") || h.includes("status") || h.includes("kondisi") || h.includes("tahap")),
+            dateIdx: headers.findIndex((h) => h.includes("created date") || h.includes("created") || h.includes("date") || h.includes("tanggal") || h.includes("waktu") || h.includes("tgl")),
+            locationIdx: headers.findIndex((h) => h.includes("location") || h.includes("lokasi") || h.includes("instansi") || h.includes("kementerian") || h.includes("lembaga")),
+            groupIdx: headers.findIndex((h) => h.includes("assignment group") || h.includes("assigment group") || h.includes("group") || h.includes("grup") || h.includes("unit") || h.includes("tim"))
           };
         }
       }
@@ -507,7 +520,7 @@
     }
   }
 
-  // Format nomor tiket resmi ServiceNow / Helpdesk Komdigi
+  // Format nomor tiket resmi ServiceNow / Helpdesk Komdigi / ESTIM
   function isLikelyTicketId(id) {
     if (!id) return false;
     const s = String(id).trim();
@@ -526,7 +539,7 @@
     const list = [];
     try {
       if (!d) return list;
-      d.querySelectorAll("table").forEach((t) => list.push(t));
+      d.querySelectorAll("table, .z-listbox, .z-grid, .z-listbox-body, .z-grid-body").forEach((t) => list.push(t));
       d.querySelectorAll("iframe, frame").forEach((f) => {
         try {
           const cd = f.contentDocument || f.contentWindow?.document;
@@ -540,7 +553,7 @@
   function extractPaginationInfo(d) {
     try {
       if (!d) return null;
-      const candidates = d.querySelectorAll(".list_nav_total_records, .list_row_number_input, span[id*='total_rows'], td.list_nav_bottom, .vcr_counter, .list_nav_records, .list_nav_text");
+      const candidates = d.querySelectorAll(".list_nav_total_records, .list_row_number_input, span[id*='total_rows'], td.list_nav_bottom, .vcr_counter, .list_nav_records, .list_nav_text, .z-paging-info");
       for (const el of candidates) {
         const txt = (el.textContent || "").trim();
         const m = txt.match(/(\d+)\s*(?:to|-)\s*(\d+)\s*(?:of|dari)\s*(\d+)/i);
@@ -566,7 +579,8 @@
 
       const scannedTickets = [];
       const seenTicketIds = new Set();
-      const ticketRegex = /\b(REQ|INC|RITM|TASK|TKT|CHG|PRB|SCTASK)[-_]?[A-Za-z0-9-_./]*\d+[A-Za-z0-9-_./]*/i;
+      // Format tiket ServiceNow + ESTIM Kominfo / PDN
+      const ticketRegex = /\b(REQ|INC|RITM|TASK|TKT|CHG|PRB|SCTASK|PDN|KMF|KOM|SR|WO|ESTIM|SD|TIK|IN|TK)[-_/]?[A-Za-z0-9-_./]*\d+[A-Za-z0-9-_./]*/i;
 
       tables.forEach((table) => {
         if (table.id === "sentinelTable" || table.classList.contains("sentinel-table") || table.closest(".dashboard-main")) {
@@ -574,11 +588,14 @@
         }
         const colIdx = getColumnIndexes(table);
 
-        const rows = table.querySelectorAll("tbody tr, tr");
+        const rows = table.querySelectorAll("tbody tr, tr.z-listitem, tr.z-row, .z-listitem, .z-row, tr, [role='row']");
         rows.forEach((row) => {
-          if (row.querySelector("th") && !colIdx) return;
+          if (row.querySelector("th, .z-listheader, .z-column") && !colIdx) return;
 
-          const cells = Array.from(row.querySelectorAll("td"));
+          let cells = Array.from(row.querySelectorAll("td, .z-listcell, .z-row-inner, .z-cell, [role='gridcell']"));
+          if (!cells || cells.length === 0) {
+            cells = Array.from(row.children).filter(c => !c.classList?.contains("z-listheader") && !c.tagName?.toLowerCase().includes("th"));
+          }
           if (!cells || cells.length === 0) return;
 
           let ticketNumber = "";
@@ -586,9 +603,13 @@
 
           // 1. Ekstraksi via indeks kolom Number jika berhasil dideteksi
           if (colIdx && colIdx.numberIdx !== -1 && cells[colIdx.numberIdx]) {
-            const m = cells[colIdx.numberIdx].textContent.match(ticketRegex);
+            const rawCell = cells[colIdx.numberIdx].textContent.trim();
+            const m = rawCell.match(ticketRegex);
             if (m) {
               ticketNumber = m[0].trim();
+              foundCellIdx = colIdx.numberIdx;
+            } else if (isLikelyTicketId(rawCell)) {
+              ticketNumber = rawCell;
               foundCellIdx = colIdx.numberIdx;
             }
           }
@@ -626,7 +647,7 @@
             locationName = (colIdx.locationIdx !== -1 && cells[colIdx.locationIdx]) ? cells[colIdx.locationIdx].textContent.trim() : "";
             assignmentGroup = (colIdx.groupIdx !== -1 && cells[colIdx.groupIdx]) ? cells[colIdx.groupIdx].textContent.trim() : "";
           } else {
-            // Relative offset berdasarkan urutan kolom ServiceNow standar
+            // Relative offset berdasarkan urutan kolom standar
             shortDesc = cells[foundCellIdx + 1]?.textContent.trim() || "";
             requestedFor = cells[foundCellIdx + 2]?.textContent.trim() || "";
             requestState = cells[foundCellIdx + 3]?.textContent.trim() || "";
@@ -644,13 +665,16 @@
 
           const fullRowText = `${ticketNumber} ${shortDesc} ${requestedFor} ${requestState} ${createdDate} ${locationName} ${assignmentGroup}`;
           const matchedKw = checkKeywordMatch(fullRowText);
-          const isGc1 = Boolean(matchedKw);
+          // Portal pdn.layanan.go.id secara inheren adalah ruang lingkup PDN / Government Cloud
+          const isPdnsPortal = location.hostname.includes("layanan.go.id") || location.hostname.includes("kominfo.go.id") || location.hostname.includes("komdigi.go.id");
+          const isGc1 = Boolean(matchedKw) || isPdnsPortal;
 
           const isTelkom = assignmentGroup.toLowerCase().includes("telkom");
 
-          const isAssigned = requestState.toLowerCase() === "assigned" || requestState.toLowerCase().includes("assign");
-          const isPending = requestState.toLowerCase().includes("pending") || requestState.toLowerCase().includes("hold");
-          const isInProgress = requestState.toLowerCase().includes("progress");
+          // Universal state matching (Bahasa Indonesia & English)
+          const isAssigned = /assigned|ditugaskan|disposisi|open|baru|new|antrean|terbuka/i.test(requestState);
+          const isPending = /pending|menunggu|on hold|hold|tertunda|tunda/i.test(requestState);
+          const isInProgress = /progress|diproses|sedang diproses|penanganan|analisis|berjalan/i.test(requestState);
 
           let category = "all_tickets";
           if (isAssigned) category = "team_assigned";
@@ -685,7 +709,7 @@
             matchedKeyword: matchedKw || (isTelkom ? "TELKOM" : "Tim Internal")
           });
 
-          // Notifikasi alert instan hanya untuk tiket baru yang berstatus Assigned
+          // Notifikasi alert instan hanya untuk tiket baru yang berstatus Assigned / Baru / Open
           if (isTelkom || !isAssigned) return;
 
           const prevEntry = knownRegistry[ticketNumber];

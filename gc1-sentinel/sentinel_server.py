@@ -1899,9 +1899,9 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 def st(t):
                     return (t.get("requestState") or "").lower()
 
-                team_assigned = [t for t in our_team_tickets if "assign" in st(t)]
-                team_pending = [t for t in our_team_tickets if "pending" in st(t)]
-                team_progress = [t for t in our_team_tickets if "progress" in st(t)]
+                team_assigned = [t for t in our_team_tickets if any(k in st(t) for k in ("assign", "ditugaskan", "disposisi", "open", "baru", "new", "terbuka", "antrean")) or not any(k in st(t) for k in ("pending", "menunggu", "hold", "progress", "diproses", "selesai", "closed", "resolved"))]
+                team_pending = [t for t in our_team_tickets if any(k in st(t) for k in ("pending", "menunggu", "hold", "tertunda"))]
+                team_progress = [t for t in our_team_tickets if any(k in st(t) for k in ("progress", "diproses", "penanganan", "analisis"))]
 
                 open_tickets = [t for t in our_team_tickets if not t.get("slaClosed")]
                 sla_pool = [t for t in open_tickets if not t.get("slaMode")]
@@ -2130,9 +2130,12 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                                         "created_at": time.time(),
                                         "hash": msg_hash
                                     })
-                # Tiap halaman ITSM mengganti DAFTARNYA SENDIRI; daftar lain tidak tersentuh (tidak saling menimpa)
+                # Akumulasikan tiket antar halaman/pagination (tidak menimpa tiket dari halaman lain)
                 pagination_data = (data.get("list") or {}).get("pagination")
-                HELPDESK_LISTS[list_key] = {"label": list_label, "tickets": normalized_tickets, "synced_at": time.time(), "title": list_title, "path": list_path, "pagination": pagination_data}
+                existing_tickets = (HELPDESK_LISTS.get(list_key) or {}).get("tickets", [])
+                new_ids = {t.get("ticketId") for t in normalized_tickets if t.get("ticketId")}
+                merged_tickets = normalized_tickets + [t for t in existing_tickets if t.get("ticketId") not in new_ids]
+                HELPDESK_LISTS[list_key] = {"label": list_label, "tickets": merged_tickets, "synced_at": time.time(), "title": list_title, "path": list_path, "pagination": pagination_data}
                 if list_key != "itsm":
                     HELPDESK_LISTS.pop("itsm", None)   # daftar format lama (tanpa nama halaman) digantikan begitu ekstensi baru membaca halaman bernama
                 HELPDESK_SNAPSHOT = merge_itsm_lists()
