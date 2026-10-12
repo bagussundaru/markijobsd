@@ -295,7 +295,7 @@
         else gc1++;
 
         const rState = (t.requestState || "").toLowerCase();
-        const isClosed = t.slaClosed || rState.includes("closed") || rState.includes("resolved") || rState.includes("selesai");
+        const isClosed = t.slaClosed || rState.includes("closed") || rState.includes("resolved") || rState.includes("complete") || rState.includes("selesai") || rState.includes("cancel") || rState.includes("reject") || rState.includes("batal") || rState.includes("tolak");
         if (isClosed) {
           resolved++;
         } else if (rState.includes("pending")) {

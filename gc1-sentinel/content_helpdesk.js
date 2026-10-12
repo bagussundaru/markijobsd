@@ -656,6 +656,12 @@
             assignmentGroup = cells[foundCellIdx + 6]?.textContent.trim() || "";
           }
 
+          const KNOWN_STATES_RE = /^(closed|resolved|in progress|on hold|completed|assigned|canceled|cancelled|open|pending|baru|rejected|ditugaskan|diproses|menunggu|selesai)$/i;
+          if (KNOWN_STATES_RE.test(shortDesc.trim()) && !KNOWN_STATES_RE.test(requestState.trim())) {
+            requestState = shortDesc.trim();
+            shortDesc = requestedFor || "";
+          }
+
           shortDesc = shortDesc.replace(/\s+/g, " ").trim();
           requestedFor = deduplicateRepeatedText(requestedFor.split("\n")[0].replace(/[📍📲📋]/g, "").replace(/\s+/g, " ").trim());
           requestState = requestState.replace(/[●•\r\n\t]/g, "").replace(/\s+/g, " ").trim();
