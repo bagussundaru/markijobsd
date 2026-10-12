@@ -556,7 +556,7 @@
       const candidates = d.querySelectorAll(".list_nav_total_records, .list_row_number_input, span[id*='total_rows'], td.list_nav_bottom, .vcr_counter, .list_nav_records, .list_nav_text, .z-paging-info");
       for (const el of candidates) {
         const txt = (el.textContent || "").trim();
-        const m = txt.match(/(\d+)\s*(?:to|-)\s*(\d+)\s*(?:of|dari)\s*(\d+)/i);
+        const m = txt.match(/(\d+)\s*(?:to|-)\s*(\d+)\s*(?:of|dari|\/)\s*(\d+)/i);
         if (m) {
           return {
             first: parseInt(m[1], 10),

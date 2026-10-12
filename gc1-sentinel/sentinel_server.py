@@ -1669,7 +1669,13 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
         return allowed
 
     def _origin_ok(self, origin):
-        return origin.startswith("chrome-extension://") or origin in self._allowed_origins()
+        if not origin or origin == "null":
+            return True
+        if origin.startswith("chrome-extension://"):
+            return True
+        if any(dom in origin.lower() for dom in ("layanan.go.id", "kominfo.go.id", "komdigi.go.id", "localhost", "127.0.0.1")):
+            return True
+        return origin in self._allowed_origins()
 
     def _host_ok(self):
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip().lower()
