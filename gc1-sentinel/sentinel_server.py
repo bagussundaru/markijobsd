@@ -1888,7 +1888,12 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
-        if path.startswith("/api/"):
+        if path in ("/", ""):
+            self.send_response(302)
+            self.send_header("Location", "/dashboard.html")
+            self.end_headers()
+            return
+        elif path.startswith("/api/"):
             self.handle_api_get(path, parsed)
         elif Path(path).name in {"sentinel_data.json", "config.json", "markijo_reported.json"} or path.endswith(".py"):
             self.send_error(404, "Not found")
