@@ -109,6 +109,105 @@ Agar rekan satu tim bisa memantau dashboard dari komputer lain:
 
 Tampilan tim hanya bisa membaca dashboard, laporan, dan CSV. Semua tindakan, pengaturan, dan data mentah ditolak (403); tombol operator disembunyikan. Catatan: lewat HTTP biasa, pakai hanya di jaringan internal yang dipercaya, dan siapa pun yang memegang token dapat melihat data tiket.
 
+## Tampilan dashboard
+
+- **Sidebar** yang bisa diciutkan (tombol « di kiri atas; pilihan diingat). Grup **Monitoring per sumber** juga bisa dilipat.
+- **Ringkasan**: tiket ITSM dan aduan WhatsApp dalam **satu grafik** (tren tiket masuk, bertumpuk per sumber), komposisi sumber, prioritas, kategori layanan (KAK 18.c), kepatuhan SLA, daftar "perlu perhatian" dan "menunggu balasan WA". Rentang 24 jam / 7 hari / 30 hari.
+- **Tiket ITSM** dan **Aduan WhatsApp**: masing-masing punya KPI, grafik, dan tabelnya sendiri (status, prioritas, kategori; kecepatan balasan, grup teratas, status pra-tiket).
+- Grafik digambar dengan SVG buatan sendiri: **tanpa CDN dan tanpa panggilan keluar**, jadi jalan offline di Mini PC. Font memakai font sistem.
+- Angka pada grafik adalah **data terpantau Sentinel**, bukan angka resmi laporan KAK.
+
+## Input Cepat (NLP)
+
+Menu **Input Cepat** (atau Ctrl+V di mana saja di dashboard, lalu Ctrl+Enter):
+
+1. Tempel satu atau banyak pesan WhatsApp. NLP aturan langsung membaca **pengirim, nomor HP, instansi, intent, prioritas (SOP 3.3), kategori layanan (KAK 18.c), ringkasan satu kalimat, dan entitas** (nomor tiket, IP yang disamarkan, nama host), serta menandai pesan yang tampak **obrolan antar-tenan** (tidak dicentang otomatis).
+2. Bila `ai_provider` = `ollama`, **AI lokal menyempurnakan di latar belakang** (prioritas dan ringkasan); hasil aturan tetap tampil lebih dulu sehingga operator tidak menunggu model. Teks disamarkan (telepon, email, IP, URL, kata sandi) sebelum diberikan ke model, dan model tidak pernah memegang akses ke apa pun.
+3. Pesan yang dipilih menjadi pra-tiket dengan instansi dan ringkasan dari NLP, dan hasil NLP menempel di tiket sebagai **saran** (Helpdesk menerima atau menolak).
+
+## Beberapa menu di ITSM (Request, Assign, ...)
+
+Aplikasi ITSM punya menu terpisah (mis. **Request** dan **Assign**) dengan tampilan masing-masing. Sentinel membacanya sebagai **daftar sendiri-sendiri**:
+
+- Ekstensi menyebut judul dan path halaman yang dibaca; server memetakannya ke daftar lewat `itsm_lists` di `config.json` (cocokkan kata kunci pada judul/path halaman):
+
+  ```json
+  "itsm_lists": [
+    {"key": "request", "label": "Request", "match": ["request", "permohonan"]},
+    {"key": "assign",  "label": "Assign",  "match": ["assign", "penugasan"]}
+  ]
+  ```
+- Tiap halaman hanya mengganti **daftarnya sendiri**. Dulu, membaca halaman Assign menimpa hasil halaman Request (dan sebaliknya); sekarang tidak.
+- Tiket yang muncul di dua menu dihitung **sekali** dan tercatat sebagai anggota kedua daftar. Total ITSM tidak dobel.
+- Di sidebar, grup Monitoring memuat **ITSM · Semua / Request / Assign** (tiket resmi, sesuai `itsm_lists`) dan **Pra-tiket WhatsApp** (aduan sebelum ada tiket di ITSM). Tiap item punya KPI, grafik, dan tabelnya sendiri; ringkasan menampilkan jumlah per daftar.
+- Di kepala tampilan ITSM ada status baca per halaman ("Request: 8 tiket, sinkron 2 menit lalu"); halaman yang belum pernah dibaca ditandai agar operator tahu menu mana yang perlu dibuka di ITSM.
+- Halaman yang judul/path-nya tidak cocok masuk daftar **"lainnya"**; ekstensi lama (tanpa info halaman) masuk daftar "ITSM" dan digantikan begitu ekstensi baru membaca halaman bernama. **Muat ulang ekstensi** setelah memperbarui berkas.
+- Pengujian: `dummy_helpdesk.html` (menu Request) dan `dummy_helpdesk_assign.html` (menu Assign, sebagian nomor sama dan ada insiden INC).
+- Batasan: Sentinel hanya membaca halaman yang **sedang terbuka** di Chrome. Bila tab sebuah menu ditutup, daftarnya berhenti diperbarui (dan ditandai basi di kepala tampilan).
+
+## Pengujian
+
+```
+python -B tests/run_all.py     # seluruh uji otomatis; memakai salinan sementara, data asli tidak tersentuh
+```
+
+## Dasar angka (apa yang resmi, apa yang internal)
+
+Bersumber dari **teks KAK** (poin 18.c, 8.5, 14), SOP v0.2, dan MoM 29 Sep 2026.
+
+| Ketentuan | Nilai | Dasar | Status |
+|---|---|---|---|
+| SLA Insiden | **24 Jam, 15 menit** | KAK 18.c (kata per kata) | Resmi |
+| Matriks prioritas insiden | Critical 4 jam, Major 8 jam, Minor 24 jam | SOP Komdigi No. 75 (via SOP v0.2 dan MoM) | Dipakai Sentinel; dokumen aslinya belum diterima tim |
+| SLA permintaan layanan | Per Katalog Layanan: IaaS 4 Hari 4 Jam, BaaS 9 Hari 6 Jam, SecaS 1 Hari 24 Jam, SaaS 16 Hari, Layanan Pendukung 3 Hari, PaaS 3 Hari, Baremetal 5 Hari, DC Colocation 4 Hari 8 Jam, Jaringan 4 Hari 2 Jam, Cloud Terpadu 3 Hari, Sandi Data 9 Jam, Pendaftaran 1 Hari | KAK 18.c | Resmi; **arti "N Hari, M Jam" belum disepakati**, Sentinel membacanya sebagai durasi total (hari x 24 + jam) dan menandainya di tiket |
+| "Respons < 15 menit" | 15 menit | **Tafsiran** SOP/MoM atas "24 Jam, 15 menit"; KAK tidak menyebut respons terpisah | Tafsiran, bukan kutipan KAK |
+| Capaian SLA bulanan | > 95% | MoM 29 Sep 2026 (pagi) | Resmi (MoM) |
+| Yang dihitung | Hanya tiket GC1 di portal; Telkom (GC2) terpisah | Dokumen ruang lingkup KAK GC1 | Resmi |
+| Status tiket pada laporan | Request: Open/On-Hold/In Progress/Completed/Pending Approval/Closed/Canceled/Rejected. Insiden: On-Hold/In Progress/Resolved/Canceled/Closed | KAK 8.5.h | Resmi; Completed/Canceled/Rejected dianggap selesai |
+| Laporan per kategori layanan | Request dan insiden per kategori, SLA per kategori | KAK 8.5.h.iv-viii | Resmi |
+| Balasan WA 5-10 menit | 5 dan 10 menit | Target internal tim | **Tidak ada di KAK** |
+| Tenan membuka tiket ITSM | 15 menit | Pengaman internal | **Tidak ada di KAK** |
+| Jam SLA saat Pending; arti "Pending Approval" | - | Belum disepakati dengan Tim GC1 | Belum ditentukan; jam tidak berhenti saat Pending |
+| Data di Indonesia, tidak ke pihak asing | - | KAK 15-16 | Resmi: AI eksternal tidak boleh memproses data tenan |
+
+**Kategori layanan** pada tiket ditentukan dari kata kunci dan bisa diubah petugas (tombol "Ubah kategori layanan", alasan wajib). SLA request mengikuti kategorinya; request tanpa kategori terdeteksi memakai baku 24 jam sampai kategorinya dipilih. Laporan memuat dua ukuran: SLA menurut matriks prioritas SOP dan SLA menurut **batas baku KAK** (insiden 24 jam 15 menit; request sesuai katalog).
+
+MoM 29 Sep menyebut Komdigi/GC2 menangani komplain di WhatsApp lebih dulu agar SLA tiket portal tidak breach. Karena itu Sentinel selalu mencatat **waktu aduan pertama di WA** (SOP 4.4) dan memisahkan metrik pra-tiket dari SLA portal.
+
+## Alur pra-tiket WhatsApp
+
+1. Aduan masuk di WhatsApp: **tempel** ke dashboard (Ctrl+V di mana saja, lalu **Ctrl+Enter**). Terbentuk **pra-tiket**.
+2. **Balas dalam 5-10 menit** (`wa_reply_warn_minutes` 5, `wa_reply_breach_minutes` 10). Tombol **💬 Balasan** menyalin balasan siap kirim; **✓ Dibalas** menghentikan hitung mundur. Pil di baris tiket berubah hijau, kuning (>5 menit), merah (>10 menit).
+3. **Tenan terdaftar**: balasan meminta pelapor **membuka tiket di ITSM dulu** (teks SOP lampiran 14.1, nama dan instansi terisi otomatis). **Nomor baru**: balasan berupa pertanyaan identitas, lalu alur verifikasi Komdigi.
+4. Bila 15 menit (`wa_ticket_open_target_minutes`) belum ada tiket di ITSM, muncul penanda "Belum ada tiket di ITSM".
+5. Setelah tiket ITSM terbit, **SLA resmi (KAK) berjalan pada tiket ITSM itu** (waktu tiket di portal). Pra-tiket **tidak dihitung SLA penyelesaian** dan tidak masuk persentase kepatuhan SLA. Waktu aduan pertama di WA tetap dicatat dan ditampilkan di tiket ITSM (SOP 4.4).
+6. WhatsApp berfungsi sebagai pra-tiket dan komunikasi; laporan memisahkan metrik pra-tiket (balasan WA, pembukaan tiket) dari SLA tiket ITSM.
+
+## Identitas pelapor dan daftar PIC (SOP 4.1)
+
+Setiap aduan WhatsApp mencatat **nomor HP**, **nama PIC**, dan **instansi**. Nomor yang tampil sebagai nama kontak (nomor belum tersimpan di ponsel) dikenali otomatis; untuk teks polos isi kolom "Nomor HP pengirim".
+
+- **Nomor terdaftar** (ada di Daftar PIC): tiket otomatis memakai nama dan instansi PIC.
+- **Nomor baru**: tiket diberi penanda "nomor baru" dan peringatan *jangan beri informasi layanan*. Alurnya di tombol **📇 Daftar PIC** (atau "Kelola verifikasi" di detail tiket):
+  1. salin pertanyaan identitas dan kirim manual (asal dan instansi),
+  2. catat jawaban pelapor,
+  3. bila belum terdaftar, minta pelapor mendaftar ke Komdigi dan catat nomor/tanggal pengajuan,
+  4. setelah Komdigi memverifikasi, catat bukti verifikasinya. **Baru saat itu nomor disimpan sebagai PIC** dan semua tiket dari nomor itu ikut terverifikasi,
+  5. bukan tenan: tolak, tiket ditutup dan aduan dihentikan.
+- Nomor yang belum terverifikasi **tidak pernah masuk Daftar PIC**; ia hanya berupa "kasus verifikasi".
+- **Impor daftar PIC resmi** (CSV `nama;instansi;nomor`) di tab Tambah / Impor.
+- Semua langkah atas nama petugas dan tercatat di riwayat tiket. Tampilan tim menyamarkan nomor HP (hanya 4 digit terakhir), dan CSV laporan tidak memuat nomor.
+- Data PIC tersimpan di `sentinel_data.json` (tidak masuk repo). **Tombol Clear Data tidak menghapus Daftar PIC**, supaya tidak terhapus tak sengaja; hapus entri uji lewat tombol Hapus.
+
+## Syarat dokumen per jenis permintaan
+
+Aturan di `config.json` (`doc_rules`). Bawaan: **pembuatan akun** wajib punya **approval** dan **nota dinas**.
+
+- Tiket yang cocok diberi penanda "dokumen belum lengkap, jangan diproses" sampai keduanya tercatat (nomor dan tanggal, atas nama petugas).
+- Approval dicatat otomatis bila status ITSM terlihat berubah dari *Pending Approval* ke status lain; nota dinas selalu dicatat petugas.
+- Sentinel hanya mencatat dan memperingatkan; ia tidak memblokir sistem lain.
+- Aturan ini **belum ada di SOP v0.2**; sebaiknya dimasukkan ke SOP versi berikutnya (SOP 4.4 saat ini membolehkan aktivasi akun sederhana diselesaikan di WhatsApp tanpa tiket).
+
 ## Batasan yang perlu diketahui
 
 - Prioritas otomatis hanyalah **usulan** dari kata kunci SOP 3.3. Helpdesk menetapkan prioritas final berdasarkan dampak terverifikasi.

@@ -596,6 +596,157 @@
       });
   }
 
+  
+  let activeAttnFilter = "all";
+
+  function renderPriorityAttentionCard(tickets) {
+    const listEl = $("ovPriorityAttentionList");
+    if (!listEl) return;
+
+    // Filter tickets that need attention (exclude closed/resolved unless critical)
+    const openTickets = (tickets || []).filter(t => !t.slaClosed && !t.isTelkom);
+    const escList = openTickets.filter(t => (t.escalationFlags && t.escalationFlags.length > 0));
+    const breachList = openTickets.filter(t => t.slaBreached || (t.slaPercentRemaining !== undefined && t.slaPercentRemaining <= 0));
+    const majorList = openTickets.filter(t => t.priority === "Critical" || t.priority === "Major");
+
+    // All attention tickets combined (deduplicated)
+    const allAttnMap = new Map();
+    [...escList, ...breachList, ...majorList].forEach(t => {
+      const tid = (t.ticketId || "").trim();
+      if (tid && !allAttnMap.has(tid)) allAttnMap.set(tid, t);
+    });
+    const allAttnList = Array.from(allAttnMap.values());
+
+    if ($("ovAttnAllCount")) $("ovAttnAllCount").textContent = allAttnList.length;
+    if ($("ovAttnEscCount")) $("ovAttnEscCount").textContent = escList.length;
+    if ($("ovAttnBreachCount")) $("ovAttnBreachCount").textContent = breachList.length;
+    if ($("ovAttnMajorCount")) $("ovAttnMajorCount").textContent = majorList.length;
+
+    let displayList = allAttnList;
+    if (activeAttnFilter === "escalation") displayList = escList;
+    else if (activeAttnFilter === "breached") displayList = breachList;
+    else if (activeAttnFilter === "major") displayList = majorList;
+
+    if (displayList.length === 0) {
+      listEl.innerHTML = `<div style="padding:28px;text-align:center;color:#64748B;font-size:12.5px;">
+        <span style="font-size:24px;display:block;margin-bottom:6px;">✓</span>
+        <b>Semua Tiket Terkendali</b><br>Tidak ada tiket yang memerlukan eskalasi dalam filter ini.
+      </div>`;
+      return;
+    }
+
+    listEl.innerHTML = displayList.map(t => {
+      const tid = (t.ticketId || "").trim();
+      const prio = t.priority || "Minor";
+      const prioCls = prio === "Critical" ? "prio-critical" : prio === "Major" ? "prio-major" : "";
+      const desc = (t.shortDesc || "Tanpa deskripsi").replace(/^\\[(GC\\s*1|Government\\s*Cloud\\s*1)\\]\\s*/i, "").trim();
+      const req = (t.requestedFor || "-").trim();
+      const loc = (t.location || "Pusat Data Nasional").trim();
+      const layer = t.resolverLayer || t.assignmentGroup || "Helpdesk";
+      const state = (t.requestState || "Aktif").trim();
+
+      const flags = (t.escalationFlags || []).slice(0, 3);
+      const flagsHtml = flags.map(f => {
+        const isBreach = f.toLowerCase().includes("terlewati") || f.toLowerCase().includes("lewat");
+        return `<span class="attn-flag-pill ${isBreach ? 'flag-breach' : ''}">⚠️ ${esc(f)}</span>`;
+      }).join("");
+
+      const slaText = t.slaStatusText || (t.slaBreached ? "SLA Lewat" : `Sisa ${t.slaRemainingFormatted}`);
+
+      return `
+        <div class="attn-ticket-card ${prioCls}" data-open="${esc(tid)}" onclick="window.openTicketActivityDetail && window.openTicketActivityDetail('${esc(tid)}')">
+          <div class="attn-card-top">
+            <div class="id-group">
+              <span class="attn-id-badge">${esc(tid)}</span>
+              <span class="priority-pill ${prio === 'Critical' ? 'priority-critical' : prio === 'Major' ? 'priority-major' : 'priority-minor'}">${esc(prio)}</span>
+              <span class="status-badge-progress" style="font-size:10px;padding:1px 6px;">● ${esc(state)}</span>
+            </div>
+            <span class="attn-time-badge">${esc(slaText)}</span>
+          </div>
+          <div class="attn-card-desc">${esc(desc)}</div>
+          <div class="attn-card-meta">
+            <span>👤 ${esc(req)}</span>
+            <span>📍 ${esc(loc)}</span>
+            <span>🛡️ ${esc(layer)}</span>
+          </div>
+          ${flagsHtml ? `<div class="attn-flags-list">${flagsHtml}</div>` : ""}
+        </div>
+      `;
+    }).join("");
+  }
+
+  // Click handler for attention tabs
+  document.addEventListener("click", (e) => {
+    const tabBtn = e.target.closest("#ovAttnFilterTabs .v3-card-tab");
+    if (!tabBtn) return;
+    document.querySelectorAll("#ovAttnFilterTabs .v3-card-tab").forEach(b => b.classList.remove("active"));
+    tabBtn.classList.add("active");
+    activeAttnFilter = tabBtn.getAttribute("data-attn-filter") || "all";
+    const stSnap = getState().snapshot || {};
+    renderPriorityAttentionCard(stSnap.all_tickets || []);
+  });
+
+  function renderInProgressFollowupCard(inProgTickets) {
+    const listEl = $("ovInProgressFollowupList");
+    if (!listEl) return;
+
+    const list = (inProgTickets || []).filter(t => !t.slaClosed && !t.isTelkom);
+    if ($("ovInProgLiveBadge")) {
+      $("ovInProgLiveBadge").textContent = `${list.length} Tiket Aktif • Live Ticker`;
+    }
+
+    if (list.length === 0) {
+      listEl.innerHTML = `<div style="padding:28px;text-align:center;color:#64748B;font-size:12.5px;">
+        <span style="font-size:24px;display:block;margin-bottom:6px;">✓</span>
+        <b>Antrean In Progress Bersih</b><br>Tidak ada tiket yang sedang dikerjakan saat ini.
+      </div>`;
+      return;
+    }
+
+    listEl.innerHTML = list.map(t => {
+      const tid = (t.ticketId || "").trim();
+      const prio = t.priority || "Minor";
+      const desc = (t.shortDesc || "Tanpa deskripsi").replace(/^\\[(GC\\s*1|Government\\s*Cloud\\s*1)\\]\\s*/i, "").trim();
+      const intervalMin = t.followupIntervalMin || (prio === "Major" ? 60 : 240);
+      const isOverdue = Boolean(t.followupOverdue);
+      const timerCls = isOverdue ? "timer-overdue" : (t.followupRemainingSeconds && t.followupRemainingSeconds < 900) ? "timer-warning" : "timer-safe";
+      const timerText = isOverdue ? (t.followupText || "⚠️ Waktunya Follow-up!") : (t.followupText || `⏱ Follow-up: ${t.followupRemainingFormatted}`);
+
+      const picName = t.picName || "Helpdesk L0";
+      const picRole = t.picRole || "L0 Gateway";
+      const slaText = t.slaStatusText || `Sisa ${t.slaRemainingFormatted}`;
+
+      return `
+        <div class="inprog-countdown-card" data-open="${esc(tid)}">
+          <div class="inprog-card-header">
+            <div class="inprog-id-group">
+              <span class="attn-id-badge" onclick="window.openTicketActivityDetail && window.openTicketActivityDetail('${esc(tid)}')">${esc(tid)}</span>
+              <span class="priority-pill ${prio === 'Critical' ? 'priority-critical' : prio === 'Major' ? 'priority-major' : 'priority-minor'}">${esc(prio)}</span>
+              <span class="inprog-cadence-pill">KAK: ${intervalMin}m</span>
+            </div>
+            <div class="inprog-live-timer live-followup-card-timer ${timerCls}"
+                 data-followup-ts="${t.nextFollowupTs || 0}"
+                 data-ticket-id="${esc(tid)}">
+              ${esc(timerText)}
+            </div>
+          </div>
+          <div class="inprog-card-title" onclick="window.openTicketActivityDetail && window.openTicketActivityDetail('${esc(tid)}')">
+            ${esc(desc)}
+          </div>
+          <div class="inprog-card-footer">
+            <div>
+              <span>👤 PIC: <b>${esc(picName)}</b> (${esc(picRole)})</span>
+              <span style="margin-left:8px;">⏳ SLA: <b>${esc(slaText)}</b></span>
+            </div>
+            <button class="action-btn-detail" style="padding:2px 8px;font-size:11px;" onclick="window.openTicketActivityDetail && window.openTicketActivityDetail('${esc(tid)}')">
+              Detail →
+            </button>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
   function renderOverviewKpis(s) {
     const st = V3.stats;
     const kk = st ? st.kpi : null;
@@ -737,6 +888,10 @@
     if ($("stripActive")) $("stripActive").textContent = `${activeCount} Tiket`;
     if ($("stripResolved")) $("stripResolved").textContent = `${resolvedCount} Tiket`;
     if ($("stripWa")) $("stripWa").textContent = `${kk?.wa_active || 0} Pra-Tiket`;
+
+    // Render Tier 2 Actionable Cards
+    renderPriorityAttentionCard(allTickets);
+    renderInProgressFollowupCard(stSnap.team_progress || allTickets.filter(t => t.isInProgress || (t.requestState && t.requestState.toLowerCase().includes('progress'))));
   }
 
   // ------------------------------------------------------------------ grafik

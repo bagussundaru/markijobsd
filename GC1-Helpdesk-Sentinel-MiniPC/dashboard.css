@@ -1284,52 +1284,6 @@ body.enterprise-theme {
   color: #1D4ED8;
 }
 
-/* JENIS LAYANAN (SERVICE TYPE) BADGES */
-.service-type-cell {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.badge-service-type {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 9px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-  white-space: nowrap;
-  line-height: 1.25;
-  transition: all 0.15s ease;
-}
-
-.badge-service-type.type-incident {
-  background: #FFF1F2;
-  color: #BE123C;
-  border: 1px solid #FECDD3;
-}
-
-.badge-service-type.type-request {
-  background: #EFF6FF;
-  color: #1D4ED8;
-  border: 1px solid #BFDBFE;
-}
-
-.badge-service-type .type-dot {
-  font-size: 8px;
-  line-height: 1;
-}
-
-.badge-service-type.type-incident .type-dot {
-  color: #E11D48;
-}
-
-.badge-service-type.type-request .type-dot {
-  color: #2563EB;
-}
-
 /* SLA COUNTDOWN PILLS & PROGRESS (SOP BAB 3) */
 .sla-cell {
   display: flex;
@@ -1869,3 +1823,139 @@ body.enterprise-theme {
   line-height: 1.5;
   resize: none;
 }
+
+
+/* ---- v2: SOP prioritas, banner status, pra-tiket ---- */
+.priority-critical { background:#FEE2E2; color:#991B1B; border:1px solid #FCA5A5; }
+.priority-minor { background:#E0F2FE; color:#075985; border:1px solid #BAE6FD; }
+.priority-sr { background:#EDE9FE; color:#5B21B6; border:1px solid #DDD6FE; }
+.pretiket-pill, .link-pill, .flag-pill, .unverified-pill {
+  display:inline-block; font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:10px; margin-right:4px; vertical-align:middle;
+}
+.pretiket-pill { background:#ECFDF5; color:#047857; border:1px solid #A7F3D0; }
+.link-pill { background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE; }
+.flag-pill { background:#FEF3C7; color:#92400E; border:1px solid #FDE68A; }
+.unverified-pill { background:#FFF7ED; color:#9A3412; border:1px solid #FED7AA; }
+.status-banners { padding: 0 24px; display:flex; flex-direction:column; gap:8px; }
+.status-banners:empty { display:none; }
+.banner { border-radius:8px; padding:9px 14px; font-size:12.5px; font-weight:600; }
+.banner-warn { background:#FFFBEB; color:#92400E; border:1px solid #FDE68A; }
+.banner-danger { background:#FEF2F2; color:#991B1B; border:1px solid #FECACA; cursor:pointer; }
+.banner-info { background:#EFF6FF; color:#1E3A8A; border:1px solid #BFDBFE; }
+.extra-box { background:#FFFFFF; border:1px solid #E2E8F0; border-radius:8px; padding:14px 16px; margin-bottom:12px; font-size:12.5px; }
+.extra-box h4 { font-size:12.5px; font-weight:700; color:#334155; margin:0 0 8px; }
+.extra-grid { display:grid; grid-template-columns:150px 1fr; row-gap:6px; }
+.extra-grid > div:nth-child(odd) { color:#64748B; }
+.hist-item { border-left:2px solid #CBD5E1; padding:2px 0 8px 10px; margin-left:4px; }
+.hist-item time { font-size:11px; color:#64748B; }
+.action-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+
+.team-view [data-operator-only], .team-view .operator-only { display: none !important; }
+.team-badge { background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE; border-radius:10px; padding:2px 10px; font-size:11px; font-weight:700; }
+.report-table { border-collapse:collapse; width:100%; margin:6px 0 12px; font-size:12.5px; }
+.report-table td, .report-table th { border:1px solid #E2E8F0; padding:4px 10px; text-align:left; }
+.report-table td:last-child { text-align:right; }
+
+.manual-wa-panel { margin: 0 24px 12px; background:#fff; border:1px solid #E2E8F0; border-radius:10px; padding:10px 14px; }
+.manual-wa-panel summary { cursor:pointer; font-weight:700; font-size:13px; color:#065F46; }
+.manual-grid { display:grid; grid-template-columns: 1.4fr 1fr 1.2fr 1fr; gap:10px; margin:10px 0 8px; }
+.manual-grid label { display:block; font-size:11px; font-weight:700; color:#475569; margin-bottom:3px; }
+.manual-text { width:100%; min-height:90px; resize:vertical; padding:8px 12px; font-size:12.5px; line-height:1.45; border:1px solid #CBD5E1; border-radius:8px; box-sizing:border-box; }
+.manual-actions { display:flex; align-items:center; gap:12px; margin-top:8px; }
+.manual-note { font-size:12px; color:#475569; }
+.manual-result { font-size:12.5px; margin-top:6px; color:#065F46; font-weight:600; }
+@media (max-width: 900px) { .manual-grid { grid-template-columns: 1fr 1fr; } }
+
+.pic-tabs { display:flex; gap:6px; margin-bottom:10px; }
+.pic-tabs button { padding:6px 12px; border:1px solid #CBD5E1; border-radius:8px; background:#F8FAFC; cursor:pointer; font-size:12.5px; }
+.pic-tabs button.active { background:#065F46; color:#fff; border-color:#065F46; font-weight:700; }
+.pic-form { display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; margin:8px 0; }
+.pic-form label { display:block; font-size:11px; font-weight:700; color:#475569; margin-bottom:3px; }
+.pic-form input, .pic-form textarea { width:100%; padding:6px 8px; border:1px solid #CBD5E1; border-radius:6px; font:inherit; box-sizing:border-box; }
+.pic-form .full { grid-column: 1 / -1; }
+.pic-status { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; font-weight:700; background:#FFF7ED; color:#9A3412; border:1px solid #FED7AA; }
+.pic-status.ok { background:#ECFDF5; color:#047857; border-color:#A7F3D0; }
+.pic-status.bad { background:#FEF2F2; color:#991B1B; border-color:#FECACA; }
+.doc-pill { display:inline-block; font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:10px; margin-right:4px; background:#FEF3C7; color:#92400E; border:1px solid #FDE68A; }
+
+/* tombol di kotak/panel terang: .btn-secondary bawaan berteks putih (untuk header gelap) jadi tak terbaca */
+.extra-box .btn, .action-row .btn, .report-table .btn, #picBody .btn, #reportBody .btn, .manual-wa-panel .btn-secondary {
+  color: #0f172a; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 12px;
+}
+.extra-box .btn:hover, .action-row .btn:hover, .report-table .btn:hover { background: #e2e8f0; }
+.extra-box .btn.btn-primary, #picBody .btn.btn-primary { background: #065f46; color: #fff; border-color: #065f46; font-weight: 700; }
+.enterprise-modal-footer .btn-secondary, .modal-footer .btn-secondary { color:#0f172a; background:#f8fafc; border:1px solid #cbd5e1; }
+
+.reply-pill { display:block; margin-top:4px; font-size:11px; font-weight:700; padding:1px 8px; border-radius:10px; text-align:center; }
+.reply-due { background:#ECFDF5; color:#047857; border:1px solid #A7F3D0; }
+.reply-warn { background:#FFFBEB; color:#92400E; border:1px solid #FDE68A; }
+.reply-late { background:#FEF2F2; color:#991B1B; border:1px solid #FECACA; }
+.reply-ok { background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE; }
+.manual-replies { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.manual-replies button { padding:4px 10px; border:1px solid #A7F3D0; background:#ECFDF5; color:#065F46; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600; }
+
+/* Badge Kolom Jenis Layanan (Request vs Insiden) */
+.service-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+.service-badge-incident {
+  background: #FEF2F2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+}
+.service-badge-request {
+  background: #EFF6FF;
+  color: #2563EB;
+  border: 1px solid #BFDBFE;
+}
+
+/* LIVE FOLLOW-UP COUNTDOWN TICKER UNTUK TIKET IN PROGRESS */
+.followup-ticker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.followup-ticker.followup-safe {
+  background: #F0FDF4;
+  color: #15803D;
+  border: 1px solid #BBF7D0;
+}
+
+.followup-ticker.followup-warning {
+  background: #FFFBEB;
+  color: #B45309;
+  border: 1px solid #FDE68A;
+}
+
+.followup-ticker.followup-overdue {
+  background: #FEF2F2;
+  color: #B91C1C;
+  border: 1px solid #FECACA;
+  animation: pulse-border-danger 2s infinite ease-in-out;
+}
+
+@keyframes pulse-border-danger {
+  0%, 100% { border-color: #FECACA; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.2); }
+  50% { border-color: #EF4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2); }
+}
+

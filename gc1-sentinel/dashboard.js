@@ -1650,6 +1650,30 @@ setInterval(() => {
     }
   });
 
+  // 3. Live Countdown Follow-Up Card Ticker in Tier 2
+  document.querySelectorAll(".live-followup-card-timer").forEach((el) => {
+    const nextTs = parseFloat(el.getAttribute("data-followup-ts"));
+    if (!nextTs) return;
+    const rem = Math.floor(nextTs - nowSecs);
+    if (rem > 0) {
+      const h = Math.floor(rem / 3600);
+      const m = Math.floor((rem % 3600) / 60);
+      const s = rem % 60;
+      const sStr = s < 10 ? "0" + s : s;
+      const mStr = m < 10 ? "0" + m : m;
+      el.innerHTML = `⏱ Follow-up: <b>${h > 0 ? h + "j " : ""}${mStr}m ${sStr}s</b>`;
+      el.className = "inprog-live-timer live-followup-card-timer " + (rem > 900 ? "timer-safe" : "timer-warning");
+    } else {
+      const overdue = Math.abs(rem);
+      const h = Math.floor(overdue / 3600);
+      const m = Math.floor((overdue % 3600) / 60);
+      const s = overdue % 60;
+      const sStr = s < 10 ? "0" + s : s;
+      el.innerHTML = `⚠️ <b>Waktunya Follow-up!</b> (${h > 0 ? h + "j " : ""}${m}m ${sStr}s)`;
+      el.className = "inprog-live-timer live-followup-card-timer timer-overdue";
+    }
+  });
+
   // 2. Live Countdown SLA DOM Ticker
   document.querySelectorAll(".live-sla-timer").forEach((el) => {
     const deadlineTs = parseFloat(el.getAttribute("data-deadline-ts"));

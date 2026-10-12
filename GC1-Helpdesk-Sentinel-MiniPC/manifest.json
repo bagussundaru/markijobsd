@@ -10,9 +10,7 @@
     "alarms"
   ],
   "host_permissions": [
-    "https://pdn.layanan.go.id/*",
-    "http://localhost:8765/*",
-    "http://127.0.0.1:8765/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
@@ -29,13 +27,13 @@
   "content_scripts": [
     {
       "matches": [
-        "https://pdn.layanan.go.id/*",
-        "http://localhost:8765/*",
-        "http://127.0.0.1:8765/*"
+        "<all_urls>"
       ],
       "js": [
         "content_helpdesk.js"
       ],
+      "all_frames": true,
+      "match_about_blank": true,
       "run_at": "document_idle"
     }
   ],
@@ -43,11 +41,12 @@
     {
       "resources": [
         "sounds/alert.wav",
+        "sounds/tiketmasuk.mp3",
+        "sounds/tiketmasuk.wav",
         "icons/icon48.png"
       ],
       "matches": [
-        "http://localhost:8765/*",
-        "http://127.0.0.1:8765/*"
+        "<all_urls>"
       ]
     }
   ],

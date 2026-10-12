@@ -4,8 +4,11 @@
  * Telkom sepenuhnya dikecualikan dari ruang lingkup GC 1 Sentinel
  */
 
+const SERVER = location.protocol.startsWith("http") ? location.origin : "http://localhost:8765";
+
 let state = {
-  activeTab: "team_assigned", // "team_assigned", "team_pending", "team_progress", "wa_alerts", "all_tickets"
+  role: "operator",
+  activeTab: "all_tickets", // "all_tickets", "team_assigned", "team_pending", "team_progress", "wa_alerts"
   snapshot: {
     total_helpdesk: 0,
     team_assigned_count: 0,
@@ -25,8 +28,20 @@ let state = {
   alerts: [],
   searchQuery: "",
   filterStatus: "all",
-  filterSource: "all",
   filterServiceType: "all",
+  filterScope: "team",
+  sortColumn: "ticketId",
+  sortDirection: "asc",
+  columnFilters: {
+    ticketId: "",
+    shortDesc: "",
+    requester: "",
+    status: "all",
+    milestone: "",
+    sla: "all",
+    serviceType: "all"
+  },
+  showColumnFilters: true,
   settings: {
     targetContact: "mimi Sandora",
     keywords: [
@@ -45,6 +60,29 @@ let state = {
     serverPort: 8765
   }
 };
+
+function deduplicateRepeatedText(str) {
+  if (!str) return "";
+  const s = String(str).replace(/\s+/g, " ").trim();
+  const words = s.split(" ");
+  const nw = words.length;
+  if (nw >= 2 && nw % 2 === 0) {
+    const half = nw / 2;
+    const firstHalf = words.slice(0, half).join(" ").toLowerCase();
+    const secondHalf = words.slice(half).join(" ").toLowerCase();
+    if (firstHalf === secondHalf) {
+      return words.slice(0, half).join(" ");
+    }
+  }
+  const n = s.length;
+  if (n >= 4 && n % 2 === 1) {
+    const half = Math.floor(n / 2);
+    if (s[half] === " " && s.slice(0, half).trim().toLowerCase() === s.slice(half + 1).trim().toLowerCase()) {
+      return s.slice(0, half).trim();
+    }
+  }
+  return s;
+}
 
 // ----------------------------------------------------
 // DOM REFERENCES
@@ -99,8 +137,9 @@ const emptyDesc = document.getElementById("emptyDesc");
 // Controls
 const searchInput = document.getElementById("searchInput");
 const filterStateSelect = document.getElementById("filterStateSelect");
-const filterSourceSelect = document.getElementById("filterSourceSelect");
 const filterServiceTypeSelect = document.getElementById("filterServiceTypeSelect");
+const filterScopeSelect = document.getElementById("filterScopeSelect");
+const btnReloadItsm = document.getElementById("btnReloadItsm");
 const toggleMarkijoBtn = document.getElementById("toggleMarkijoBtn");
 const sendWaSummaryBtn = document.getElementById("sendWaSummaryBtn");
 const exportCsvBtn = document.getElementById("exportCsvBtn");
@@ -113,7 +152,8 @@ const openSettingsBtn = document.getElementById("openSettingsBtn");
 const closeSettingsBtn = document.getElementById("closeSettingsBtn");
 const cancelSettingsBtn = document.getElementById("cancelSettingsBtn");
 const saveSettingsBtn = document.getElementById("saveSettingsBtn");
-const settingTargetContact = document.getElementById("settingTargetContact");
+const settingWaGroups = document.getElementById("settingWaGroups");
+const settingVerifiedSenders = document.getElementById("settingVerifiedSenders");
 const settingKeywords = document.getElementById("settingKeywords");
 const settingServerPort = document.getElementById("settingServerPort");
 const settingMarkijoAuto = document.getElementById("settingMarkijoAuto");
@@ -246,15 +286,60 @@ function playAlertSound() {
       alertAudio.volume = state.settings.soundVolume || 0.8;
       const playPromise = alertAudio.play();
       if (playPromise !== undefined) {
-        playPromise.catch(() => playSynthesizedChime());
+        playPromise.catch(() => {
+          const direct = new Audio("sounds/tiketmasuk.mp3");
+          direct.volume = state.settings.soundVolume || 0.8;
+          direct.play().catch(() => playSynthesizedChime());
+        });
       }
     } else {
-      playSynthesizedChime();
+      const direct = new Audio("sounds/tiketmasuk.mp3");
+      direct.volume = state.settings.soundVolume || 0.8;
+      direct.play().catch(() => playSynthesizedChime());
     }
   } catch (_) {
     playSynthesizedChime();
   }
 }
+
+function showAssignedTicketToast(total, newlyArrived) {
+  const existing = document.getElementById("assignedToastNotification");
+  if (existing) existing.remove();
+
+  const toast = document.createElement("div");
+  toast.id = "assignedToastNotification";
+  toast.className = "assigned-toast-alert";
+  toast.setAttribute("role", "alert");
+  toast.innerHTML = `
+    <div class="assigned-toast-icon">🚨</div>
+    <div class="assigned-toast-body">
+      <div class="assigned-toast-title">Tiket Baru Ditugaskan (${newlyArrived} Baru)</div>
+      <div class="assigned-toast-text">Terdapat <b>${total}</b> tiket di antrean Assigned yang siap dieksekusi teknis tim GC 1.</div>
+    </div>
+    <button class="assigned-toast-close" title="Tutup notifikasi" onclick="this.parentElement.remove()">&times;</button>
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    if (toast.parentElement) {
+      toast.classList.add("toast-fade-out");
+      setTimeout(() => toast.remove(), 400);
+    }
+  }, 6500);
+}
+window.showAssignedTicketToast = showAssignedTicketToast;
+
+function setupAudioUnlock() {
+  const unlock = () => {
+    if (alertAudio) {
+      alertAudio.load();
+    }
+    document.removeEventListener("click", unlock);
+    document.removeEventListener("keydown", unlock);
+  };
+  document.addEventListener("click", unlock, { once: true });
+  document.addEventListener("keydown", unlock, { once: true });
+}
+setupAudioUnlock();
 
 // ----------------------------------------------------
 // DIGITAL CLOCK & CALENDAR (ENTERPRISE)
@@ -276,6 +361,41 @@ function updateClock() {
 }
 setInterval(updateClock, 1000);
 updateClock();
+
+// ----------------------------------------------------
+// SERVER & DELEGATED ACTIONS (tanpa inline onclick: teks dari WhatsApp tidak pernah menjadi kode)
+// ----------------------------------------------------
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-detail],[data-copy],[data-copytext],[data-recap],[data-reply],[data-ack]");
+  if (!el) return;
+  if (el.dataset.reply !== undefined) { window.quickReplyCopy(el.dataset.reply); return; }
+  if (el.dataset.ack !== undefined) { window.quickAck(el.dataset.ack); return; }
+  if (el.dataset.detail !== undefined) window.openTicketActivityDetail(el.dataset.detail);
+  else if (el.dataset.recap !== undefined) window.quickSendTicketWa(el.dataset.recap);
+  else if (el.dataset.copytext !== undefined) window.copyText(el.dataset.copytext, el);
+  else if (el.dataset.copy !== undefined) window.copyText(el.dataset.copy, el);
+});
+
+function getOperator(forcePrompt) {
+  let name = "";
+  try { name = localStorage.getItem("gc1_operator") || ""; } catch (_) {}
+  if (!name || forcePrompt) {
+    const v = prompt("Nama petugas (dicatat pada setiap tindakan, satu akun satu orang):", name);
+    if (!v || v.trim().length < 2) return "";
+    name = v.trim().slice(0, 60);
+    try { localStorage.setItem("gc1_operator", name); } catch (_) {}
+  }
+  return name;
+}
+
+async function postJson(path, body) {
+  const res = await fetch(`${SERVER}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  return res.json().catch(() => ({}));
+}
 
 // ----------------------------------------------------
 // CLIPBOARD COPY HELPER
@@ -312,40 +432,6 @@ function fallbackCopy(text) {
     document.execCommand("copy");
     document.body.removeChild(ta);
   } catch (_) {}
-}
-
-// ----------------------------------------------------
-// JENIS LAYANAN HELPER (INSIDEN vs SERVICE REQUEST)
-// ----------------------------------------------------
-function getServiceType(t) {
-  if (!t) return { type: "Service Request", badgeClass: "type-request", label: "Service Request" };
-
-  if (t.serviceType) {
-    const st = String(t.serviceType).toLowerCase();
-    if (st.includes("insiden") || st.includes("incident") || st.includes("gangguan") || st.includes("problem")) {
-      return { type: "Insiden", badgeClass: "type-incident", label: "Insiden" };
-    }
-    return { type: "Service Request", badgeClass: "type-request", label: "Service Request" };
-  }
-
-  const tid = String(t.ticketId || "").toUpperCase();
-  if (tid.startsWith("INC") || tid.includes("-INC-")) {
-    return { type: "Insiden", badgeClass: "type-incident", label: "Insiden" };
-  }
-
-  // Teks deskripsi dan raw WA text
-  const text = (String(t.shortDesc || "") + " " + String(t.rawWaText || "")).toLowerCase();
-  const incidentKeywords = [
-    "down", "mati", "error", "gangguan", "rusak", "unreachable", "crash",
-    "putus", "darurat", "critical", "masalah", "kendala", "latensi", "lambat",
-    "gagal", "incident", "insiden", "skm", "problem", "waf block", "terblokir", "padam", "tidak bisa diakses"
-  ];
-  const isIncident = incidentKeywords.some((kw) => text.includes(kw));
-  if (isIncident) {
-    return { type: "Insiden", badgeClass: "type-incident", label: "Insiden" };
-  }
-
-  return { type: "Service Request", badgeClass: "type-request", label: "Service Request" };
 }
 
 window.copyTicketFull = function (ticketId) {
@@ -386,7 +472,7 @@ window.quickSendTicketWa = function (ticketId) {
     `*Aktivitas Terkini:* ${ticket.activityMilestone || "-"}\n` +
     `*Sisa SLA:* ${ticket.slaStatusText || "-"} (Target: ${ticket.slaTargetTime || "-"})\n` +
     `*Waktu Masuk:* ${ticket.createdDate || "-"}\n\n` +
-    `_Mohon segera ditindaklanjuti. Laporan via GC 1 Sentinel Monitor._`;
+    `_Ringkasan dari GC 1 Sentinel Monitor (salinan manual)._`;
 
   if (waSummaryPreview) {
     waSummaryPreview.value = text;
@@ -427,7 +513,7 @@ window.openTicketActivityDetail = function (ticketId) {
   if (modalPicName) modalPicName.textContent = `👤 ${ticket.picName || "Tim Helpdesk"}`;
   if (modalPicRole) modalPicRole.textContent = ticket.picRole || "L0 Gateway";
   if (modalPriorityText) modalPriorityText.textContent = `${ticket.priority || "Normal"} (Target SLA: ${ticket.slaLimitHours || 24} Jam)`;
-  if (modalTargetTime) modalTargetTime.textContent = `Batas SLA: ${ticket.slaTargetTime || "-"}`;
+  if (modalTargetTime) modalTargetTime.textContent = ticket.slaMode ? "SLA resmi dihitung dari tiket ITSM" : `Batas SLA: ${ticket.slaTargetTime || "-"}`;
 
   const slaBadgeClass = ticket.slaBadgeClass || "sla-safe";
   const slaText = ticket.slaStatusText || "Sisa 24j";
@@ -472,13 +558,9 @@ window.openTicketActivityDetail = function (ticketId) {
       .join("");
   }
 
-  // Tenant Request Details
-  const modalServiceTypeBadge = document.getElementById("modalServiceTypeBadge");
-  const svc = getServiceType(ticket);
-  if (modalServiceTypeBadge) {
-    modalServiceTypeBadge.innerHTML = `<span class="badge-service-type ${svc.badgeClass}"><span class="type-dot">●</span> ${escapeHtml(svc.label)}</span>`;
-  }
+  renderTicketExtra(ticket);
 
+  // Tenant Request Details
   if (modalDescText) modalDescText.textContent = ticket.shortDesc || "-";
   if (modalReqText) modalReqText.textContent = ticket.requestedFor || "-";
   if (modalLocText) modalLocText.textContent = ticket.location || "-";
@@ -489,7 +571,6 @@ window.openTicketActivityDetail = function (ticketId) {
   if (modalBtnCopyDetail) {
     modalBtnCopyDetail.onclick = () => {
       const info = `🎫 *RINCIAN TIKET GC 1:* ${cleanId}\n` +
-        `• *Jenis Layanan:* ${svc.label}\n` +
         `• *Uraian:* ${ticket.shortDesc}\n` +
         `• *Pemohon:* ${ticket.requestedFor} (${ticket.location || "-"})\n` +
         `• *Status:* ${cleanState}\n` +
@@ -534,76 +615,61 @@ ticketActivityModal?.addEventListener("click", (e) => {
 // DATA FETCHING & SYNCHRONIZATION
 // ----------------------------------------------------
 let lastKnownAssignedCount = -1;
+let lastKnownEscalationCount = -1;
+let lastKnownTotalTickets = -1;
 
 async function fetchHelpdeskSnapshot() {
   try {
-    const res = await fetch(`http://localhost:8765/api/helpdesk_snapshot?t=${Date.now()}`);
+    const res = await fetch(`${SERVER}/api/helpdesk_snapshot?t=${Date.now()}`);
     if (!res.ok) return;
 
     const data = await res.json();
     state.snapshot = data;
 
-    const currentAssigned = data.team_assigned_count ?? data.gc1_assigned_count ?? 0;
+    // Aduan dari grup P3 bersifat pasif: tidak membunyikan alarm
+    const currentAssigned = Array.isArray(data.team_assigned)
+      ? data.team_assigned.filter((t) => t.waTier !== 3).length
+      : (data.team_assigned_count ?? data.gc1_assigned_count ?? 0);
     // Check if new Assigned ticket arrived -> chime alarm!
     if (lastKnownAssignedCount !== -1 && currentAssigned > lastKnownAssignedCount) {
       playAlertSound();
+      if (typeof window.showAssignedTicketToast === "function") {
+        window.showAssignedTicketToast(currentAssigned, currentAssigned - lastKnownAssignedCount);
+      }
     }
     lastKnownAssignedCount = currentAssigned;
+
+    // Check if new tickets arrived in total scanned pool -> chime alarm!
+    const currentTotal = (data.all_scanned_tickets && data.all_scanned_tickets.length)
+      || (data.all_tickets && data.all_tickets.length)
+      || (data.total_itsm_scanned)
+      || (data.total_helpdesk)
+      || 0;
+    if (lastKnownTotalTickets !== -1 && currentTotal > lastKnownTotalTickets) {
+      playAlertSound();
+    }
+    lastKnownTotalTickets = currentTotal;
+
+    const escCount = data.escalation_count ?? 0;
+    if (lastKnownEscalationCount !== -1 && escCount > lastKnownEscalationCount) {
+      playAlertSound();
+    }
+    lastKnownEscalationCount = escCount;
+    state.settings.waGroups = data.wa_monitored_groups || [];
 
     updateKpiCards();
     updateTabBadges();
     renderActiveTab();
+    renderBanners(data);
+    if (window.V3 && V3.onSnapshot) V3.onSnapshot(data);
 
     if (liveStatusText) {
-      liveStatusText.textContent = "100% SELARAS HELPDESK";
+      liveStatusText.textContent = "Terhubung ke Sentinel";
     }
     if (lastSyncTimeText) {
       lastSyncTimeText.textContent = data.last_sync || new Date().toLocaleTimeString("id-ID") + " WIB";
     }
   } catch (e) {
-    // Fallback: Baca dari chrome.storage.local atau localStorage jika server belum aktif
-    let fallbackTickets = [];
-    if (typeof chrome !== "undefined" && chrome.storage?.local) {
-      try {
-        const store = await chrome.storage.local.get(["helpdeskSnapshot", "cachedTickets"]);
-        fallbackTickets = store.helpdeskSnapshot || store.cachedTickets || [];
-      } catch (_) {}
-    }
-    if (fallbackTickets.length === 0) {
-      try {
-        const local = localStorage.getItem("gc1_last_scanned_tickets");
-        if (local) fallbackTickets = JSON.parse(local);
-      } catch (_) {}
-    }
-
-    if (fallbackTickets.length > 0) {
-      const assigned = fallbackTickets.filter(t => (t.requestState || "").toLowerCase().includes("assign"));
-      const pending = fallbackTickets.filter(t => (t.requestState || "").toLowerCase().includes("pending"));
-      const progress = fallbackTickets.filter(t => (t.requestState || "").toLowerCase().includes("progress"));
-      state.snapshot = {
-        total_helpdesk: fallbackTickets.length,
-        team_assigned_count: assigned.length,
-        team_pending_count: pending.length,
-        team_progress_count: progress.length,
-        sla_health_percent: 100,
-        sla_safe_count: fallbackTickets.length,
-        telkom_count: 0,
-        wa_count: state.snapshot.wa_count || 0,
-        last_sync: "Browser Cache (" + new Date().toLocaleTimeString("id-ID") + " WIB)",
-        team_assigned: assigned,
-        team_pending: pending,
-        team_progress: progress,
-        wa_alerts: state.snapshot.wa_alerts || [],
-        all_tickets: fallbackTickets
-      };
-      updateKpiCards();
-      updateTabBadges();
-      renderActiveTab();
-      if (liveStatusText) liveStatusText.textContent = "AKTIF (MODE EXTENSION)";
-      if (lastSyncTimeText) lastSyncTimeText.textContent = state.snapshot.last_sync;
-      return;
-    }
-
     if (liveStatusText) {
       liveStatusText.textContent = "OFFLINE (CEK SERVER)";
     }
@@ -621,6 +687,7 @@ function updateKpiCards() {
 
 function updateTabBadges() {
   const s = state.snapshot;
+  if (window.V3 && V3.updateBadges && V3.updateBadges(s)) return;
   if (badgeGc1Assigned) badgeGc1Assigned.textContent = s.team_assigned_count ?? s.gc1_assigned_count ?? 0;
   if (badgeGc1Pending) badgeGc1Pending.textContent = s.team_pending_count ?? s.gc1_pending_count ?? 0;
   if (badgeTeamProgress) badgeTeamProgress.textContent = s.team_progress_count ?? 0;
@@ -728,6 +795,10 @@ function renderActiveTab() {
   if (sentinelTable) sentinelTable.style.display = "table";
 
   let list = [];
+  const rawPool = (state.snapshot.all_scanned_tickets && state.snapshot.all_scanned_tickets.length > 0)
+    ? state.snapshot.all_scanned_tickets
+    : (state.snapshot.all_tickets || []);
+
   if (state.activeTab === "team_assigned" || state.activeTab === "gc1_assigned") {
     list = state.snapshot.team_assigned || state.snapshot.gc1_assigned || [];
   } else if (state.activeTab === "team_pending" || state.activeTab === "gc1_pending") {
@@ -735,11 +806,26 @@ function renderActiveTab() {
   } else if (state.activeTab === "team_progress") {
     list = state.snapshot.team_progress || [];
   } else if (state.activeTab === "all_tickets") {
-    list = state.snapshot.all_tickets || [];
+    list = rawPool;
   }
 
-  // Exclude Telkom completely from list
-  list = list.filter((t) => !t.isTelkom && !((t.assignmentGroup || "") + " " + (t.shortDesc || "")).toLowerCase().includes("telkom"));
+  // Filter berdasarkan sumber / submenu ITSM aktif (All Request vs All Incident)
+  if (window.V3 && V3.filterBySource) list = V3.filterBySource(list);
+
+  // Deteksi statistik Telkom vs Tim GC 1 Internal sebelum filter lingkup diterapkan
+  const isTelkomCheck = (t) => Boolean(t.isTelkom || ((t.assignmentGroup || "") + " " + (t.shortDesc || "")).toLowerCase().includes("telkom"));
+  const totalInView = list.length;
+  const telkomCountInView = list.filter(isTelkomCheck).length;
+  const teamCountInView = totalInView - telkomCountInView;
+
+  // Terapkan Filter Lingkup (Tim GC 1 Internal vs Semua Tiket ITSM vs Hanya Telkom)
+  const currentScope = state.filterScope || "team";
+  if (currentScope === "team") {
+    list = list.filter((t) => !isTelkomCheck(t));
+  } else if (currentScope === "telkom") {
+    list = list.filter((t) => isTelkomCheck(t));
+  }
+  // Jika currentScope === "all", seluruh tiket (termasuk Telkom) tetap ditampilkan
 
   // Apply Search
   if (query) {
@@ -751,22 +837,69 @@ function renderActiveTab() {
 
   // Apply State Filter
   if (filterState !== "all") {
-    list = list.filter((t) => (t.requestState || "").toLowerCase() === filterState.toLowerCase());
-  }
-
-  // Apply Source Filter (ITSM Resmi vs WhatsApp)
-  if (state.filterSource === "itsm") {
-    list = list.filter((t) => !t.isFromWa && !((t.source || "")).toLowerCase().includes("whatsapp") && !(t.ticketId || "").startsWith("WA-"));
-  } else if (state.filterSource === "wa") {
-    list = list.filter((t) => t.isFromWa || ((t.source || "")).toLowerCase().includes("whatsapp") || (t.ticketId || "").startsWith("WA-"));
-  }
-
-  // Apply Service Type Filter (Insiden vs Service Request)
-  if (state.filterServiceType && state.filterServiceType !== "all") {
+    const fs = filterState.toLowerCase();
     list = list.filter((t) => {
-      const svc = getServiceType(t);
-      return svc.type.toLowerCase() === state.filterServiceType.toLowerCase();
+      const rs = (t.requestState || "").toLowerCase();
+      if (fs.includes("hold")) return rs.includes("hold");
+      if (fs.includes("assign")) return rs.includes("assign");
+      if (fs.includes("pending")) return rs.includes("pending");
+      if (fs.includes("progress")) return rs.includes("progress");
+      return rs === fs;
     });
+  }
+
+  // Apply Service Type Filter (Request vs Insiden)
+  const filterService = state.filterServiceType || "all";
+  if (filterService !== "all") {
+    list = list.filter((t) => {
+      const rawSt = (t.serviceType || t.ticketType || "").toLowerCase();
+      const tid = (t.ticketId || "").toUpperCase();
+      const isInc = rawSt.includes("insiden") || rawSt.includes("incident") || tid.startsWith("INC");
+      return filterService === "Insiden" ? isInc : !isInc;
+    });
+  }
+
+  // Apply Interactive Column Filters (Per-column Filter Row)
+  if (state.columnFilters) {
+    const cf = state.columnFilters;
+    if (cf.ticketId) {
+      const q = cf.ticketId.toLowerCase().trim();
+      list = list.filter((t) => (t.ticketId || "").toLowerCase().includes(q));
+    }
+    if (cf.shortDesc) {
+      const q = cf.shortDesc.toLowerCase().trim();
+      list = list.filter((t) => (t.shortDesc || "").toLowerCase().includes(q));
+    }
+    if (cf.requester) {
+      const q = cf.requester.toLowerCase().trim();
+      list = list.filter((t) => `${t.requestedFor || ""} ${t.location || ""}`.toLowerCase().includes(q));
+    }
+    if (cf.status && cf.status !== "all") {
+      const q = cf.status.toLowerCase().trim();
+      list = list.filter((t) => (t.requestState || "").toLowerCase().includes(q));
+    }
+    if (cf.milestone) {
+      const q = cf.milestone.toLowerCase().trim();
+      list = list.filter((t) => `${t.activityMilestone || ""} ${t.resolverLayer || ""}`.toLowerCase().includes(q));
+    }
+    if (cf.sla && cf.sla !== "all") {
+      if (cf.sla === "breached") {
+        list = list.filter((t) => (t.slaBadgeClass || "").includes("breach") || (t.slaStatusText || "").toLowerCase().includes("lewat") || (t.slaPercentRemaining !== undefined && t.slaPercentRemaining <= 0));
+      } else if (cf.sla === "warning") {
+        list = list.filter((t) => (t.slaBadgeClass || "").includes("warning") || (t.slaPercentRemaining !== undefined && t.slaPercentRemaining < 50 && t.slaPercentRemaining > 0));
+      } else if (cf.sla === "safe") {
+        list = list.filter((t) => (t.slaBadgeClass || "").includes("safe") || (t.slaPercentRemaining !== undefined && t.slaPercentRemaining >= 50));
+      }
+    }
+    if (cf.serviceType && cf.serviceType !== "all") {
+      const isReq = cf.serviceType === "Request";
+      list = list.filter((t) => {
+        const raw = String(t.serviceType || t.ticketType || "");
+        const tid = (t.ticketId || "").toUpperCase();
+        const isInc = raw.toLowerCase().includes("insiden") || raw.toLowerCase().includes("incident") || tid.startsWith("INC");
+        return isReq ? !isInc : isInc;
+      });
+    }
   }
 
   // Strict Primary Key Deduplication
@@ -779,8 +912,116 @@ function renderActiveTab() {
   }
   list = Array.from(uniqueTicketsMap.values());
 
+  // Apply Interactive Column Sorting (Ascending / Descending)
+  if (state.sortColumn) {
+    const col = state.sortColumn;
+    const dir = state.sortDirection === "desc" ? -1 : 1;
+
+    list.sort((a, b) => {
+      if (col === "ticketId") {
+        const va = (a.ticketId || "").replace(/📋/g, "").trim();
+        const vb = (b.ticketId || "").replace(/📋/g, "").trim();
+        return va.localeCompare(vb, undefined, { numeric: true, sensitivity: "base" }) * dir;
+      }
+      if (col === "shortDesc") {
+        const va = (a.shortDesc || "").trim();
+        const vb = (b.shortDesc || "").trim();
+        return va.localeCompare(vb, undefined, { sensitivity: "base" }) * dir;
+      }
+      if (col === "requester") {
+        const va = `${a.requestedFor || ""} ${a.location || ""}`.trim();
+        const vb = `${b.requestedFor || ""} ${b.location || ""}`.trim();
+        return va.localeCompare(vb, undefined, { sensitivity: "base" }) * dir;
+      }
+      if (col === "status") {
+        const va = `${a.requestState || ""} ${a.picName || ""}`.trim();
+        const vb = `${b.requestState || ""} ${b.picName || ""}`.trim();
+        return va.localeCompare(vb, undefined, { sensitivity: "base" }) * dir;
+      }
+      if (col === "milestone") {
+        const va = `${a.activityMilestone || ""} ${a.resolverLayer || ""}`.trim();
+        const vb = `${b.activityMilestone || ""} ${b.resolverLayer || ""}`.trim();
+        return va.localeCompare(vb, undefined, { sensitivity: "base" }) * dir;
+      }
+      if (col === "sla") {
+        const sa = a.slaPercentRemaining ?? 100;
+        const sb = b.slaPercentRemaining ?? 100;
+        if (sa !== sb) return (sa - sb) * dir;
+        return (a.slaStatusText || "").localeCompare(b.slaStatusText || "") * dir;
+      }
+      if (col === "serviceType") {
+        const getSt = (t) => {
+          const raw = String(t.serviceType || t.ticketType || "");
+          const tid = (t.ticketId || "").toUpperCase();
+          return (raw.toLowerCase().includes("insiden") || raw.toLowerCase().includes("incident") || tid.startsWith("INC")) ? "Insiden" : "Request";
+        };
+        return getSt(a).localeCompare(getSt(b)) * dir;
+      }
+      return 0;
+    });
+  }
+
+  // Update Sort Header Icons in UI
+  const sortCols = ["ticketId", "shortDesc", "requester", "status", "milestone", "sla", "serviceType"];
+  for (const c of sortCols) {
+    const iconEl = document.getElementById(`sortIcon_${c}`);
+    const thEl = document.querySelector(`.sortable-th[data-sort="${c}"]`);
+    if (iconEl && thEl) {
+      if (state.sortColumn === c) {
+        iconEl.textContent = state.sortDirection === "asc" ? "▲" : "▼";
+        iconEl.className = "sort-icon active";
+        thEl.classList.add("sort-active");
+      } else {
+        iconEl.textContent = "⇅";
+        iconEl.className = "sort-icon neutral";
+        thEl.classList.remove("sort-active");
+      }
+    }
+  }
+
+  // Update Active Column Filter Count
+  const countBadge = document.getElementById("filterActiveCount");
+  if (countBadge && state.columnFilters) {
+    const activeCount = Object.values(state.columnFilters).filter((v) => Boolean(v && v !== "all")).length;
+    if (activeCount > 0) {
+      countBadge.textContent = activeCount;
+      countBadge.style.display = "inline-block";
+    } else {
+      countBadge.style.display = "none";
+    }
+  }
+
   if (feedCountBadge) {
-    feedCountBadge.textContent = `Menampilkan ${list.length} tiket`;
+    if (currentScope === "team") {
+      if (telkomCountInView > 0) {
+        feedCountBadge.innerHTML = `Menampilkan <b>${list.length}</b> tiket Tim GC 1 <span style="font-weight:normal;opacity:0.85">(${telkomCountInView} Telkom disaring | Total ITSM: ${totalInView})</span> <a href="#" id="linkShowAllItsm" style="color:#38BDF8;margin-left:6px;text-decoration:underline;">Tampilkan Semua (${totalInView})</a>`;
+      } else {
+        feedCountBadge.innerHTML = `Menampilkan <b>${list.length}</b> tiket Tim GC 1 (100% Internal)`;
+      }
+    } else if (currentScope === "all") {
+      feedCountBadge.innerHTML = `Menampilkan <b>${list.length}</b> tiket ITSM <span style="font-weight:normal;opacity:0.85">(${teamCountInView} Tim GC 1, ${telkomCountInView} Telkom Eksternal)</span> <a href="#" id="linkShowTeamOnly" style="color:#38BDF8;margin-left:6px;text-decoration:underline;">Hanya Tim GC 1 (${teamCountInView})</a>`;
+    } else {
+      feedCountBadge.innerHTML = `Menampilkan <b>${list.length}</b> tiket Telkom Eksternal`;
+    }
+
+    const lAll = document.getElementById("linkShowAllItsm");
+    if (lAll) {
+      lAll.onclick = (e) => {
+        e.preventDefault();
+        state.filterScope = "all";
+        if (filterScopeSelect) filterScopeSelect.value = "all";
+        renderActiveTab();
+      };
+    }
+    const lTeam = document.getElementById("linkShowTeamOnly");
+    if (lTeam) {
+      lTeam.onclick = (e) => {
+        e.preventDefault();
+        state.filterScope = "team";
+        if (filterScopeSelect) filterScopeSelect.value = "team";
+        renderActiveTab();
+      };
+    }
   }
 
   if (list.length === 0) {
@@ -804,8 +1045,8 @@ function renderHelpdeskTable(tickets) {
       const cleanId = (t.ticketId || "").split("\n")[0].replace(/📋/g, "").trim();
       let rawDesc = (t.shortDesc || "").trim();
       rawDesc = rawDesc.replace(/^\[(GC\s*1|Government\s*Cloud\s*1)\]\s*/i, "").trim();
-      const cleanReq = (t.requestedFor || "-").split("\n")[0].trim();
-      const cleanLoc = (t.location || "Kominfo").replace(/📍/g, "").replace(/\(📲\s*WA\)/gi, "").trim();
+      const cleanReq = deduplicateRepeatedText((t.requestedFor || "-").split("\n")[0].trim());
+      const cleanLoc = deduplicateRepeatedText((t.location || "Kominfo").replace(/📍/g, "").replace(/\(📲\s*WA\)/gi, "").trim());
       const cleanGroup = (t.assignmentGroup || "Helpdesk").trim();
       const resolverLayer = t.resolverLayer || cleanGroup;
       const resolverClass = getResolverClass(resolverLayer);
@@ -814,18 +1055,37 @@ function renderHelpdeskTable(tickets) {
       const isAssigned = cleanState.toLowerCase().includes("assign");
       const isPending = cleanState.toLowerCase().includes("pending");
       const isInProgress = cleanState.toLowerCase().includes("progress");
+      const isOnHold = cleanState.toLowerCase().includes("hold");
 
       let rowClass = "";
       if (isAssigned) rowClass = "urgent-row";
       else if (isPending) rowClass = "pending-row";
+      else if (isOnHold) rowClass = "onhold-row";
 
       let statusBadgeClass = "status-badge-pending";
       if (isAssigned) statusBadgeClass = "status-badge-assigned";
       else if (isInProgress) statusBadgeClass = "status-badge-progress";
+      else if (isOnHold) statusBadgeClass = "status-badge-onhold";
 
       const gc1Badge = `<span class="gc1-tag">GC 1</span>`;
-      const priorityClass = t.priority === "Major" ? "priority-major" : "priority-normal";
-      const priorityBadge = `<span class="priority-pill ${priorityClass}">${t.priority || "Normal"}</span>`;
+      const priorityClass = { Critical: "priority-critical", Major: "priority-major", Minor: "priority-minor", "Service Request": "priority-sr" }[t.priority] || "priority-normal";
+      const priorityBadge = `<span class="priority-pill ${priorityClass}" title="${escapeHtml(t.priorityReason || "")}${t.priorityOverridden ? " (ditetapkan Helpdesk)" : " (usulan otomatis)"}">${escapeHtml(t.priority || "Minor")}</span>`;
+      const replyPill = t.isPreTicket && t.responseText ? `<span class="reply-pill reply-${escapeHtml(t.responseStatus || "due")}">💬 ${escapeHtml(t.responseText)}</span>` : "";
+      const quickBtns = t.isPreTicket && !t.slaClosed ? `<button class="action-btn-wa" data-reply="${escapeHtml(cleanId)}" title="Salin balasan pertama (kirim manual lewat WhatsApp)"><span class="btn-icon">💬</span><span>Balasan</span></button>${t.responseStatus === "ok" ? "" : `<button class="action-btn-wa" data-ack="${escapeHtml(cleanId)}" title="Tandai balasan sudah dikirim"><span class="btn-icon">✓</span><span>Dibalas</span></button>`}` : "";
+      const tierBadge = t.isFromWa && t.waTier ? `<span class="link-pill" title="Prioritas grup WA">P${t.waTier}</span>` : "";
+      const preTicketBadge = t.isPreTicket ? `<span class="pretiket-pill">Pra-tiket</span>` : "";
+      const linkedBadge = t.linkedPortalId && t.isFromWa ? `<span class="link-pill">🔗 ${escapeHtml(t.linkedPortalId)}</span>` : "";
+      const waFirstBadge = !t.isFromWa && t.waFirstReportAt ? `<span class="link-pill" title="Aduan pertama di WhatsApp: ${escapeHtml(t.waFirstReportAt)}">💬 WA ${escapeHtml(t.waFirstReportAt.slice(12, 17))}</span>` : "";
+      const unverifiedBadge = false && t.isFromWa && t.senderVerified === false ? `<span class="unverified-pill" title="Pengirim tidak ada di daftar PIC tenan. Verifikasi dulu (SOP 4.1).">⚠ belum terverifikasi</span>` : "";
+      const mentionBadge = t.isFromWa && t.helpdeskMentioned ? `<span class="link-pill" title="Pesan menyebut Helpdesk">@Helpdesk</span>` : "";
+      const idn = t.identity || {};
+      const identBadge = !t.isFromWa ? "" :
+        idn.status === "verified" ? `<span class="pretiket-pill" title="${escapeHtml((idn.name || "") + " - " + (idn.instansi || ""))}">✓ PIC terdaftar</span>` :
+        idn.status === "rejected" ? `<span class="unverified-pill">⛔ ditolak</span>` :
+        idn.status === "no_phone" ? `<span class="unverified-pill" title="Nomor HP pelapor belum dicatat">⚠ tanpa nomor</span>` :
+        `<span class="unverified-pill" title="Nomor belum terdaftar: tanyakan asal dan instansi, daftar ke Komdigi dulu">⚠ nomor baru</span>`;
+      const docsBadge = t.docs && !t.docs.complete && !t.slaClosed ? `<span class="doc-pill" title="${escapeHtml(t.docs.rule)}: approval / nota dinas belum lengkap">📄 dokumen belum lengkap</span>` : "";
+      const flagBadge = (t.escalationFlags || []).length ? `<span class="flag-pill" title="${escapeHtml(t.escalationFlags.join(" | "))}">⚠ ${t.escalationFlags.length} eskalasi</span>` : "";
 
       // Clean PIC Name & Short Role Tag
       let rawPic = t.picName || "Tim Helpdesk";
@@ -855,13 +1115,21 @@ function renderHelpdeskTable(tickets) {
       const slaStatusText = escapeHtml(t.slaStatusText || "Sisa 24j");
       const slaPercent = t.slaPercentRemaining ?? 100;
 
+      // Jenis Layanan (Insiden vs Request)
+      const rawServiceType = String(t.serviceType || t.ticketType || "");
+      const isIncident = rawServiceType.toLowerCase().includes("insiden") || rawServiceType.toLowerCase().includes("incident") || cleanId.toUpperCase().startsWith("INC");
+      const serviceBadgeClass = isIncident ? "service-badge-incident" : "service-badge-request";
+      const serviceBadgeIcon = isIncident ? "⚡" : "📋";
+      const serviceBadgeText = isIncident ? "Insiden" : "Request";
+
       // Action buttons: 🔍 Detail + 📲 WA (if Assigned) - 100% Symmetric & Horizontal
       const actionHtml = `
         <div class="table-actions-cell">
-          <button class="action-btn-detail" onclick="openTicketActivityDetail('${escapeHtml(cleanId)}')" title="Lihat detail aktivitas & progress SOP">
+          <button class="action-btn-detail" data-detail="${escapeHtml(cleanId)}" title="Lihat detail, riwayat, dan tindakan">
             <span class="btn-icon">🔍</span><span>Detail</span>
           </button>
-          ${isAssigned ? `<button class="action-btn-wa" onclick="quickSendTicketWa('${escapeHtml(cleanId)}')" title="Kirim ringkasan tiket ini ke WhatsApp mimi Sandora"><span class="btn-icon">📲</span><span>WA</span></button>` : ""}
+          ${quickBtns}
+          ${isAssigned ? `<button class="action-btn-wa" data-recap="${escapeHtml(cleanId)}" title="Salin ringkasan tiket ini (tidak dikirim otomatis)"><span class="btn-icon">📋</span><span>Salin</span></button>` : ""}
         </div>
       `;
 
@@ -869,25 +1137,27 @@ function renderHelpdeskTable(tickets) {
       const waGroupTag = isFromWa ? `<span class="source-wa-pill">💬 ${escapeHtml(t.waGroup || "Grup WA")}</span>` : "";
       const ticketNumClass = isFromWa ? "ticket-num-badge badge-wa-ticket" : "ticket-num-badge";
 
-      // Service Type (Insiden vs Service Request)
-      const svc = getServiceType(t);
-
       return `
       <tr class="${rowClass}">
         <td>
           <div class="${ticketNumClass}">
             <span>${escapeHtml(cleanId)}</span>
-            <button class="copy-icon-btn" onclick="copyText('${escapeHtml(cleanId)}', this)" title="Salin Nomor Tiket">📋</button>
+            <button class="copy-icon-btn" data-copy="${escapeHtml(cleanId)}" title="Salin Nomor Tiket">📋</button>
           </div>
         </td>
         <td>
           <div style="line-height:1.45;">
-            ${gc1Badge}${waGroupTag}${priorityBadge}<strong>${escapeHtml(rawDesc)}</strong>
+            ${gc1Badge}${tierBadge}${preTicketBadge}${waGroupTag}${priorityBadge}${linkedBadge}${waFirstBadge}${unverifiedBadge}${mentionBadge}${identBadge}${docsBadge}${flagBadge}<strong>${escapeHtml(rawDesc)}</strong>
           </div>
         </td>
         <td>
-          <div style="font-weight:700; color:var(--text-main); font-size:13px;">${escapeHtml(cleanReq)}</div>
-          <span class="location-pill">📍 ${escapeHtml(cleanLoc)}</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="requester-avatar">${escapeHtml((cleanReq.match(/\b\w/g) || ["U"]).slice(0, 2).join("").toUpperCase())}</span>
+            <div>
+              <div style="font-weight:700; color:var(--ink, #0F172A); font-size:13px;">${escapeHtml(cleanReq)}</div>
+              <span class="location-pill">📍 ${escapeHtml(cleanLoc)}</span>
+            </div>
+          </div>
         </td>
         <td>
           <div class="status-pic-group">
@@ -898,6 +1168,15 @@ function renderHelpdeskTable(tickets) {
               <span class="pic-name">👤 ${escapeHtml(cleanPicName)}</span>
               <span class="pic-tag">${escapeHtml(cleanPicRole)}</span>
             </div>
+            ${isInProgress ? `
+              <div class="followup-ticker live-followup-timer ${t.followupOverdue ? 'followup-overdue' : 'followup-safe'}"
+                   data-followup-ts="${t.nextFollowupTs || 0}"
+                   data-interval="${t.followupIntervalMin || 240}"
+                   data-ticket-id="${escapeHtml(cleanId)}"
+                   title="Waktu mundur follow-up ke tenan (SOP: per ${t.followupIntervalMin || 240} menit)">
+                ⏱ ${escapeHtml(t.followupText || 'Follow-up aktif')}
+              </div>
+            ` : ''}
           </div>
         </td>
         <td>
@@ -911,21 +1190,20 @@ function renderHelpdeskTable(tickets) {
           </div>
         </td>
         <td style="text-align:center;">
-          <div class="service-type-cell">
-            <span class="badge-service-type ${svc.badgeClass}" title="Jenis Layanan: ${escapeHtml(svc.label)}">
-              <span class="type-dot">●</span> ${escapeHtml(svc.label)}
-            </span>
-          </div>
-        </td>
-        <td style="text-align:center;">
           <div class="sla-cell">
-            <span class="sla-pill ${slaBadgeClass}">
+            <span class="sla-pill ${slaBadgeClass} live-sla-timer" data-deadline-ts="${t.deadlineTs || 0}" data-ticket-id="${escapeHtml(cleanId)}">
               ⏱️ ${slaStatusText}
             </span>
+            ${replyPill}
             <div class="sla-mini-bar">
               <div class="sla-mini-fill" style="width:${slaPercent}%;"></div>
             </div>
           </div>
+        </td>
+        <td style="text-align:center;">
+          <span class="service-pill ${serviceBadgeClass}">
+            ${serviceBadgeIcon} ${serviceBadgeText}
+          </span>
         </td>
         <td style="text-align:center;">
           ${actionHtml}
@@ -966,7 +1244,7 @@ function renderWhatsAppFeed(alerts) {
           </div>
         </div>
         <div class="alert-actions">
-          <button class="btn btn-secondary btn-sm" onclick="copyText('${escapeHtml(a.text)}')">
+          <button class="btn btn-secondary btn-sm" data-copytext="${escapeHtml(a.text)}">
             📋 Salin Chat
           </button>
         </div>
@@ -1055,15 +1333,6 @@ sendWaSummaryBtn?.addEventListener("click", () => {
   if (waSummaryModal) {
     waSummaryModal.classList.add("active");
   }
-
-  // Dispatch queue to Sentinel Server
-  try {
-    fetch("http://localhost:8765/api/trigger_recap", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ auto_send: true })
-    }).catch(() => {});
-  } catch (_) {}
 });
 
 btnQuickWaRecap?.addEventListener("click", () => {
@@ -1091,25 +1360,59 @@ filterStateSelect?.addEventListener("change", (e) => {
   renderActiveTab();
 });
 
-filterSourceSelect?.addEventListener("change", (e) => {
-  state.filterSource = e.target.value;
-  renderActiveTab();
-});
-
 filterServiceTypeSelect?.addEventListener("change", (e) => {
   state.filterServiceType = e.target.value;
   renderActiveTab();
 });
 
+filterScopeSelect?.addEventListener("change", (e) => {
+  state.filterScope = e.target.value;
+  renderActiveTab();
+});
+
+btnReloadItsm?.addEventListener("click", async () => {
+  btnReloadItsm.disabled = true;
+  const origText = btnReloadItsm.innerHTML;
+  btnReloadItsm.innerHTML = `<span>⏳</span><span>Memuat Ulang...</span>`;
+
+  const activeMenu = (window.V3 && V3.itsmList) ? V3.itsmList : "active";
+  console.log(`[Dashboard] Mengirim sinyal reload ITSM untuk submenu: ${activeMenu}`);
+
+  // 1. BroadcastChannel ke tab ServiceNow yang terbuka
+  try {
+    const bus = new BroadcastChannel("gc1_sentinel_bus");
+    bus.postMessage({ type: "RELOAD_ITSM_SUBMENU", menu: activeMenu });
+  } catch (_) {}
+
+  // 2. Hubungi backend Sentinel Server
+  try {
+    await fetch(`${SERVER}/api/reload_itsm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ menu: activeMenu })
+    });
+  } catch (_) {}
+
+  setTimeout(() => {
+    btnReloadItsm.innerHTML = `<span>✓</span><span>Terkirim</span>`;
+    setTimeout(() => {
+      btnReloadItsm.disabled = false;
+      btnReloadItsm.innerHTML = origText;
+      fetchHelpdeskSnapshot();
+    }, 1200);
+  }, 700);
+});
+
 clearAllBtn?.addEventListener("click", () => {
   if (searchInput) searchInput.value = "";
   if (filterStateSelect) filterStateSelect.value = "all";
-  if (filterSourceSelect) filterSourceSelect.value = "all";
   if (filterServiceTypeSelect) filterServiceTypeSelect.value = "all";
+  if (filterScopeSelect) filterScopeSelect.value = "team";
   state.searchQuery = "";
   state.filterStatus = "all";
-  state.filterSource = "all";
   state.filterServiceType = "all";
+  state.filterScope = "team";
+  resetColumnFilters();
   renderActiveTab();
 });
 
@@ -1119,7 +1422,7 @@ btnClearData?.addEventListener("click", async () => {
     return;
   }
   try {
-    const res = await fetch("http://localhost:8765/api/clear_data", { method: "POST" });
+    const res = await fetch(`${SERVER}/api/clear_data`, { method: "POST" });
     if (res.ok) {
       state.snapshot = {
         total_helpdesk: 0,
@@ -1153,38 +1456,7 @@ btnClearData?.addEventListener("click", async () => {
 
 // CSV Export
 exportCsvBtn?.addEventListener("click", () => {
-  const list = state.snapshot.all_tickets || [];
-  if (list.length === 0) {
-    alert("Belum ada data tiket untuk diekspor.");
-    return;
-  }
-
-  const headers = ["Nomor Tiket", "Jenis Layanan", "Uraian", "Pemohon", "Status", "PIC Pelaksana", "Aktivitas Terkini", "Sisa SLA", "Tanggal", "Lokasi", "Group"];
-  const rows = list.map((t) => {
-    const svc = getServiceType(t);
-    return [
-      `"${t.ticketId}"`,
-      `"${svc.label}"`,
-      `"${(t.shortDesc || "").replace(/"/g, '""')}"`,
-      `"${(t.requestedFor || "").replace(/"/g, '""')}"`,
-      `"${t.requestState || ""}"`,
-      `"${t.picName || ""} (${t.picRole || ""})"`,
-      `"${(t.activityMilestone || "").replace(/"/g, '""')}"`,
-      `"${t.slaStatusText || ""}"`,
-      `"${t.createdDate || ""}"`,
-      `"${(t.location || "").replace(/"/g, '""')}"`,
-      `"${(t.assignmentGroup || "").replace(/"/g, '""')}"`
-    ];
-  });
-
-  const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `Helpdesk_GC1_Sentinel_${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  window.open(`${SERVER}/api/export.csv`, "_blank");
 });
 
 // Markijo Toggle
@@ -1202,7 +1474,7 @@ toggleMarkijoBtn?.addEventListener("click", async () => {
   }
 
   try {
-    await fetch("http://localhost:8765/api/config", {
+    await fetch(`${SERVER}/api/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ markijo_auto_mode: markijoActive })
@@ -1234,7 +1506,8 @@ testSoundBtn?.addEventListener("click", () => {
 
 // Settings Modal
 openSettingsBtn?.addEventListener("click", () => {
-  if (settingTargetContact) settingTargetContact.value = state.settings.targetContact;
+  if (settingWaGroups) settingWaGroups.value = (state.settings.waGroups || []).join(", ");
+  if (settingVerifiedSenders) settingVerifiedSenders.value = (state.settings.verifiedSenders || []).join(", ");
   if (settingKeywords) settingKeywords.value = state.settings.keywords.join(", ");
   if (settingServerPort) settingServerPort.value = state.settings.serverPort;
   if (settingMarkijoAuto) settingMarkijoAuto.checked = markijoActive;
@@ -1255,18 +1528,21 @@ saveSettingsBtn?.addEventListener("click", async () => {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  state.settings.targetContact = settingTargetContact.value.trim() || "mimi Sandora";
+  const splitList = (v) => v.split(",").map((s) => s.trim()).filter(Boolean);
+  state.settings.waGroups = splitList(settingWaGroups.value);
+  state.settings.verifiedSenders = splitList(settingVerifiedSenders.value);
   state.settings.keywords = newKeywords.length > 0 ? newKeywords : ["GC 1"];
   state.settings.serverPort = parseInt(settingServerPort.value, 10) || 8765;
   state.settings.soundEnabled = settingSound.checked;
   markijoActive = settingMarkijoAuto.checked;
 
   try {
-    await fetch("http://localhost:8765/api/config", {
+    await fetch(`${SERVER}/api/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        target_contact: state.settings.targetContact,
+        wa_monitored_groups: state.settings.waGroups,
+        wa_verified_senders: state.settings.verifiedSenders,
         keywords: state.settings.keywords,
         markijo_auto_mode: markijoActive
       })
@@ -1319,37 +1595,100 @@ try {
 // ----------------------------------------------------
 setInterval(() => {
   const allTickets = state.snapshot.all_tickets || [];
-  if (allTickets.length === 0) return;
-
   const nowSecs = Date.now() / 1000;
-  allTickets.forEach((t) => {
-    if (t.deadlineTs) {
-      const remainingSecs = Math.max(0, Math.floor(t.deadlineTs - nowSecs));
-      const remH = Math.floor(remainingSecs / 3600);
-      const remM = Math.floor((remainingSecs % 3600) / 60);
-      t.slaRemainingSeconds = remainingSecs;
-      t.slaRemainingFormatted = `${remH}j ${remM}m`;
 
-      const totalSecs = (t.slaLimitHours || 24) * 3600;
-      t.slaPercentRemaining = Math.max(0, Math.min(100, Math.floor((remainingSecs / totalSecs) * 100)));
+  if (allTickets.length > 0) {
+    allTickets.forEach((t) => {
+      if (t.deadlineTs && !t.slaClosed && !t.slaMode) {
+        const remainingSecs = Math.max(0, Math.floor(t.deadlineTs - nowSecs));
+        const remH = Math.floor(remainingSecs / 3600);
+        const remM = Math.floor((remainingSecs % 3600) / 60);
+        t.slaRemainingSeconds = remainingSecs;
+        t.slaRemainingFormatted = `${remH}j ${remM}m`;
 
-      if (remainingSecs === 0) {
-        t.slaBadgeClass = "sla-breached";
-        t.slaStatusText = "SLA Lewat";
-      } else if (t.slaPercentRemaining < 25) {
-        t.slaBadgeClass = "sla-danger";
-        t.slaStatusText = `Sisa ${t.slaRemainingFormatted}`;
-      } else if (t.slaPercentRemaining < 50) {
-        t.slaBadgeClass = "sla-warning";
-        t.slaStatusText = `Sisa ${t.slaRemainingFormatted}`;
-      } else {
-        t.slaBadgeClass = "sla-safe";
-        t.slaStatusText = `Sisa ${t.slaRemainingFormatted}`;
+        const totalSecs = (t.slaLimitHours || 24) * 3600;
+        t.slaPercentRemaining = Math.max(0, Math.min(100, Math.floor((remainingSecs / totalSecs) * 100)));
+
+        if (remainingSecs === 0) {
+          t.slaBadgeClass = "sla-breached";
+          t.slaStatusText = "SLA Lewat";
+        } else if (t.slaPercentRemaining < 25) {
+          t.slaBadgeClass = "sla-danger";
+          t.slaStatusText = `Sisa ${t.slaRemainingFormatted}`;
+        } else if (t.slaPercentRemaining < 50) {
+          t.slaBadgeClass = "sla-warning";
+          t.slaStatusText = `Sisa ${t.slaRemainingFormatted}`;
+        } else {
+          t.slaBadgeClass = "sla-safe";
+          t.slaStatusText = `Sisa ${t.slaRemainingFormatted}`;
+        }
       }
+    });
+  }
+
+  // 1. Live Countdown Follow-Up DOM Ticker (Tiket In Progress)
+  document.querySelectorAll(".live-followup-timer").forEach((el) => {
+    const nextTs = parseFloat(el.getAttribute("data-followup-ts"));
+    if (!nextTs) return;
+    const rem = Math.floor(nextTs - nowSecs);
+    if (rem > 0) {
+      const h = Math.floor(rem / 3600);
+      const m = Math.floor((rem % 3600) / 60);
+      const s = rem % 60;
+      const sStr = s < 10 ? "0" + s : s;
+      const mStr = m < 10 ? "0" + m : m;
+      el.innerHTML = `⏱ Follow-up: <b>${h > 0 ? h + "j " : ""}${mStr}m ${sStr}s</b>`;
+      el.className = "followup-ticker live-followup-timer " + (rem > 900 ? "followup-safe" : "followup-warning");
+    } else {
+      const overdue = Math.abs(rem);
+      const h = Math.floor(overdue / 3600);
+      const m = Math.floor((overdue % 3600) / 60);
+      const s = overdue % 60;
+      const sStr = s < 10 ? "0" + s : s;
+      el.innerHTML = `⚠️ <b>Waktunya Follow-up!</b> (${h > 0 ? h + "j " : ""}${m}m ${sStr}s)`;
+      el.className = "followup-ticker live-followup-timer followup-overdue";
     }
   });
 
-  // If table is visible and not on WA tab, re-render visible table view periodically
+  // 3. Live Countdown Follow-Up Card Ticker in Tier 2
+  document.querySelectorAll(".live-followup-card-timer").forEach((el) => {
+    const nextTs = parseFloat(el.getAttribute("data-followup-ts"));
+    if (!nextTs) return;
+    const rem = Math.floor(nextTs - nowSecs);
+    if (rem > 0) {
+      const h = Math.floor(rem / 3600);
+      const m = Math.floor((rem % 3600) / 60);
+      const s = rem % 60;
+      const sStr = s < 10 ? "0" + s : s;
+      const mStr = m < 10 ? "0" + m : m;
+      el.innerHTML = `⏱ Follow-up: <b>${h > 0 ? h + "j " : ""}${mStr}m ${sStr}s</b>`;
+      el.className = "inprog-live-timer live-followup-card-timer " + (rem > 900 ? "timer-safe" : "timer-warning");
+    } else {
+      const overdue = Math.abs(rem);
+      const h = Math.floor(overdue / 3600);
+      const m = Math.floor((overdue % 3600) / 60);
+      const s = overdue % 60;
+      const sStr = s < 10 ? "0" + s : s;
+      el.innerHTML = `⚠️ <b>Waktunya Follow-up!</b> (${h > 0 ? h + "j " : ""}${m}m ${sStr}s)`;
+      el.className = "inprog-live-timer live-followup-card-timer timer-overdue";
+    }
+  });
+
+  // 2. Live Countdown SLA DOM Ticker
+  document.querySelectorAll(".live-sla-timer").forEach((el) => {
+    const deadlineTs = parseFloat(el.getAttribute("data-deadline-ts"));
+    if (!deadlineTs) return;
+    const rem = Math.floor(deadlineTs - nowSecs);
+    if (rem > 0) {
+      const h = Math.floor(rem / 3600);
+      const m = Math.floor((rem % 3600) / 60);
+      const s = rem % 60;
+      const sStr = s < 10 ? "0" + s : s;
+      el.textContent = `⏱️ Sisa ${h}j ${m}m ${sStr}s`;
+    } else {
+      el.textContent = "⚠️ SLA Lewat";
+    }
+  });
 }, 1000);
 
 // ----------------------------------------------------
@@ -1414,14 +1753,16 @@ submitWaSimulateBtn?.addEventListener("click", async () => {
   submitWaSimulateBtn.innerHTML = "<span>⏳ Mengonversi...</span>";
 
   try {
-    const res = await fetch("http://localhost:8765/api/add_wa_ticket", {
+    const res = await fetch(`${SERVER}/api/add_wa_ticket`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sender: sender,
         group: group,
         text: text,
-        matchedKeyword: "GC 1"
+        matchedKeyword: "GC 1",
+        manual: true,
+        enteredBy: getOperator(false)
       })
     });
     const result = await res.json();
@@ -1429,7 +1770,7 @@ submitWaSimulateBtn?.addEventListener("click", async () => {
       playAlertSound();
       closeWaSimulateModal();
       await fetchHelpdeskSnapshot();
-      alert(`✅ Aduan WhatsApp dari ${sender} berhasil dikonversi menjadi tiket:\n\n• Nomor Tiket: ${result.ticket?.ticketId}\n• Status: Assigned (Masuk ke Dashboard Monitor)\n• Prioritas: ${result.ticket?.priority}\n• Target Waktu: ${result.ticket?.slaTargetTime}`);
+      alert(`✅ Aduan WhatsApp dari ${sender} berhasil dikonversi menjadi tiket:\n\n• Nomor Tiket: ${result.ticket?.ticketId}\n• Status: Assigned (Masuk ke Dashboard Monitor)\n• Prioritas (usulan): ${result.ticket?.priority}\n• Batas SLA: ${result.ticket?.slaTargetTime}`);
     } else if (result && result.reason === "already_converted_to_ticket") {
       alert("Pesan aduan ini sudah pernah dikonversi menjadi tiket.");
       closeWaSimulateModal();
@@ -1445,3 +1786,740 @@ submitWaSimulateBtn?.addEventListener("click", async () => {
     }
   }
 });
+
+
+// ----------------------------------------------------
+// BANNER STATUS (grup WA belum diatur, eskalasi)
+// ----------------------------------------------------
+function renderBanners(data) {
+  const box = document.getElementById("statusBanners");
+  if (!box) return;
+  const parts = [];
+  parts.push(`<div class="banner banner-info">WhatsApp dicatat lewat menu <strong>Input Cepat</strong> di samping (Ctrl+V di mana saja). Sentinel tidak mengakses WhatsApp dan tidak mengirim pesan apa pun.</div>`);
+  const esc = data.escalations || [];
+  if (esc.length) {
+    // ringkas per jenis masalah: "Respons >15 menit (23) | Syarat dokumen belum lengkap (20)"
+    const groups = {};
+    esc.forEach((t) => (t.escalationFlags || []).forEach((f) => {
+      const key = f.replace(/\(.*?\)/g, "").replace(/:.*$/, "").replace(/\d+/g, "N").replace(/\s+/g, " ").trim().slice(0, 64);
+      groups[key] = (groups[key] || 0) + 1;
+    }));
+    const top = Object.entries(groups).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([k, n]) => `${escapeHtml(k)} (${n})`).join(" &nbsp;|&nbsp; ");
+    parts.push(`<div class="banner banner-danger" data-detail="${escapeHtml(esc[0].ticketId)}">⚠ ${esc.length} tiket perlu perhatian: ${top}. Klik untuk membuka yang pertama.</div>`);
+  }
+  box.innerHTML = parts.join("");
+}
+
+// ----------------------------------------------------
+// REKAP HARIAN WA vs PORTAL (SOP 4.4)
+// ----------------------------------------------------
+const dailyRecapModal = document.getElementById("dailyRecapModal");
+const dailyRecapDate = document.getElementById("dailyRecapDate");
+const dailyRecapBody = document.getElementById("dailyRecapBody");
+
+async function loadDailyRecap() {
+  const day = dailyRecapDate.value || new Date().toISOString().slice(0, 10);
+  try {
+    const res = await fetch(`${SERVER}/api/daily_recap?date=${encodeURIComponent(day)}`);
+    const d = await res.json();
+    const rows = (d.unlinked_items || []).map((u) => `
+      <div class="extra-box" style="margin-bottom:6px;">
+        <strong>${escapeHtml(u.ticketId)}</strong> &middot; ${escapeHtml(u.sender || "-")} &middot; ${escapeHtml(u.time || "")}<br>
+        <span style="color:#475569;">${escapeHtml(u.text || "")}</span>
+      </div>`).join("");
+    dailyRecapBody.innerHTML = `
+      <div class="extra-box"><div class="extra-grid">
+        <div>Aduan WA (pra-tiket)</div><div><strong>${d.wa_total}</strong></div>
+        <div>Sudah ada tiket portal</div><div><strong>${d.wa_linked}</strong> (${d.wa_linked_found_in_portal} terlihat di portal)</div>
+        <div>Belum ada tiket portal</div><div><strong style="color:#B91C1C;">${d.wa_unlinked}</strong></div>
+        <div>Tiket portal hari ini</div><div><strong>${d.portal_total}</strong></div>
+        <div>Aduan Telkom/GC 2 diabaikan</div><div>${d.telkom_skipped_last_sync} (sinkron terakhir)</div>
+      </div></div>
+      <p style="font-size:12px; color:#475569; margin:8px 0;">${escapeHtml(d.note)}</p>
+      ${rows || '<p style="font-size:12.5px;">Semua aduan WA hari ini sudah tertaut ke tiket portal.</p>'}`;
+  } catch (_) {
+    dailyRecapBody.innerHTML = "<p>Gagal memuat rekap. Cek server Sentinel.</p>";
+  }
+}
+
+document.getElementById("btnDailyRecap")?.addEventListener("click", () => {
+  const now = new Date();
+  dailyRecapDate.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  dailyRecapModal?.classList.add("active");
+  loadDailyRecap();
+});
+dailyRecapDate?.addEventListener("change", loadDailyRecap);
+["closeDailyRecapBtn", "dailyRecapCloseBtn"].forEach((id) =>
+  document.getElementById(id)?.addEventListener("click", () => dailyRecapModal?.classList.remove("active")));
+document.getElementById("dailyRecapExportBtn")?.addEventListener("click", () => {
+  window.open(`${SERVER}/api/export.csv?date=${encodeURIComponent(dailyRecapDate.value || "")}`, "_blank");
+});
+
+// ----------------------------------------------------
+// DETAIL TIKET: klasifikasi, respons, riwayat, tindakan operator
+// ----------------------------------------------------
+function renderTicketExtra(ticket) {
+  const box = document.getElementById("modalExtraContainer");
+  if (!box) return;
+  const id = ticket.ticketId;
+  const hist = (ticket.history || []).slice().reverse().map((h) => `
+    <div class="hist-item"><time>${escapeHtml(h.time)} &middot; ${escapeHtml(h.actor)}</time><br>
+      <strong>${escapeHtml(h.event)}</strong>${h.detail ? `: ${escapeHtml(h.detail)}` : ""}</div>`).join("");
+  const flags = (ticket.escalationFlags || []).map((f) => `<li>${escapeHtml(f)}</li>`).join("");
+  const waInfo = ticket.isFromWa
+    ? `<div>Aduan WA</div><div>${escapeHtml(ticket.waGroup || "-")} &middot; ${escapeHtml(ticket.requestedFor || "")}${ticket.senderVerified === false ? ' <span class="unverified-pill">belum terverifikasi</span>' : ""}</div>`
+    : (ticket.waFirstReportAt ? `<div>Aduan pertama di WA</div><div>${escapeHtml(ticket.waFirstReportAt)} (${escapeHtml(ticket.waGroup || "")})</div>` : "");
+  const ai = ticket.ai;
+  const identBox = identityBoxHtml(ticket) + docsBoxHtml(ticket);
+  const aiBox = ai ? `
+    <div class="extra-box" style="border-color:#C4B5FD;"><h4>Saran AI (usulan, bukan keputusan) &middot; ${escapeHtml(ai.model || "")}</h4>
+      <div class="extra-grid">
+        <div>Ringkasan</div><div>${escapeHtml(ai.summary || "-")}</div>
+        <div>Prioritas disarankan</div><div>${escapeHtml(ai.priority || "-")}</div>
+        <div>Alasan</div><div>${escapeHtml(ai.reason || "-")}</div>
+        <div>Catatan</div><div>${ai.is_peer_chatter ? "Kemungkinan obrolan antar-tenan, bukan permintaan ke Helpdesk. " : ""}${ai.has_image_only ? "Isi utama ada di gambar, buka manual. " : ""}${ai.needs_followup ? "Perlu tindak lanjut." : "Tidak perlu tindak lanjut."}</div>
+        <div>Keputusan</div><div>${ticket.aiDecision === "accepted" ? "Diterima" : ticket.aiDecision === "rejected" ? "Ditolak" : "Belum diputuskan"}</div>
+      </div>
+      ${ticket.aiDecision ? "" : `<div class="action-row"><button class="btn btn-secondary btn-sm" id="actAiAccept">Terima saran</button><button class="btn btn-secondary btn-sm" id="actAiReject">Tolak saran</button></div>`}
+    </div>` : "";
+  box.innerHTML = identBox + aiBox + `
+    <div class="extra-box"><h4>Klasifikasi dan SLA (SOP 3.2-3.3)</h4>
+      <div class="extra-grid">
+        <div>Tipe</div><div>${escapeHtml(ticket.ticketType || "-")}</div>
+        <div>Prioritas</div><div>${escapeHtml(ticket.priority || "-")} ${ticket.priorityOverridden ? "(ditetapkan Helpdesk)" : "(usulan otomatis)"}</div>
+        <div>Dasar prioritas</div><div>${escapeHtml(ticket.priorityReason || "-")}</div>
+        <div>Kategori layanan (KAK 18.c)</div><div>${escapeHtml(ticket.serviceCategory || "belum terklasifikasi")}</div>
+        <div>Dasar batas SLA</div><div>${escapeHtml(ticket.slaBasis || "-")}</div>
+        <div>Respons pertama</div><div>${escapeHtml(ticket.responseText || "-")}</div>
+        <div>Update ke tenan</div><div>setiap ${ticket.updateEveryMin || "-"} menit</div>
+        ${ticket.linkedPortalId ? `<div>Tiket portal tertaut</div><div>${escapeHtml(ticket.linkedPortalId)}</div>` : ""}
+        ${waInfo}
+        ${ticket.createdTsEstimated ? "<div>Catatan</div><div>Waktu portal tidak terbaca, memakai waktu Sentinel pertama kali melihat tiket.</div>" : ""}
+      </div>
+      ${flags ? `<ul style="margin:8px 0 0 18px; color:#92400E;">${flags}</ul>` : ""}
+      <div class="action-row">
+        <button class="btn btn-secondary btn-sm" id="actAck">Catat respons pertama</button>
+        <button class="btn btn-secondary btn-sm" id="actPrio">Tetapkan prioritas</button>
+        ${ticket.isFromWa ? '<button class="btn btn-secondary btn-sm" id="actLink">Tautkan tiket portal</button>' : ""}
+        <button class="btn btn-secondary btn-sm" id="actNote">Tambah catatan</button>
+        <button class="btn btn-secondary btn-sm" id="actCat">Ubah kategori layanan</button>
+        <button class="btn btn-secondary btn-sm" id="actWho" title="Nama petugas yang tercatat pada tindakan">Petugas: ${escapeHtml((() => { try { return localStorage.getItem("gc1_operator") || "belum diisi"; } catch (_) { return "belum diisi"; } })())}</button>
+      </div>
+    </div>
+    <div class="extra-box"><h4>Riwayat tiket</h4>${hist || "<em>Belum ada riwayat.</em>"}</div>`;
+
+  if (state.role === "team") {
+    box.querySelectorAll(".action-row").forEach((el) => el.remove());
+  }
+  const reopen = async () => {
+    await fetchHelpdeskSnapshot();
+    window.openTicketActivityDetail(id);
+  };
+  const act = async (body) => {
+    const by = getOperator(false);
+    if (!by) { alert("Nama petugas wajib diisi."); return; }
+    const r = await postJson("/api/ticket_action", { ticketId: id, by, ...body });
+    if (r.status !== "ok") alert(r.message || "Gagal menyimpan tindakan.");
+    else await reopen();
+  };
+  document.getElementById("actAck")?.addEventListener("click", () => act({ action: "ack" }));
+  document.getElementById("actCat")?.addEventListener("click", () => {
+    const v = prompt("Kategori layanan (KAK 18.c):\nIaaS, BaaS, SecaS, SaaS, Layanan Pendukung, PaaS, Baremetal as a Service, DC Colocation, Layanan Jaringan, Layanan Cloud Terpadu, Layanan Sandi Data, Pendaftaran", ticket.serviceCategory || "");
+    if (!v) return;
+    const n = prompt("Alasan menetapkan kategori ini (wajib):");
+    if (n) act({ action: "set_category", value: v.trim(), note: n });
+  });
+  document.getElementById("actManageIdent")?.addEventListener("click", () => { document.getElementById("ticketActivityModal")?.classList.remove("active"); openPic("cases", (ticket.identity || {}).phone); });
+  document.getElementById("actCopyQ")?.addEventListener("click", () => { window.copyText(picQuestion()); alert("Pertanyaan disalin. Kirim manual lewat WhatsApp."); });
+  document.getElementById("actSetPhone")?.addEventListener("click", () => {
+    const v = prompt("Nomor HP pelapor (08xx atau +62 8xx):");
+    if (v) act({ action: "set_phone", value: v });
+  });
+  box.querySelectorAll("[data-doc-set]").forEach((b) => b.addEventListener("click", () => {
+    const v = prompt(b.dataset.docSet === "nota_dinas" ? "Nomor dan tanggal nota dinas (mis. ND-123/2026, 30 Sep 2026):" : "Pemberi approval, nomor, dan tanggal (mis. Eselon II Kemenkeu, 30 Sep 2026):");
+    if (v) act({ action: "doc_set", doc: b.dataset.docSet, value: v });
+  }));
+  box.querySelectorAll("[data-doc-clear]").forEach((b) => b.addEventListener("click", () => {
+    const n = prompt("Alasan mencabut catatan dokumen ini (wajib):");
+    if (n) act({ action: "doc_clear", doc: b.dataset.docClear, note: n });
+  }));
+  document.getElementById("actWho")?.addEventListener("click", () => { getOperator(true); reopen(); });
+  document.getElementById("actAiAccept")?.addEventListener("click", () => act({ action: "ai_accept" }));
+  document.getElementById("actAiReject")?.addEventListener("click", () => {
+    const note = prompt("Alasan menolak saran AI (opsional):") || "";
+    act({ action: "ai_reject", note });
+  });
+  document.getElementById("actPrio")?.addEventListener("click", () => {
+    const value = prompt("Prioritas (Critical / Major / Minor / Service Request):", ticket.priority || "Minor");
+    if (!value) return;
+    const note = prompt("Alasan penetapan prioritas (wajib, SOP 3.3):");
+    if (!note) return;
+    act({ action: "set_priority", value: value.trim(), note });
+  });
+  document.getElementById("actLink")?.addEventListener("click", () => {
+    const value = prompt("Nomor tiket portal (contoh REQ-KMF-092026-0093996):");
+    if (value) act({ action: "link_portal", value });
+  });
+  document.getElementById("actNote")?.addEventListener("click", () => {
+    const note = prompt("Catatan:");
+    if (note) act({ action: "note", note });
+  });
+}
+
+
+// ----------------------------------------------------
+// PERAN: operator (Mini PC) atau tim (tampilan hanya-baca lewat jaringan)
+// ----------------------------------------------------
+(async () => {
+  try {
+    const r = await (await fetch(`${SERVER}/api/whoami`)).json();
+    state.role = r.role || "operator";
+  } catch (_) {}
+  if (state.role === "team") {
+    document.body.classList.add("team-view");
+    const pill = document.getElementById("liveSyncPill");
+    if (pill) pill.insertAdjacentHTML("afterend", '<span class="team-badge">TAMPILAN TIM (hanya-baca)</span>');
+  }
+})();
+
+// ----------------------------------------------------
+// LAPORAN PERIODIK (data terpantau)
+// ----------------------------------------------------
+const reportModal = document.getElementById("reportModal");
+const reportKind = document.getElementById("reportKind");
+const reportDate = document.getElementById("reportDate");
+const reportBody = document.getElementById("reportBody");
+
+function reportTable(title, obj) {
+  const rows = Object.entries(obj || {}).map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(String(v))}</td></tr>`).join("");
+  return `<h4 style="margin:10px 0 2px;font-size:12.5px;">${escapeHtml(title)}</h4><table class="report-table">${rows || '<tr><td colspan="2"><em>Tidak ada data</em></td></tr>'}</table>`;
+}
+
+function categoryTable(r) {
+  const rows = (r.by_category || []).map((c) => `<tr><td>${escapeHtml(c.kategori)}</td><td>${c.request}</td><td>${c.insiden}</td><td>${c.sla_pct === null || c.sla_pct === undefined ? "-" : c.sla_pct + "%"}</td></tr>`).join("");
+  return `<h4 style="margin:10px 0 2px;font-size:12.5px;">Per kategori layanan (KAK 8.5.h): request | insiden | SLA</h4><table class="report-table">${rows || '<tr><td colspan="4"><em>Tidak ada data</em></td></tr>'}</table>`;
+}
+
+async function loadReport() {
+  const date = reportDate.value || new Date().toISOString().slice(0, 10);
+  try {
+    const r = await (await fetch(`${SERVER}/api/report?kind=${reportKind.value}&date=${encodeURIComponent(date)}`)).json();
+    const pct = (v) => (v === null || v === undefined ? "-" : `${v}%`);
+    reportBody.innerHTML = `
+      <div class="banner banner-warn">${escapeHtml(r.label)} &middot; <strong>DATA TERPANTAU, bukan angka resmi.</strong>
+        Cakupan pemantauan ${escapeHtml(r.coverage_hours)} (${r.coverage_pct}%). Angka laporan KAK tetap dari portal ITSM.</div>
+      <table class="report-table" style="margin-top:10px;">
+        <tr><td>Tiket masuk (periode sebelumnya)</td><td>${r.total} (${r.previous_total})</td></tr>
+        <tr><td>Terbuka / selesai (terpantau)</td><td>${r.open} / ${r.closed}</td></tr>
+        <tr><td>Kepatuhan SLA penyelesaian (target &gt; 95%)</td><td>${pct(r.sla_compliance_pct)}</td></tr>
+        <tr><td>Kepatuhan SLA menurut batas baku KAK 18.c (insiden 24 jam 15 menit; request sesuai katalog)</td><td>${pct(r.sla_kak_compliance_pct)}</td></tr>
+        <tr><td>Respons pertama &lt; 15 menit (teramati ${r.response_known}, tidak teramati ${r.response_unknown})</td><td>${pct(r.response_within_15m_pct)}</td></tr>
+        <tr><td>Tiket dengan penanda eskalasi</td><td>${r.escalated_tickets}</td></tr>
+        <tr><td>Aduan WA / sudah bertiket / belum bertiket</td><td>${r.wa_total} / ${r.wa_linked} / ${r.wa_unlinked}</td></tr>
+        <tr><td>Balasan WA dalam target ${r.wa_reply_target_minutes ?? 10} menit (teramati ${r.wa_reply_known ?? 0}, tidak teramati ${r.wa_reply_unknown ?? 0})</td><td>${pct(r.wa_reply_within_target_pct)}</td></tr>
+        <tr><td>Aduan WA dari pelapor belum terverifikasi</td><td>${r.wa_unverified ?? 0}</td></tr>
+        <tr><td>Tiket dengan syarat dokumen belum lengkap (approval / nota dinas)</td><td>${r.docs_incomplete ?? 0}</td></tr>
+      </table>
+      ${categoryTable(r)}${reportTable("Hasil SLA", r.sla_outcomes)}${reportTable("Per prioritas", r.by_priority)}${reportTable("Per tipe", r.by_type)}
+      ${reportTable("Per sumber", r.by_source)}${reportTable("Tren", r.trend)}${reportTable("Instansi terbanyak", Object.fromEntries(r.top_agencies || []))}
+      <h4 style="margin:10px 0 2px;font-size:12.5px;">Insiden Critical / Major</h4>
+      <table class="report-table">${(r.critical_major || []).map((c) => `<tr><td>${escapeHtml(c.ticketId)} &middot; ${escapeHtml(c.location)} &middot; ${escapeHtml(c.priority)} &middot; ${escapeHtml(c.sla)}<br><span style="color:#64748B;">${escapeHtml(c.desc)}</span></td><td>${escapeHtml(c.state)}</td></tr>`).join("") || '<tr><td colspan="2"><em>Tidak ada</em></td></tr>'}</table>
+      <details><summary style="cursor:pointer;font-size:12px;">Definisi dan batasan</summary><ul style="font-size:12px;">${(r.notes || []).map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul></details>`;
+  } catch (_) {
+    reportBody.innerHTML = "<p>Gagal memuat laporan. Cek server Sentinel.</p>";
+  }
+}
+
+document.getElementById("btnReports")?.addEventListener("click", () => {
+  const now = new Date();
+  reportDate.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  reportModal?.classList.add("active");
+  loadReport();
+});
+reportKind?.addEventListener("change", loadReport);
+reportDate?.addEventListener("change", loadReport);
+["closeReportBtn", "reportCloseBtn"].forEach((id) =>
+  document.getElementById(id)?.addEventListener("click", () => reportModal?.classList.remove("active")));
+document.getElementById("reportPrintBtn")?.addEventListener("click", () =>
+  window.open(`${SERVER}/api/report.html?kind=${reportKind.value}&date=${encodeURIComponent(reportDate.value || "")}`, "_blank"));
+document.getElementById("reportCsvBtn")?.addEventListener("click", () =>
+  window.open(`${SERVER}/api/export.csv?kind=${reportKind.value}&date=${encodeURIComponent(reportDate.value || "")}`, "_blank"));
+
+
+// ----------------------------------------------------
+// INPUT MANUAL ADUAN WHATSAPP
+// ----------------------------------------------------
+const mwGroup = document.getElementById("mwGroup");
+const mwTier = document.getElementById("mwTier");
+const mwSender = document.getElementById("mwSender");
+const mwTime = document.getElementById("mwTime");
+const mwText = document.getElementById("mwText");
+const mwPreview = document.getElementById("mwPreview");
+const mwResult = document.getElementById("mwResult");
+
+function mwRecentGroups() {
+  try { return JSON.parse(localStorage.getItem("gc1_recent_groups") || "[]"); } catch (_) { return []; }
+}
+function mwRememberGroup(g) {
+  try {
+    const list = [g, ...mwRecentGroups().filter((x) => x !== g)].slice(0, 20);
+    localStorage.setItem("gc1_recent_groups", JSON.stringify(list));
+  } catch (_) {}
+}
+async function mwLoadGroupList() {
+  const names = new Set(mwRecentGroups());
+  try {
+    const cfg = await (await fetch(`${SERVER}/api/config`)).json();
+    (cfg.wa_priority_groups || []).forEach((p) => p && p.match && names.add(p.match));
+    (cfg.wa_monitored_groups || []).forEach((g) => g && g !== "*" && names.add(g));
+  } catch (_) {}
+  const dl = document.getElementById("mwGroupList");
+  if (dl) dl.innerHTML = [...names].map((n) => `<option value="${escapeHtml(n)}"></option>`).join("");
+  try { if (mwGroup && !mwGroup.value) mwGroup.value = mwRecentGroups()[0] || ""; } catch (_) {}
+}
+
+function mwUpdatePreview() {
+  if (!mwText || !mwPreview || !window.GC1Paste) return;
+  const r = GC1Paste.parseWaPaste(mwText.value);
+  mwPreview.textContent = !r.messages.length ? "" :
+    r.hadHeaders ? `Terdeteksi ${r.messages.length} pesan berformat WhatsApp (pengirim dan waktu diambil dari teks).`
+                 : "Teks polos: dibuat sebagai 1 pesan memakai pengirim dan waktu dari isian di atas.";
+}
+mwText?.addEventListener("input", mwUpdatePreview);
+
+document.getElementById("mwSubmit")?.addEventListener("click", async () => {
+  const group = (mwGroup.value || "").trim();
+  if (!group) { alert("Isi nama grup/chat WhatsApp."); return; }
+  const parsed = GC1Paste.parseWaPaste(mwText.value);
+  if (!parsed.messages.length) { alert("Tempel pesan WhatsApp dulu."); return; }
+  const by = getOperator(false);
+  if (!by) { alert("Nama petugas wajib diisi (satu akun satu orang)."); return; }
+
+  const plainTs = mwTime.value ? Math.floor(new Date(mwTime.value).getTime() / 1000) : null;
+  const tally = {};
+  const replyItems = [];
+  let lastId = "";
+  const btn = document.getElementById("mwSubmit");
+  btn.disabled = true;
+  for (const m of parsed.messages) {
+    const sender = m.sender || (mwSender.value || "").trim() || "Pelapor (manual)";
+    const ts = m.ts || (parsed.hadHeaders ? null : plainTs);
+    if (window.V3 && V3.skipMsg && V3.skipMsg(m.text)) { tally["dilewati (tidak dipilih)"] = (tally["dilewati (tidak dipilih)"] || 0) + 1; continue; }
+    const nl = window.V3 && V3.nlpFor ? V3.nlpFor(m.text) : null;
+    const body = {
+      sender, group, text: m.text, matchedKeyword: "GC 1", manual: true, enteredBy: by,
+      msgId: "man|" + GC1Paste.hashKey([group, sender, m.text, ts || ""].join("|")),
+      waTs: ts, tier: mwTier.value ? parseInt(mwTier.value, 10) : undefined,
+      phone: (!parsed.hadHeaders && (document.getElementById("mwPhone").value || "").trim()) || undefined,
+      instansi: (nl && nl.instansi) || undefined, summary: (nl && nl.summary) || undefined
+    };
+    try {
+      const r = await postJson("/api/add_wa_ticket", body);
+      const key = r.status === "success" ? "dibuat" : ({
+        merged_into_thread: "digabung ke utas yang ada",
+        team_sender: "pesan tim sendiri diabaikan",
+        already_converted_to_ticket: "sudah pernah dicatat",
+        out_of_scope_gc2: "aduan Telkom/GC 2 diabaikan",
+        group_ignored: "grup diabaikan"
+      }[r.reason] || r.message || r.reason || "gagal");
+      tally[key] = (tally[key] || 0) + 1;
+      if (r.status === "success" && nl) {
+        postJson("/api/ai_suggestion", { ticketId: r.ticket.ticketId, model: nl.engine, suggestion: { priority: nl.priority, summary: nl.summary, reason: nl.reason, is_peer_chatter: nl.chatter, needs_followup: nl.needsReply, has_image_only: nl.has_image_only } }).catch(() => {});
+      }
+      if (r.status === "success") { lastId = r.ticket.ticketId; replyItems.push({ identity: r.identity, label: (r.identity && r.identity.name) || sender }); if (r.identity && r.identity.status !== "verified") tally["_baru"] = (tally["_baru"] || 0) + 1; }
+    } catch (_) {
+      tally["gagal (server tidak merespons)"] = (tally["gagal (server tidak merespons)"] || 0) + 1;
+    }
+  }
+  btn.disabled = false;
+  window.__mwShowReplies(replyItems);
+  mwText.focus();
+  mwRememberGroup(group);
+  const unverifiedNew = tally["_baru"] || 0;
+  delete tally["_baru"];
+  mwResult.textContent = Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(", ") + (lastId ? ` (terakhir: ${lastId})` : "") +
+    (unverifiedNew ? `. ${unverifiedNew} dari pelapor yang nomornya belum terdaftar: buka tiketnya untuk verifikasi identitas.` : "");
+  if (tally["dibuat"]) { mwText.value = ""; mwPreview.textContent = ""; if (window.V3 && V3.resetQuick) V3.resetQuick(); playAlertSound(); }
+  await fetchHelpdeskSnapshot();
+  mwLoadGroupList();
+});
+
+mwLoadGroupList();
+
+
+// ----------------------------------------------------
+// IDENTITAS PELAPOR (SOP 4.1), DAFTAR PIC, DAN SYARAT DOKUMEN
+// ----------------------------------------------------
+const fmtPhone = (p) => (p ? "+" + p : "-");
+const CASE_LABEL = { verified: "Terdaftar", unknown: "Belum ditanya", asked: "Sudah ditanya, menunggu jawaban", claimed: "Pelapor sudah menjawab, belum diverifikasi", registration_requested: "Pendaftaran diajukan ke Komdigi", rejected: "Ditolak (bukan tenan)", no_phone: "Nomor HP belum dicatat" };
+
+function picQuestion() {
+  const h = new Date().getHours();
+  const g = h < 11 ? "pagi" : h < 15 ? "siang" : h < 18 ? "sore" : "malam";
+  return `Selamat ${g} Bapak/Ibu. Terima kasih sudah menghubungi Helpdesk Managed Service Government Cloud 1. Nomor ini belum terdaftar sebagai PIC layanan PDN kami. Mohon informasikan: (1) nama lengkap, (2) instansi/satuan kerja, (3) jabatan Anda. Untuk keamanan, aduan baru dapat kami tindaklanjuti setelah identitas terverifikasi. Mohon tidak mengirimkan password atau data rahasia lewat WhatsApp.`;
+}
+
+async function picAction(body) {
+  const by = getOperator(false);
+  if (!by) { alert("Nama petugas wajib diisi."); return null; }
+  const r = await postJson("/api/pic_action", { by, ...body });
+  if (r.status !== "ok") { alert(r.message || "Gagal."); return null; }
+  return r;
+}
+
+// --- modal Daftar PIC ---
+const picModal = document.getElementById("picModal");
+let picData = { registry: [], cases: [] };
+let picTab = "registry";
+let picCase = "";
+let picFilter = "";
+let picFlash = "";
+
+async function picLoad() {
+  try { picData = await (await fetch(`${SERVER}/api/pic_registry`)).json(); } catch (_) {}
+  picRender();
+}
+
+function picRender() {
+  document.querySelectorAll("#picTabs button").forEach((b) => b.classList.toggle("active", b.dataset.picTab === picTab && !picCase));
+  const body = document.getElementById("picBody");
+  if (!body) return;
+  const e = escapeHtml;
+  if (picCase) {
+    const c = picData.cases.find((x) => x.phone === picCase);
+    if (!c) { picCase = ""; return picRender(); }
+    body.innerHTML = `
+      <p><button class="btn btn-secondary btn-sm" data-pic-act="back">← Kembali</button>
+        <strong>${e(fmtPhone(c.phone))}</strong> <span class="pic-status ${c.status === "rejected" ? "bad" : ""}">${e(CASE_LABEL[c.status] || c.status)}</span>
+        &middot; ${c.ticketCount} tiket</p>
+      <div class="extra-box"><h4>Langkah verifikasi (SOP 4.1)</h4>
+        <ol style="margin:0 0 0 18px;padding:0;line-height:1.7;">
+          <li>Tanyakan asal dan instansi pelapor (salin pertanyaan di bawah, kirim manual lewat WhatsApp).</li>
+          <li>Catat nama dan instansi yang disebut pelapor.</li>
+          <li>Bila belum terdaftar, minta pelapor mendaftar ke Komdigi, lalu catat nomor/tanggal pengajuan.</li>
+          <li>Setelah Komdigi memverifikasi, catat bukti verifikasinya. <strong>Baru saat itu nomor disimpan sebagai PIC.</strong></li>
+          <li>Bukan tenan: tolak. Aduan dihentikan dan tidak diproses.</li></ol></div>
+      <div class="pic-form">
+        <div><label>Nama (yang disebut pelapor / hasil verifikasi)</label><input id="picName" value="${e(c.claimedName || "")}"></div>
+        <div><label>Instansi</label><input id="picInstansi" value="${e(c.claimedInstansi || "")}"></div>
+        <div class="full"><label>Nomor/tanggal pengajuan atau bukti verifikasi Komdigi</label><input id="picRef" value="${e(c.komdigiRef || "")}" placeholder="mis. Surat 123/2026, 30 Sep 2026"></div>
+        <div class="full"><label>Catatan / alasan penolakan</label><input id="picNote"></div>
+      </div>
+      <div class="action-row">
+        <button class="btn btn-secondary btn-sm" data-pic-act="copyq">📋 Salin pertanyaan identitas</button>
+        <button class="btn btn-secondary btn-sm" data-pic-act="asked">Sudah ditanya</button>
+        <button class="btn btn-secondary btn-sm" data-pic-act="claimed">Simpan jawaban pelapor</button>
+        <button class="btn btn-secondary btn-sm" data-pic-act="regreq">Pendaftaran diajukan ke Komdigi</button>
+        <button class="btn btn-primary btn-sm" data-pic-act="verify">✓ Terverifikasi, simpan nomor</button>
+        <button class="btn btn-secondary btn-sm" data-pic-act="reject">⛔ Tolak (bukan tenan)</button>
+      </div>
+      <h4 style="margin:12px 0 4px;font-size:12.5px;">Riwayat kasus</h4>
+      ${(c.history || []).slice().reverse().map((h) => `<div class="hist-item"><time>${e(h.time)} &middot; ${e(h.actor)}</time><br><strong>${e(h.event)}</strong>${h.detail ? ": " + e(h.detail) : ""}</div>`).join("") || "<em>Belum ada</em>"}`;
+    return;
+  }
+  if (picTab === "registry") {
+    const f = picFilter.toLowerCase();
+    const rows = picData.registry.filter((r) => !f || `${r.name} ${r.instansi} ${r.phone}`.toLowerCase().includes(f)).map((r) => `
+      <tr><td>${e(r.name)}</td><td>${e(r.instansi)}</td><td>${e(fmtPhone(r.phone))}</td><td>${e(r.basis || "")}</td><td>${e(r.verifiedBy || "")}<br><span style="color:#64748B">${e(r.verifiedAt || "")}</span></td>
+        <td><button class="btn btn-secondary btn-sm" data-pic-remove="${e(r.phone)}">Hapus</button></td></tr>`).join("");
+    body.innerHTML = `<input id="picSearch" class="form-control-enterprise" placeholder="Cari nama, instansi, atau nomor" value="${e(picFilter)}" style="margin-bottom:8px;">
+      <table class="report-table"><tr><th>Nama</th><th>Instansi</th><th>Nomor</th><th>Dasar verifikasi</th><th>Oleh</th><th></th></tr>${rows || '<tr><td colspan="6"><em>Belum ada PIC terdaftar. Impor daftar resmi di tab Tambah / Impor.</em></td></tr>'}</table>`;
+  } else if (picTab === "cases") {
+    const rows = picData.cases.map((c) => `
+      <tr><td>${e(fmtPhone(c.phone))}</td><td><span class="pic-status ${c.status === "rejected" ? "bad" : ""}">${e(CASE_LABEL[c.status] || c.status)}</span></td>
+        <td>${e(c.claimedName || "-")}<br><span style="color:#64748B">${e(c.claimedInstansi || "")}</span></td><td>${e(c.komdigiRef || "-")}</td><td>${c.ticketCount}</td>
+        <td><button class="btn btn-secondary btn-sm" data-pic-case="${e(c.phone)}">Kelola</button></td></tr>`).join("");
+    body.innerHTML = `<table class="report-table"><tr><th>Nomor</th><th>Status</th><th>Menurut pelapor</th><th>Ref. Komdigi</th><th>Tiket</th><th></th></tr>${rows || '<tr><td colspan="6"><em>Tidak ada nomor yang menunggu verifikasi.</em></td></tr>'}</table>`;
+  } else {
+    body.innerHTML = `
+      <div class="extra-box"><h4>Tambah satu PIC terverifikasi</h4>
+        <div class="pic-form">
+          <div><label>Nomor HP</label><input id="addPhone" placeholder="08xx / +62 8xx"></div>
+          <div><label>Nama</label><input id="addName"></div>
+          <div><label>Instansi</label><input id="addInstansi"></div>
+          <div><label>Dasar verifikasi (wajib)</label><input id="addBasis" placeholder="mis. Terdaftar di Komdigi, surat 123/2026"></div>
+        </div><button class="btn btn-primary btn-sm" data-pic-act="add">Simpan PIC</button></div>
+      <div class="extra-box"><h4>Impor daftar PIC resmi (CSV)</h4>
+        <div class="note" style="font-size:12px;color:#64748B;">Satu baris per PIC: <code>nama;instansi;nomor</code> (pemisah ; , atau tab). Dianggap sudah terverifikasi karena berasal dari daftar resmi.</div>
+        <textarea id="importText" style="width:100%;min-height:100px;margin:6px 0;box-sizing:border-box;" placeholder="Budi Santoso;Kementerian Kesehatan;0812-3456-7890"></textarea>
+        <button class="btn btn-primary btn-sm" data-pic-act="import">Impor</button> <span id="importResult" class="note">${e(picFlash)}</span></div>`;
+  }
+}
+
+function openPic(tab, phone) {
+  picTab = tab || "registry";
+  picCase = phone || "";
+  picModal?.classList.add("active");
+  picLoad();
+}
+
+document.getElementById("btnPic")?.addEventListener("click", () => openPic("cases"));
+["closePicBtn", "picCloseBtn"].forEach((id) => document.getElementById(id)?.addEventListener("click", () => picModal?.classList.remove("active")));
+document.getElementById("picTabs")?.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-pic-tab]");
+  if (b) { picTab = b.dataset.picTab; picCase = ""; picFlash = ""; picRender(); }
+});
+
+document.getElementById("picBody")?.addEventListener("input", (e) => {
+  if (e.target.id === "picSearch") { picFilter = e.target.value; const pos = e.target.selectionStart; picRender(); const s = document.getElementById("picSearch"); s.focus(); s.setSelectionRange(pos, pos); }
+});
+
+document.getElementById("picBody")?.addEventListener("click", async (e) => {
+  const val = (id) => (document.getElementById(id)?.value || "").trim();
+  const caseBtn = e.target.closest("[data-pic-case]");
+  if (caseBtn) { picCase = caseBtn.dataset.picCase; picRender(); return; }
+  const rm = e.target.closest("[data-pic-remove]");
+  if (rm) {
+    const note = prompt("Alasan menghapus PIC ini dari daftar (wajib):");
+    if (note && (await picAction({ action: "remove", phone: rm.dataset.picRemove, note }))) { await picLoad(); fetchHelpdeskSnapshot(); }
+    return;
+  }
+  const a = e.target.closest("[data-pic-act]");
+  if (!a) return;
+  const act = a.dataset.picAct;
+  if (act === "back") { picCase = ""; picRender(); return; }
+  if (act === "copyq") { window.copyText(picQuestion()); alert("Pertanyaan disalin. Kirim manual lewat WhatsApp."); return; }
+  if (act === "add") {
+    if (await picAction({ action: "add_verified", phone: val("addPhone"), name: val("addName"), instansi: val("addInstansi"), basis: val("addBasis") })) { picTab = "registry"; await picLoad(); fetchHelpdeskSnapshot(); }
+    return;
+  }
+  if (act === "import") {
+    const r = await picAction({ action: "import_csv", text: document.getElementById("importText").value });
+    if (r) { picFlash = `${r.added} PIC masuk, ${r.skipped} baris dilewati.`; await picLoad(); fetchHelpdeskSnapshot(); }
+    return;
+  }
+  const base = { phone: picCase, name: val("picName"), instansi: val("picInstansi"), komdigiRef: val("picRef"), note: val("picNote") };
+  let r = null;
+  if (act === "asked") r = await picAction({ action: "case_update", status: "asked", ...base });
+  else if (act === "claimed") r = await picAction({ action: "case_update", status: "claimed", ...base });
+  else if (act === "regreq") r = await picAction({ action: "case_update", status: "registration_requested", ...base });
+  else if (act === "verify") {
+    if (!confirm("Simpan nomor ini sebagai PIC terverifikasi? Pastikan bukti verifikasi dari Komdigi sudah dicatat.")) return;
+    r = await picAction({ action: "verify_case", ...base });
+    if (r) picCase = "";
+  } else if (act === "reject") {
+    if (!confirm("Tolak pelapor ini? Aduan dari nomor ini akan ditutup dan tidak diproses (SOP 4.1).")) return;
+    r = await picAction({ action: "reject_case", ...base });
+  }
+  if (r) { await picLoad(); fetchHelpdeskSnapshot(); }
+});
+
+// --- pratinjau status nomor di kolom input manual ---
+const mwPhoneEl = document.getElementById("mwPhone");
+let mwIdTimer = null;
+async function mwCheckIdentity() {
+  const box = document.getElementById("mwIdentity");
+  if (!box || !window.GC1Paste) return;
+  const parsed = GC1Paste.parseWaPaste(mwText.value);
+  const phones = new Set();
+  parsed.messages.forEach((m) => { if (/^\+?[\d\s\-()]{8,24}$/.test((m.sender || "").trim())) phones.add(m.sender.trim()); });
+  if (!parsed.hadHeaders && mwPhoneEl.value.trim()) phones.add(mwPhoneEl.value.trim());
+  if (!phones.size) { box.textContent = parsed.messages.length ? "Nomor HP pengirim belum diisi: tanpa nomor, identitas pelapor tidak bisa diverifikasi (SOP 4.1)." : ""; return; }
+  const out = [];
+  for (const p of phones) {
+    try {
+      const r = await (await fetch(`${SERVER}/api/pic_lookup?phone=${encodeURIComponent(p)}`)).json();
+      out.push(r.status === "verified" ? `✓ ${p}: ${r.name} (${r.instansi})` : r.status === "rejected" ? `⛔ ${p}: ditolak` : `⚠ ${p}: nomor belum terdaftar. Setelah tiket dibuat, tanyakan asal dan instansi, lalu verifikasi lewat Komdigi.`);
+    } catch (_) {}
+  }
+  box.textContent = out.join("   ");
+}
+const mwDebounce = () => { clearTimeout(mwIdTimer); mwIdTimer = setTimeout(mwCheckIdentity, 400); };
+mwText?.addEventListener("input", mwDebounce);
+mwPhoneEl?.addEventListener("input", mwDebounce);
+
+// --- kotak identitas dan dokumen di detail tiket ---
+function identityBoxHtml(ticket) {
+  const idn = ticket.identity;
+  if (!ticket.isFromWa || !idn) return "";
+  const e = escapeHtml;
+  const ok = idn.status === "verified";
+  return `<div class="extra-box" style="border-color:${ok ? "#A7F3D0" : "#FED7AA"};"><h4>Identitas pelapor (SOP 4.1)</h4>
+    <div class="extra-grid">
+      <div>Nomor HP</div><div>${e(fmtPhone(idn.phone))}</div>
+      <div>Status</div><div><span class="pic-status ${ok ? "ok" : idn.status === "rejected" ? "bad" : ""}">${e(CASE_LABEL[idn.status] || idn.status)}</span></div>
+      ${ok ? `<div>PIC terdaftar</div><div>${e(idn.name)} (${e(idn.instansi)})</div>` : ""}
+      ${!ok && idn.claimedName ? `<div>Menurut pelapor</div><div>${e(idn.claimedName)} (${e(idn.claimedInstansi || "-")})</div>` : ""}
+      ${!ok && idn.komdigiRef ? `<div>Ref. Komdigi</div><div>${e(idn.komdigiRef)}</div>` : ""}
+    </div>
+    ${ok ? "" : `<div class="warn" style="margin:8px 0 0;">Jangan memberi informasi layanan, IP, atau status sistem sebelum pelapor terverifikasi.</div>`}
+    ${ok ? "" : `<div class="action-row">
+      ${idn.status === "no_phone" ? '<button class="btn btn-secondary btn-sm" id="actSetPhone">Catat nomor HP</button>' : '<button class="btn btn-primary btn-sm" id="actManageIdent">Kelola verifikasi</button>'}
+      <button class="btn btn-secondary btn-sm" id="actCopyQ">📋 Salin pertanyaan identitas</button></div>`}
+  </div>`;
+}
+
+function docsBoxHtml(ticket) {
+  const d = ticket.docs;
+  if (!d) return "";
+  const e = escapeHtml;
+  return `<div class="extra-box" style="border-color:${d.complete ? "#A7F3D0" : "#FDE68A"};"><h4>Syarat dokumen: ${e(d.rule)} ${d.complete ? "(lengkap)" : "(BELUM lengkap, jangan diproses)"}</h4>
+    <div class="extra-grid">${d.items.map((i) => `<div>${i.ok ? "✓" : "✗"} ${e(i.label)}</div><div>${i.ok ? e(i.ref) + (i.auto ? " (otomatis dari status ITSM)" : ` &middot; ${e(i.by)}`) : "<em>belum ada</em>"}</div>`).join("")}</div>
+    <div class="action-row">${d.items.map((i) => `<button class="btn btn-secondary btn-sm" data-doc-set="${e(i.key)}">${i.ok ? "Ubah" : "Catat"} ${e(i.label.toLowerCase())}</button>`).join("")}
+      ${d.items.filter((i) => i.ok).map((i) => `<button class="btn btn-secondary btn-sm" data-doc-clear="${e(i.key)}">Cabut ${e(i.label.toLowerCase())}</button>`).join("")}</div>
+  </div>`;
+}
+
+
+// ----------------------------------------------------
+// BALASAN CEPAT (WA = pra-tiket dan komunikasi) DAN PINTASAN JAM SIBUK
+// ----------------------------------------------------
+function waGreeting() {
+  const h = new Date().getHours();
+  return h < 11 ? "pagi" : h < 15 ? "siang" : h < 18 ? "sore" : "malam";
+}
+
+/** Balasan pertama. Tenan terdaftar: minta buka tiket di ITSM dulu (SOP lampiran 14.1). Nomor baru: tanyakan identitas (SOP 4.1). */
+function waReplyFor(identity) {
+  if (identity && identity.status === "verified") {
+    return `Selamat ${waGreeting()} Bapak/Ibu ${identity.name} dari ${identity.instansi}. Aduan Anda kami terima dan sedang kami periksa. Agar tercatat resmi dan terpantau SLA-nya, mohon dibuatkan tiket di pdn.layanan.go.id, lalu kirimkan nomor tiketnya kepada kami.`;
+  }
+  return picQuestion();
+}
+
+window.quickReplyCopy = function (ticketId) {
+  const t = (state.snapshot.all_tickets || []).find((x) => x.ticketId === ticketId);
+  if (!t) return;
+  window.copyText(waReplyFor(t.identity));
+  const btn = document.querySelector(`[data-reply="${CSS.escape(ticketId)}"]`);
+  if (btn) { const o = btn.innerHTML; btn.textContent = "✅ Disalin"; setTimeout(() => { btn.innerHTML = o; }, 1500); }
+};
+
+window.quickAck = async function (ticketId) {
+  const by = getOperator(false);
+  if (!by) { alert("Nama petugas wajib diisi."); return; }
+  const r = await postJson("/api/ticket_action", { ticketId, action: "ack", note: "Balasan WA terkirim", by });
+  if (r.status !== "ok") alert(r.message || "Gagal.");
+  fetchHelpdeskSnapshot();
+};
+
+// Ctrl+V di mana saja (di luar kolom isian) langsung mengisi kolom input WA; Ctrl+Enter membuat pra-tiket
+document.addEventListener("paste", (e) => {
+  if (state.role === "team" || !mwText) return;
+  const tg = e.target;
+  if (tg && (tg.tagName === "INPUT" || tg.tagName === "TEXTAREA" || tg.tagName === "SELECT" || tg.isContentEditable)) return;
+  const txt = (e.clipboardData && e.clipboardData.getData("text")) || "";
+  if (!txt.trim()) return;
+  e.preventDefault();
+  if (window.V3 && V3.showView) V3.showView("quick");
+  const det = document.getElementById("manualWaDetails");
+  if (det) det.open = true;
+  mwText.value = txt;
+  mwText.dispatchEvent(new Event("input"));
+  mwText.focus();
+  mwText.scrollIntoView({ block: "center" });
+});
+mwText?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.getElementById("mwSubmit").click(); }
+});
+
+// setelah pra-tiket dibuat: tombol balasan siap salin per pelapor
+const mwReplies = document.getElementById("mwReplies");
+window.__mwShowReplies = function (items) {
+  if (!mwReplies) return;
+  mwReplies.innerHTML = items.map((it) => `<button data-copytext="${escapeHtml(waReplyFor(it.identity))}" title="Salin balasan lalu kirim manual di WhatsApp">💬 Salin balasan: ${escapeHtml(it.label)}</button>`).join("");
+};
+
+// ----------------------------------------------------
+// COLUMN SORT & FILTER EVENT LISTENERS (Semua Tiket Lingkup GC 1 & Submenu ITSM)
+// ----------------------------------------------------
+function setupColumnSortAndFilterListeners() {
+  // Sort Header Click Handlers
+  document.querySelectorAll(".sortable-th").forEach((th) => {
+    th.addEventListener("click", () => {
+      const col = th.dataset.sort;
+      if (!col) return;
+      if (state.sortColumn === col) {
+        state.sortDirection = state.sortDirection === "asc" ? "desc" : "asc";
+      } else {
+        state.sortColumn = col;
+        state.sortDirection = "asc";
+      }
+      renderActiveTab();
+    });
+  });
+
+  // Column Filter Input & Select Handlers
+  const bindInput = (id, key) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("input", (e) => {
+      if (!state.columnFilters) state.columnFilters = {};
+      state.columnFilters[key] = e.target.value;
+      renderActiveTab();
+    });
+  };
+
+  const bindSelect = (id, key) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("change", (e) => {
+      if (!state.columnFilters) state.columnFilters = {};
+      state.columnFilters[key] = e.target.value;
+      renderActiveTab();
+    });
+  };
+
+  bindInput("colFilter_ticketId", "ticketId");
+  bindInput("colFilter_shortDesc", "shortDesc");
+  bindInput("colFilter_requester", "requester");
+  bindSelect("colFilter_status", "status");
+  bindInput("colFilter_milestone", "milestone");
+  bindSelect("colFilter_sla", "sla");
+  bindSelect("colFilter_serviceType", "serviceType");
+
+  // Reset Column Filters Button
+  const btnReset = document.getElementById("btnResetColFilters");
+  if (btnReset) {
+    btnReset.addEventListener("click", (e) => {
+      e.stopPropagation();
+      resetColumnFilters();
+      renderActiveTab();
+    });
+  }
+
+  // Toggle Column Filter Row
+  const btnToggle = document.getElementById("btnToggleColFilter");
+  const filterRow = document.getElementById("tableColFilterRow");
+  if (btnToggle && filterRow) {
+    btnToggle.addEventListener("click", () => {
+      const isCollapsed = filterRow.classList.toggle("collapsed");
+      const activeCount = getActiveFilterCount();
+      const style = activeCount > 0 ? "display:inline-block;" : "display:none;";
+      btnToggle.innerHTML = isCollapsed
+        ? `<span>🔽 Filter Kolom</span><span class="filter-active-count" id="filterActiveCount" style="${style}">${activeCount}</span>`
+        : `<span>🔼 Sembunyikan Filter</span><span class="filter-active-count" id="filterActiveCount" style="${style}">${activeCount}</span>`;
+    });
+  }
+}
+
+function resetColumnFilters() {
+  state.columnFilters = {
+    ticketId: "",
+    shortDesc: "",
+    requester: "",
+    status: "all",
+    milestone: "",
+    sla: "all",
+    serviceType: "all"
+  };
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.value = val;
+  };
+  setVal("colFilter_ticketId", "");
+  setVal("colFilter_shortDesc", "");
+  setVal("colFilter_requester", "");
+  setVal("colFilter_status", "all");
+  setVal("colFilter_milestone", "");
+  setVal("colFilter_sla", "all");
+  setVal("colFilter_serviceType", "all");
+}
+
+function getActiveFilterCount() {
+  if (!state.columnFilters) return 0;
+  return Object.values(state.columnFilters).filter((v) => Boolean(v && v !== "all")).length;
+}
+
+setupColumnSortAndFilterListeners();
+

@@ -8,20 +8,35 @@
     "Gov Cloud 1",
     "GovCloud 1",
     "Gedung C 1",
-    "Gedung C1"
+    "Gedung C1",
+    "PDN",
+    "PDNS",
+    "IaaS",
+    "PaaS",
+    "SecaS",
+    "BaaS",
+    "Cloud",
+    "Kominfo",
+    "Komdigi",
+    "Cikarang",
+    "Batam",
+    "Virtual Machine",
+    "VM",
+    "Database",
+    "Storage",
+    "VDC",
+    "Tenan"
   ],
   "target_status": "Assigned",
   "poll_interval_seconds": 30,
-  "wa_outbound_enabled": false,
   "auto_send_wa": false,
+  "wa_outbound_enabled": false,
   "markijo_auto_mode": true,
   "server_port": 8765,
   "bind_host": "127.0.0.1",
-  "live_helpdesk_url": "https://pdn.layanan.go.id",
   "allowed_origins": [],
-  "wa_monitored_groups": [
-    "*"
-  ],
+  "wa_monitored_groups": [],
+  "wa_priority_groups": [],
   "wa_ignored_groups": [],
   "wa_team_senders": [],
   "wa_verified_senders": [],
@@ -33,6 +48,52 @@
   "ai_external_approved": false,
   "ai_hermes_exe": "",
   "ai_hermes_home": "",
+  "itsm_lists": [
+    {
+      "key": "request",
+      "label": "Tiket Request",
+      "match": [
+        "request",
+        "permohonan",
+        "sc_req_item",
+        "sc_task",
+        "all request"
+      ]
+    },
+    {
+      "key": "incident",
+      "label": "Tiket Insiden",
+      "match": [
+        "incident",
+        "insiden",
+        "gangguan",
+        "all incident"
+      ]
+    }
+  ],
+  "wa_reply_warn_minutes": 5,
+  "wa_reply_breach_minutes": 10,
+  "wa_ticket_open_target_minutes": 15,
+  "doc_rules": [
+    {
+      "name": "Pembuatan akun",
+      "keywords": [
+        "pembuatan akun",
+        "buat akun",
+        "akun baru",
+        "dibuatkan akun",
+        "pendaftaran akun",
+        "pembuatan user",
+        "buat user",
+        "pembuatan username"
+      ],
+      "docs": [
+        "approval",
+        "nota_dinas"
+      ]
+    }
+  ],
   "team_view_enabled": false,
-  "team_view_token": ""
+  "team_view_token": "",
+  "live_helpdesk_url": "https://pdn.layanan.go.id"
 }

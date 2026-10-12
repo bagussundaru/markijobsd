@@ -89,6 +89,56 @@
         <!-- Tier 1: 6 Symmetrical KPI Cards (Total, Assigned, Pending, In Progress, On-Hold, SLA) -->
         <div class="v3-kpis" id="ovKpis" style="--cols:6"></div>
 
+        <!-- Tier 2: Top Actionable Operational Focus Cards (Tiket Prioritas & Countdown In Progress) -->
+        <div class="v3-analytics-row" id="ovActionableRow">
+          <!-- Card Left: Tiket Prioritas yang Perlu Diperhatikan -->
+          <div class="v3-card v3-card-priority-attention">
+            <div class="v3-card-head">
+              <div>
+                <h3>🚨 Tiket Prioritas yang Perlu Diperhatikan</h3>
+                <div class="sub">Tiket dengan eskalasi, mendekati batas waktu SLA, dan insiden kritis/major</div>
+              </div>
+              <div class="v3-card-tabs" id="ovAttnFilterTabs">
+                <button class="v3-card-tab active" data-attn-filter="all">Semua (<span id="ovAttnAllCount">0</span>)</button>
+                <button class="v3-card-tab" data-attn-filter="escalation">Eskalasi (<span id="ovAttnEscCount">0</span>)</button>
+                <button class="v3-card-tab" data-attn-filter="breached">Lewat SLA (<span id="ovAttnBreachCount">0</span>)</button>
+                <button class="v3-card-tab" data-attn-filter="major">Major / Critical (<span id="ovAttnMajorCount">0</span>)</button>
+              </div>
+            </div>
+            <div class="priority-attention-body">
+              <div class="priority-tickets-container" id="ovPriorityAttentionList">
+                <div style="padding:20px;text-align:center;color:#94A3B8;font-size:12px;">Memuat tiket prioritas...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card Right: Waktu Mundur Follow-Up Tiket In Progress (SOP & KAK) -->
+          <div class="v3-card v3-card-inprogress-followup">
+            <div class="v3-card-head">
+              <div>
+                <h3>⏱️ Countdown Follow-Up Tiket In Progress</h3>
+                <div class="sub">Standar KAK 18.c &middot; Cadence: 60m (Major) &amp; 240m (Minor / Request)</div>
+              </div>
+              <div class="v3-card-tabs">
+                <button class="v3-card-tab active" style="cursor:default;">
+                  <span class="beacon-pulse-indicator" style="margin-right:4px;"><span class="beacon-ping"></span><span class="beacon-dot"></span></span>
+                  <span id="ovInProgLiveBadge">8 Tiket Aktif &middot; Live Ticker</span>
+                </button>
+              </div>
+            </div>
+            <div class="inprogress-followup-body">
+              <div class="inprogress-cards-container" id="ovInProgressFollowupList">
+                <div style="padding:20px;text-align:center;color:#94A3B8;font-size:12px;">Memuat tiket in progress...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tier 3: Analytics & Tren Historis (Pindah ke Bawah) -->
+        <div class="v3-section-divider">
+          <span>📊 Monitoring Aliran Tiket &amp; Kepatuhan Mutu Layanan (Historis)</span>
+        </div>
+
         <!-- Tier 2: 2 Symmetrical Analytics Cards -->
         <div class="v3-analytics-row">
           <!-- Card Left: Aliran Tiket & Konversi -->
