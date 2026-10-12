@@ -568,6 +568,14 @@
     try {
       const knownRegistry = getKnownTicketRegistry();
       let registryModified = false;
+      // Lewati (skip) jika berada di menu My Approval History / My Approvals
+      const curUrl = (location.href || "").toLowerCase();
+      const curTitle = (document.title || "").toLowerCase();
+      const curHeading = (document.querySelector("h1, h2, .navbar-title, .title, .breadcrumb, [class*='title']")?.textContent || "").toLowerCase();
+      if (curUrl.includes("approval") || curTitle.includes("approval") || curHeading.includes("approval")) {
+        return;
+      }
+
       const tables = collectTablesFromDoc(document);
       if (!tables || tables.length === 0) return;
 
@@ -671,14 +679,19 @@
 
           const isTelkom = assignmentGroup.toLowerCase().includes("telkom");
 
+          // Lewati tiket Pending Approval karena sudah diurusi oleh aplikasi approval lain
+          if (/pending[\s-]*approval|menunggu[\s-]*approval|menunggu[\s-]*persetujuan/i.test(requestState)) {
+            return;
+          }
+
           // Universal state matching (Bahasa Indonesia & English)
-          const isPending = /on[\s-]*hold|pending|menunggu|hold|tertunda|tunda/i.test(requestState);
+          const isOnHold = /on[\s-]*hold|hold|tertunda|tunda/i.test(requestState);
           const isInProgress = /progress|diproses|sedang diproses|penanganan|analisis|berjalan/i.test(requestState);
-          const isAssigned = !isPending && !isInProgress && /^\s*(assigned|ditugaskan)\s*$/i.test(requestState.trim());
+          const isAssigned = !isOnHold && !isInProgress && /^\s*(assigned|ditugaskan)\s*$/i.test(requestState.trim());
 
           let category = "all_tickets";
           if (isAssigned) category = "team_assigned";
-          else if (isPending) category = "team_pending";
+          else if (isOnHold) category = "team_on_hold";
           else if (isInProgress) category = "team_progress";
           else category = "all_tickets";
 

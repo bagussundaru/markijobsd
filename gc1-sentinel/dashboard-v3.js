@@ -119,7 +119,7 @@
       if (targetSlot) targetSlot.appendChild(tb);
       tb.hidden = false;
       tb.dataset.view = v;
-      const valid = v === "wa" ? ["all_tickets", "wa_alerts"] : ["active_tickets", "team_assigned", "team_progress", "team_pending", "team_closed", "all_tickets"];
+      const valid = v === "wa" ? ["all_tickets", "wa_alerts"] : ["active_tickets", "team_assigned", "team_progress", "team_on_hold", "team_pending", "team_closed", "all_tickets"];
       const allLabel = $("tabBtnAll") && $("tabBtnAll").querySelector(".tab-text");
       if (allLabel) allLabel.textContent = v === "itsm" ? "Semua Tiket ITSM" : (v === "wa" ? "Semua Pra-tiket WhatsApp" : "Semua Tiket Terpantau");
       const waLabel = $("tabBtnWa") && $("tabBtnWa").querySelector(".tab-text");
@@ -175,7 +175,7 @@
     set("badgeActiveFocus", list.filter((t) => !isClosed(t)).length);
     set("badgeClosed", list.filter((t) => isClosed(t)).length);
     set("badgeGc1Assigned", list.filter((t) => !isClosed(t) && st(t).includes("assign") && !st(t).includes("hold") && !st(t).includes("pending") && !st(t).includes("progress")).length);
-    set("badgeGc1Pending", list.filter((t) => !isClosed(t) && (st(t).includes("pending") || st(t).includes("hold"))).length);
+    set("badgeGc1Pending", list.filter((t) => !isClosed(t) && st(t).includes("hold")).length);
     set("badgeTeamProgress", list.filter((t) => !isClosed(t) && st(t).includes("progress")).length);
     set("badgeWa", s.wa_count ?? 0);
     set("badgeAll", list.length);
@@ -405,21 +405,21 @@
     const h = s.sla_health_percent ?? 100;
     const breachedCount = s.sla_breached_count ?? 0;
 
-    let totalLabel = "Total Tiket ITSM";
-    let totalCat = "PORTAL ITSM";
-    let totalIcon = V3_ICONS.total;
-    let totalSub = "Total tiket di semua menu ITSM";
+    let activeLabel = "Tiket Aktif Berjalan";
+    let activeCat = "OPERASIONAL GC 1";
+    let activeIcon = V3_ICONS.total;
+    let activeBadge = "⚡ Fokus Kerja Tim";
 
     if (V3.itsmList === "request") {
-      totalLabel = "Total Tiket Request";
-      totalCat = "PERMOHONAN";
-      totalIcon = V3_ICONS.request;
-      totalSub = "Total seluruh tiket di menu All Request";
+      activeLabel = "Tiket Aktif Request";
+      activeCat = "PERMOHONAN AKTIF";
+      activeIcon = V3_ICONS.request;
+      activeBadge = "⚡ Fokus Request";
     } else if (V3.itsmList === "incident") {
-      totalLabel = "Total Tiket Insiden";
-      totalCat = "GANGGUAN";
-      totalIcon = V3_ICONS.incident;
-      totalSub = "Total seluruh tiket di menu All Incident";
+      activeLabel = "Tiket Aktif Insiden";
+      activeCat = "GANGGUAN AKTIF";
+      activeIcon = V3_ICONS.incident;
+      activeBadge = "⚡ Fokus Insiden";
     }
 
     const bd = computeTicketBreakdown(k.itsm, V3.itsmList || false);
@@ -435,21 +435,33 @@
       : `<div class="k-ratio-bar"><span class="k-bar-seg seg-calm" style="width:100%"></span></div>
          <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Antrean Bersih</b></span><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Siap Menerima Tiket</b></span></div>`;
 
+    const progPct = bd.active > 0 ? Math.round((k.progress / bd.active) * 100) : 0;
+    const holdPct = 100 - progPct;
+    const activeVisualHtml = `
+      <div class="k-ratio-bar">
+        <span class="k-bar-seg seg-progress" style="width:${progPct}%" title="${k.progress} In Progress (${progPct}%)"></span>
+        <span class="k-bar-seg seg-onhold" style="width:${holdPct}%" title="${k.on_hold} On-Hold (${holdPct}%)"></span>
+      </div>
+      <div class="k-meta-legend">
+        <span class="leg-item"><i class="leg-dot dot-progress"></i><b>${k.progress}</b> In Progress</span>
+        <span class="leg-item"><i class="leg-dot dot-onhold"></i><b>${k.on_hold}</b> On-Hold</span>
+      </div>`;
+
     $("itsmKpis").innerHTML =
       kpi({
         cls: "itsm",
         valColorCls: "val-total",
-        category: totalCat,
-        label: totalLabel,
-        val: k.itsm.length,
+        category: activeCat,
+        label: activeLabel,
+        val: bd.active,
         unit: "tiket",
-        sub: totalSub,
+        sub: `${k.progress} In Progress • ${k.on_hold} On-Hold`,
         go: "tab:active_tickets",
-        iconSvg: totalIcon,
-        badgeText: "📁 Terpantau",
-        badgeCls: "badge-total",
-        visualHtml: bd.visualHtml,
-        footerText: `${bd.active} Aktif • ${bd.resolved} Selesai (Total ${k.itsm.length})`
+        iconSvg: activeIcon,
+        badgeText: activeBadge,
+        badgeCls: "badge-progress",
+        visualHtml: activeVisualHtml,
+        footerText: `${bd.active} Aktif • ${bd.resolved} Riwayat Selesai (Total ${k.itsm.length})`
       }) +
       kpi({
         cls: "itsm",
@@ -468,26 +480,10 @@
         isAssignedActive: isAssignedActive
       }) +
       kpi({
-        cls: "warn",
-        valColorCls: "val-pending",
-        category: "VERIFIKASI",
-        label: "Pending Approval",
-        val: k.pending,
-        unit: "tiket",
-        sub: "Menunggu persetujuan tenan/K/L",
-        go: "tab:team_pending",
-        iconSvg: V3_ICONS.pending,
-        badgeText: "⏳ Verifikasi K/L",
-        badgeCls: "badge-pending",
-        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-pending" style="width:100%"></span></div>
-                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-pending"></i><b>Konfirmasi K/L</b></span><span class="leg-item"><i class="leg-dot dot-doc"></i><b>Nota Dinas</b></span></div>`,
-        footerText: `${k.pending} tiket verifikasi K/L`
-      }) +
-      kpi({
         cls: "violet",
         valColorCls: "val-progress",
         category: "PENGERJAAN TEKNIS",
-        label: "Sedang Dikerjakan",
+        label: "Sedang Dikerjakan (In Progress)",
         val: k.progress,
         unit: "tiket",
         sub: "Pengerjaan teknis resolver L1/L2/L3",
@@ -497,7 +493,7 @@
         badgeCls: "badge-progress",
         visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-progress" style="width:100%"></span></div>
                      <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-progress"></i><b>Resolver L1/L2/L3</b></span><span class="leg-item"><i class="leg-dot dot-tech"></i><b>Pengerjaan Aktif</b></span></div>`,
-        footerText: "Pengerjaan aktif resolver"
+        footerText: `${k.progress} tiket aktif resolver`
       }) +
       kpi({
         cls: "hold",
@@ -507,13 +503,29 @@
         val: k.on_hold,
         unit: "tiket",
         sub: "Menunggu tenan / vendor / pihak luar",
-        go: "list:on_hold",
+        go: "tab:team_on_hold",
         iconSvg: V3_ICONS.onhold,
         badgeText: "⏸️ On-Hold",
         badgeCls: "badge-onhold",
         visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-onhold" style="width:100%"></span></div>
                      <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-onhold"></i><b>Tertunda Eksternal</b></span><span class="leg-item"><i class="leg-dot dot-vendor"></i><b>Vendor / Tenan</b></span></div>`,
         footerText: `${k.on_hold} tiket tertunda eksternal`
+      }) +
+      kpi({
+        cls: "ok",
+        valColorCls: "val-ok",
+        category: "ARSIP OPERASIONAL",
+        label: "Riwayat Selesai",
+        val: bd.resolved,
+        unit: "tiket",
+        sub: "Tiket yang telah terselesaikan",
+        go: "tab:team_closed",
+        iconSvg: V3_ICONS.total,
+        badgeText: "✅ Selesai",
+        badgeCls: "badge-ok",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-ok" style="width:100%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Tuntas</b></span><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Arsip Riwayat</b></span></div>`,
+        footerText: `${bd.resolved} tiket tuntas`
       }) +
       kpi({
         cls: h >= 95 ? "ok" : h >= 80 ? "warn" : "danger",
@@ -523,7 +535,7 @@
         val: h,
         unit: "%",
         sub: "Standar batas baku resmi KAK 18.c",
-        go: "list:sla",
+        go: "tab:all_tickets",
         iconSvg: V3_ICONS.sla,
         badgeText: h >= 95 ? "✓ Target > 95%" : "⚠️ Waspada",
         badgeCls: h >= 95 ? "badge-ok" : "badge-danger",
@@ -836,22 +848,6 @@
         isAssignedActive: isAssignedActive
       }) +
       kpi({
-        cls: "warn",
-        valColorCls: "val-pending",
-        category: "VERIFIKASI",
-        label: "Pending Approval",
-        val: pendingCount,
-        unit: "tiket",
-        sub: "Menunggu persetujuan tenan/K/L",
-        go: "tab:team_pending",
-        iconSvg: V3_ICONS.pending,
-        badgeText: "⏳ Verifikasi K/L",
-        badgeCls: "badge-pending",
-        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-pending" style="width:100%"></span></div>
-                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-pending"></i><b>Konfirmasi K/L</b></span><span class="leg-item"><i class="leg-dot dot-doc"></i><b>Nota Dinas</b></span></div>`,
-        footerText: `${pendingCount} tiket verifikasi K/L`
-      }) +
-      kpi({
         cls: "violet",
         valColorCls: "val-progress",
         category: "PENGERJAAN TEKNIS",
@@ -875,13 +871,29 @@
         val: onHoldCount,
         unit: "tiket",
         sub: "Menunggu tenan / vendor / pihak luar",
-        go: "list:on_hold",
+        go: "tab:team_on_hold",
         iconSvg: V3_ICONS.onhold,
         badgeText: "⏸️ On-Hold",
         badgeCls: "badge-onhold",
         visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-onhold" style="width:100%"></span></div>
                      <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-onhold"></i><b>Tertunda Eksternal</b></span><span class="leg-item"><i class="leg-dot dot-vendor"></i><b>Vendor / Tenan</b></span></div>`,
         footerText: `${onHoldCount} tiket tertunda eksternal`
+      }) +
+      kpi({
+        cls: "ok",
+        valColorCls: "val-ok",
+        category: "ARSIP OPERASIONAL",
+        label: "Riwayat Selesai",
+        val: bd.resolved,
+        unit: "tiket",
+        sub: "Tiket yang telah terselesaikan",
+        go: "tab:team_closed",
+        iconSvg: V3_ICONS.total,
+        badgeText: "✅ Selesai",
+        badgeCls: "badge-ok",
+        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-ok" style="width:100%"></span></div>
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Tuntas</b></span><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Arsip Riwayat</b></span></div>`,
+        footerText: `${bd.resolved} tiket tuntas`
       }) +
       kpi({
         cls: h >= 95 ? "ok" : h >= 80 ? "warn" : "danger",
@@ -891,7 +903,7 @@
         val: h,
         unit: "%",
         sub: "Standar batas baku resmi KAK 18.c",
-        go: "view:itsm",
+        go: "tab:all_tickets",
         iconSvg: V3_ICONS.sla,
         badgeText: h >= 95 ? "✓ Target > 95%" : "⚠️ Waspada",
         badgeCls: h >= 95 ? "badge-ok" : "badge-danger",
@@ -902,9 +914,9 @@
 
     // Update 4 Metric Strip in Left Card (Aivora Style)
     const allTickets = (stSnap && stSnap.all_tickets) || (s.all_tickets) || [];
-    const totalCount = allTickets.length || (kk?.itsm_open) || itsmTotal || 40;
-    const activeCount = (kk?.itsm_open) || (assignedCount + pendingCount + progressCount + onHoldCount);
-    const resolvedCount = Math.max(0, totalCount - activeCount);
+    const totalCount = bd.gc1 || allTickets.length || 81;
+    const activeCount = bd.active;
+    const resolvedCount = bd.resolved;
     if ($("stripTotal")) $("stripTotal").textContent = `${totalCount} Tiket`;
     if ($("stripActive")) $("stripActive").textContent = `${activeCount} Tiket`;
     if ($("stripResolved")) $("stripResolved").textContent = `${resolvedCount} Tiket`;
@@ -1066,8 +1078,8 @@
     setLists(data.itsm_lists);
     const pillW = $("sbPillWa");
     const itsmAll = (data.all_scanned_tickets && data.all_scanned_tickets.length > 0)
-      ? data.all_scanned_tickets.filter((t) => !t.isFromWa)
-      : (data.all_tickets || []).filter((t) => !t.isFromWa);
+      ? data.all_scanned_tickets.filter((t) => !t.isFromWa && !t.isTelkom)
+      : (data.all_tickets || []).filter((t) => !t.isFromWa && !t.isTelkom);
 
     document.querySelectorAll("[data-pill-list]").forEach((p) => {
       const key = p.dataset.pillList;
@@ -1089,9 +1101,9 @@
       } else {
         matched = itsmAll.filter((t) => (t.itsmLists || []).includes(key));
       }
-      p.textContent = matched.length;
       const openCount = matched.filter((t) => !t.slaClosed).length;
-      p.title = `${matched.length} tiket di menu ini (${openCount} aktif, ${matched.length - openCount} selesai)`;
+      p.textContent = openCount;
+      p.title = `${openCount} tiket aktif berjalan (total ${matched.length} riwayat)`;
     });
     if (pillW) { pillW.textContent = k.waOpen.length; pillW.classList.toggle("hot", k.late.length > 0); }
     renderSyncInfo(data.itsm_lists);

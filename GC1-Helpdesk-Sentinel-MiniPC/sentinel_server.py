@@ -98,6 +98,13 @@ def is_telkom_ticket(t):
     d = str(t.get("shortDesc") or "").lower()
     return "telkom" in g or "telkom" in d
 
+def is_pending_approval_ticket(t):
+    """Mendeteksi apakah tiket berstatus Pending Approval (diurusi aplikasi approval lain sehingga dilewati)."""
+    if not t:
+        return False
+    st = str(t.get("requestState") or "").lower()
+    return "pending approval" in st or "menunggu approval" in st or "menunggu persetujuan" in st
+
 def normalize_ticket_state_and_desc(tid, desc, state, req_for=""):
     s_clean = (state or "").strip()
     d_clean = (desc or "").strip()
@@ -1508,7 +1515,7 @@ def build_team_tickets():
     # Ruang lingkup: hanya GC 1 & hanya tiket dari Agustus 2026 ke atas. Tiket/aduan Telkom (GC 2) diabaikan total.
     our_team_tickets = [
         enrich_ticket_with_sop(t) for t in pool
-        if not is_telkom_ticket(t) and is_august_2026_or_newer(t)
+        if not is_telkom_ticket(t) and is_august_2026_or_newer(t) and not is_pending_approval_ticket(t)
     ]
 
     for t in our_team_tickets:
@@ -2034,8 +2041,9 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     return (t.get("requestState") or "").lower()
 
                 team_assigned = [t for t in our_team_tickets if not t.get("slaClosed") and any(k in st(t) for k in ("assign", "ditugaskan")) and not any(k in st(t) for k in ("hold", "pending", "progress"))]
-                team_pending = [t for t in our_team_tickets if not t.get("slaClosed") and any(k in st(t) for k in ("pending", "menunggu", "hold", "tertunda"))]
+                team_on_hold = [t for t in our_team_tickets if not t.get("slaClosed") and any(k in st(t) for k in ("hold", "tertunda"))]
                 team_progress = [t for t in our_team_tickets if not t.get("slaClosed") and any(k in st(t) for k in ("progress", "diproses", "penanganan", "analisis"))]
+                team_closed = [t for t in our_team_tickets if t.get("slaClosed")]
 
                 open_tickets = [t for t in our_team_tickets if not t.get("slaClosed")]
                 sla_pool = [t for t in open_tickets if not t.get("slaMode")]
@@ -2049,8 +2057,10 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     "total_helpdesk": len(our_team_tickets),
                     "total_itsm_scanned": len(our_team_tickets),
                     "team_assigned_count": len(team_assigned),
-                    "team_pending_count": len(team_pending),
+                    "team_on_hold_count": len(team_on_hold),
                     "team_progress_count": len(team_progress),
+                    "team_pending_count": 0,
+                    "team_closed_count": len(team_closed),
                     "sla_health_percent": sla_health_pct,
                     "sla_safe_count": len(open_tickets) - len(breached),
                     "sla_breached_count": len(breached),
@@ -2063,8 +2073,10 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     "wa_monitored_groups": CONFIG.get("wa_monitored_groups", []),
                     "last_sync": LAST_SYNC_TIME or time.strftime("%H:%M:%S WIB"),
                     "team_assigned": team_assigned,
-                    "team_pending": team_pending,
+                    "team_on_hold": team_on_hold,
+                    "team_pending": team_on_hold,
                     "team_progress": team_progress,
+                    "team_closed": team_closed,
                     "escalations": escalations,
                     "wa_alerts": wa_alerts,
                     "all_tickets": our_team_tickets,
@@ -2072,8 +2084,8 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     # Backward-compatibility alias
                     "gc1_assigned": team_assigned,
                     "gc1_assigned_count": len(team_assigned),
-                    "gc1_pending": team_pending,
-                    "gc1_pending_count": len(team_pending)
+                    "gc1_pending": team_on_hold,
+                    "gc1_pending_count": len(team_on_hold)
                 })
 
             elif path == "/api/daily_recap":

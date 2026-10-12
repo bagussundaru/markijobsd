@@ -215,11 +215,17 @@ const CATEGORY_META = {
     emptyTitle: "Tidak ada tiket Assigned tim kita saat ini",
     emptyDesc: "Bagus! Semua tiket Assigned tim kita telah ditangani atau belum ada permohonan baru."
   },
+  team_on_hold: {
+    title: "<span>⏸️</span> On Hold (Tertunda Eksternal / Menunggu Tenan)",
+    desc: "Tiket yang sedang tertunda karena menunggu respons konfirmasi tenan, vendor, atau pihak luar.",
+    emptyTitle: "Tidak ada tiket On Hold saat ini",
+    emptyDesc: "Bagus! Seluruh tiket aktif sedang bergerak dalam pengerjaan teknis."
+  },
   team_pending: {
-    title: "<span>⏳</span> Pending Approval Tenan / K/L (Pipeline Persetujuan)",
-    desc: "Tiket yang masih dalam tahap persetujuan tenan K/L atau kelengkapan administrasi sebelum dialihkan ke tahap eksekusi teknis.",
-    emptyTitle: "Tidak ada antrean pending untuk tim kita",
-    emptyDesc: "Tidak ada tiket yang sedang menunggu persetujuan tenan saat ini."
+    title: "<span>⏸️</span> On Hold (Tertunda Eksternal / Menunggu Tenan)",
+    desc: "Tiket yang sedang tertunda karena menunggu respons konfirmasi tenan, vendor, atau pihak luar.",
+    emptyTitle: "Tidak ada tiket On Hold saat ini",
+    emptyDesc: "Bagus! Seluruh tiket aktif sedang bergerak dalam pengerjaan teknis."
   },
   team_progress: {
     title: "<span>⚙️</span> Sedang Dikerjakan (In Progress - Tim L1/L2/L3/NOC/SOC)",
@@ -701,7 +707,7 @@ async function fetchHelpdeskSnapshot() {
 function updateKpiCards() {
   const s = state.snapshot;
   if (kpiGc1Assigned) kpiGc1Assigned.textContent = s.team_assigned_count ?? s.gc1_assigned_count ?? 0;
-  if (kpiGc1Pending) kpiGc1Pending.textContent = s.team_pending_count ?? s.gc1_pending_count ?? 0;
+  if (kpiGc1Pending) kpiGc1Pending.textContent = s.team_on_hold_count ?? s.team_pending_count ?? s.gc1_pending_count ?? 0;
   if (kpiTeamProgress) kpiTeamProgress.textContent = s.team_progress_count ?? 0;
   if (kpiSlaHealth) kpiSlaHealth.textContent = `${s.sla_health_percent ?? 100}%`;
   if (kpiTotalHelpdesk) kpiTotalHelpdesk.textContent = s.total_helpdesk ?? 0;
@@ -719,7 +725,7 @@ function updateTabBadges() {
   if (badgeActiveFocus) badgeActiveFocus.textContent = rawPool.filter(t => !isClosed(t)).length;
   if (badgeClosed) badgeClosed.textContent = rawPool.filter(t => isClosed(t)).length;
   if (badgeGc1Assigned) badgeGc1Assigned.textContent = s.team_assigned_count ?? s.gc1_assigned_count ?? 0;
-  if (badgeGc1Pending) badgeGc1Pending.textContent = s.team_pending_count ?? s.gc1_pending_count ?? 0;
+  if (badgeGc1Pending) badgeGc1Pending.textContent = s.team_on_hold_count ?? s.team_pending_count ?? s.gc1_pending_count ?? 0;
   if (badgeTeamProgress) badgeTeamProgress.textContent = s.team_progress_count ?? 0;
   if (badgeWa) badgeWa.textContent = s.wa_count ?? 0;
   if (badgeAll) badgeAll.textContent = s.total_helpdesk ?? 0;
@@ -765,7 +771,7 @@ allTabBtns.forEach((btn) => {
 
 // KPI Cards also trigger tab switch on click
 document.getElementById("cardGc1Assigned")?.addEventListener("click", () => switchTab("team_assigned"));
-document.getElementById("cardGc1Pending")?.addEventListener("click", () => switchTab("team_pending"));
+document.getElementById("cardGc1Pending")?.addEventListener("click", () => switchTab("team_on_hold"));
 document.getElementById("cardTeamProgress")?.addEventListener("click", () => switchTab("team_progress"));
 document.getElementById("cardSlaHealth")?.addEventListener("click", () => switchTab("all_tickets"));
 document.getElementById("cardTotalHelpdesk")?.addEventListener("click", () => switchTab("active_tickets"));
@@ -840,8 +846,8 @@ function renderActiveTab() {
     list = rawPool.filter((t) => isClosedCheck(t));
   } else if (state.activeTab === "team_assigned" || state.activeTab === "gc1_assigned") {
     list = state.snapshot.team_assigned || state.snapshot.gc1_assigned || [];
-  } else if (state.activeTab === "team_pending" || state.activeTab === "gc1_pending") {
-    list = state.snapshot.team_pending || state.snapshot.gc1_pending || [];
+  } else if (state.activeTab === "team_on_hold" || state.activeTab === "team_pending" || state.activeTab === "gc1_pending") {
+    list = rawPool.filter((t) => !isClosedCheck(t) && (t.requestState || "").toLowerCase().includes("hold"));
   } else if (state.activeTab === "team_progress") {
     list = state.snapshot.team_progress || [];
   } else if (state.activeTab === "all_tickets") {
