@@ -275,7 +275,13 @@
     if (!k) return;
     const [kind, arg] = k.dataset.go.split(":");
     if (kind === "view") showView(arg);
-    else if (kind === "tab") switchTab(arg);
+    else if (kind === "tab") {
+      switchTab(arg);
+      if (arg === "team_progress" && V3.view === "overview") {
+        const row = $("ovActionableRow") || $("tableBlock");
+        if (row) row.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
     else if (kind === "pic") { const b = $("btnPic"); if (b) b.click(); }
     else if (kind === "list") showTicketList(arg);
   });
@@ -447,6 +453,14 @@
         <span class="leg-item"><i class="leg-dot dot-onhold"></i><b>${k.on_hold}</b> On-Hold</span>
       </div>`;
 
+    const inProgPool = (k.itsm || []).filter(t => !t.slaClosed && (t.isInProgress || (t.requestState && t.requestState.toLowerCase().includes('progress'))));
+    const nowSec = Date.now() / 1000;
+    const overdueFollowup = inProgPool.filter(t => t.followupOverdue || (t.nextFollowupTs && t.nextFollowupTs <= nowSec));
+    const followCount = overdueFollowup.length;
+    const safeFollowCount = Math.max(0, inProgPool.length - followCount);
+    const followPct = inProgPool.length > 0 ? Math.round((followCount / inProgPool.length) * 100) : 0;
+    const safeFollowPct = 100 - followPct;
+
     $("itsmKpis").innerHTML =
       kpi({
         cls: "itsm",
@@ -512,20 +526,30 @@
         footerText: `${k.on_hold} tiket tertunda eksternal`
       }) +
       kpi({
-        cls: "ok",
-        valColorCls: "val-ok",
-        category: "ARSIP OPERASIONAL",
-        label: "Riwayat Selesai",
-        val: bd.resolved,
+        cls: followCount > 0 ? "warn" : "ok",
+        valColorCls: followCount > 0 ? "val-danger" : "val-ok",
+        category: "KADENSI KAK 18.c",
+        label: "Tiket Perlu di-Follow Up",
+        val: followCount,
         unit: "tiket",
-        sub: "Tiket yang telah terselesaikan",
-        go: "tab:team_closed",
-        iconSvg: V3_ICONS.total,
-        badgeText: "✅ Selesai",
-        badgeCls: "badge-ok",
-        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-ok" style="width:100%"></span></div>
-                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Tuntas</b></span><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Arsip Riwayat</b></span></div>`,
-        footerText: `${bd.resolved} tiket tuntas`
+        sub: inProgPool.length > 0
+          ? (followCount > 0 ? `${followCount} lewat jadwal • ${safeFollowCount} aman` : "Semua kadensi follow-up aman")
+          : "Tidak ada tiket in-progress",
+        go: "tab:team_progress",
+        iconSvg: V3_ICONS.pending,
+        badgeText: inProgPool.length > 0
+          ? (followCount > 0 ? "⏱ Waktunya Follow-up" : "✓ Cadence Aman")
+          : "✓ Antrean Bersih",
+        badgeCls: followCount > 0 ? "badge-danger" : "badge-ok",
+        visualHtml: `<div class="k-ratio-bar">
+                       <span class="k-bar-seg ${followCount > 0 ? 'seg-danger' : 'seg-ok'}" style="width:${followCount > 0 ? followPct : 100}%" title="${followCount} Perlu Follow-up"></span>
+                       ${followCount > 0 && safeFollowPct > 0 ? `<span class="k-bar-seg seg-progress" style="width:${safeFollowPct}%" title="${safeFollowCount} Terpantau Aman"></span>` : ''}
+                     </div>
+                     <div class="k-meta-legend">
+                       <span class="leg-item"><i class="leg-dot ${followCount > 0 ? 'dot-breach' : 'dot-ok'}"></i><b>${followCount}</b> ${followCount > 0 ? 'Perlu Update' : 'Tepat Waktu'}</span>
+                       <span class="leg-item"><i class="leg-dot dot-tech"></i><b>${safeFollowCount}</b> Terpantau</span>
+                     </div>`,
+        footerText: `${inProgPool.length} tiket dipantau siklus KAK`
       }) +
       kpi({
         cls: h >= 95 ? "ok" : h >= 80 ? "warn" : "danger",
@@ -815,6 +839,14 @@
       </div>`;
     const activeFooter = `${activeTicketsCount} Aktif • ${bd.resolved} Riwayat Selesai (Total ${bd.gc1})`;
 
+    const inProgPool = allScanned.filter(t => !t.isFromWa && !t.isTelkom && !t.slaClosed && (t.isInProgress || (t.requestState && t.requestState.toLowerCase().includes('progress'))));
+    const nowSec = Date.now() / 1000;
+    const overdueFollowup = inProgPool.filter(t => t.followupOverdue || (t.nextFollowupTs && t.nextFollowupTs <= nowSec));
+    const followCount = overdueFollowup.length;
+    const safeFollowCount = Math.max(0, inProgPool.length - followCount);
+    const followPct = inProgPool.length > 0 ? Math.round((followCount / inProgPool.length) * 100) : 0;
+    const safeFollowPct = 100 - followPct;
+
     $("ovKpis").innerHTML =
       kpi({
         cls: "itsm",
@@ -880,20 +912,30 @@
         footerText: `${onHoldCount} tiket tertunda eksternal`
       }) +
       kpi({
-        cls: "ok",
-        valColorCls: "val-ok",
-        category: "ARSIP OPERASIONAL",
-        label: "Riwayat Selesai",
-        val: bd.resolved,
+        cls: followCount > 0 ? "warn" : "ok",
+        valColorCls: followCount > 0 ? "val-danger" : "val-ok",
+        category: "KADENSI KAK 18.c",
+        label: "Tiket Perlu di-Follow Up",
+        val: followCount,
         unit: "tiket",
-        sub: "Tiket yang telah terselesaikan",
-        go: "tab:team_closed",
-        iconSvg: V3_ICONS.total,
-        badgeText: "✅ Selesai",
-        badgeCls: "badge-ok",
-        visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-ok" style="width:100%"></span></div>
-                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Tuntas</b></span><span class="leg-item"><i class="leg-dot dot-ok"></i><b>Arsip Riwayat</b></span></div>`,
-        footerText: `${bd.resolved} tiket tuntas`
+        sub: inProgPool.length > 0
+          ? (followCount > 0 ? `${followCount} lewat jadwal • ${safeFollowCount} aman` : "Semua kadensi follow-up aman")
+          : "Tidak ada tiket in-progress",
+        go: "tab:team_progress",
+        iconSvg: V3_ICONS.pending,
+        badgeText: inProgPool.length > 0
+          ? (followCount > 0 ? "⏱ Waktunya Follow-up" : "✓ Cadence Aman")
+          : "✓ Antrean Bersih",
+        badgeCls: followCount > 0 ? "badge-danger" : "badge-ok",
+        visualHtml: `<div class="k-ratio-bar">
+                       <span class="k-bar-seg ${followCount > 0 ? 'seg-danger' : 'seg-ok'}" style="width:${followCount > 0 ? followPct : 100}%" title="${followCount} Tiket Perlu Follow-up"></span>
+                       ${followCount > 0 && safeFollowPct > 0 ? `<span class="k-bar-seg seg-progress" style="width:${safeFollowPct}%" title="${safeFollowCount} Terpantau Aman"></span>` : ''}
+                     </div>
+                     <div class="k-meta-legend">
+                       <span class="leg-item"><i class="leg-dot ${followCount > 0 ? 'dot-breach' : 'dot-ok'}"></i><b>${followCount}</b> ${followCount > 0 ? 'Perlu Update' : 'Tepat Waktu'}</span>
+                       <span class="leg-item"><i class="leg-dot dot-tech"></i><b>${safeFollowCount}</b> Terpantau</span>
+                     </div>`,
+        footerText: `${inProgPool.length} tiket dipantau siklus KAK`
       }) +
       kpi({
         cls: h >= 95 ? "ok" : h >= 80 ? "warn" : "danger",
