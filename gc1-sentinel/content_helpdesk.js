@@ -91,14 +91,8 @@
   }
 
   function playTicketIncomingAudio() {
-    try {
-      if (typeof chrome !== "undefined" && chrome.runtime?.getURL) {
-        const soundUrl = chrome.runtime.getURL("sounds/tiketmasuk.mp3");
-        const audio = new Audio(soundUrl);
-        audio.volume = 0.8;
-        audio.play().catch(() => {});
-      }
-    } catch (_) {}
+    // Audio alert dialihkan sepenuhnya ke GC 1 Sentinel Dashboard agar terpusat dan tidak berulang
+    return;
   }
 
   function getAccessibleDocs() {
@@ -678,9 +672,9 @@
           const isTelkom = assignmentGroup.toLowerCase().includes("telkom");
 
           // Universal state matching (Bahasa Indonesia & English)
-          const isAssigned = /assigned|ditugaskan|disposisi|open|baru|new|antrean|terbuka/i.test(requestState);
-          const isPending = /pending|menunggu|on hold|hold|tertunda|tunda/i.test(requestState);
+          const isPending = /on[\s-]*hold|pending|menunggu|hold|tertunda|tunda/i.test(requestState);
           const isInProgress = /progress|diproses|sedang diproses|penanganan|analisis|berjalan/i.test(requestState);
+          const isAssigned = !isPending && !isInProgress && /^\s*(assigned|ditugaskan)\s*$/i.test(requestState.trim());
 
           let category = "all_tickets";
           if (isAssigned) category = "team_assigned";

@@ -278,8 +278,19 @@ function playSynthesizedChime() {
   } catch (_) {}
 }
 
-function playAlertSound() {
+function playAlertSound(force = false) {
   if (!state.settings.soundEnabled) return;
+
+  // Safeguard ketat: Alarm audio HANYA berbunyi jika terdapat tiket Assigned yang aktif untuk GC 1
+  const currentAssigned = Array.isArray(state.snapshot?.team_assigned)
+    ? state.snapshot.team_assigned.filter((t) => t.waTier !== 3 && !t.isTelkom).length
+    : (state.snapshot?.team_assigned_count ?? state.snapshot?.gc1_assigned_count ?? 0);
+
+  if (!force && currentAssigned <= 0) {
+    console.warn(`[GC 1 Sentinel Audio] 🔇 Alarm diredam: Tidak ada tiket di antrean Assigned (currentAssigned = ${currentAssigned}).`);
+    return;
+  }
+
   try {
     if (alertAudio) {
       alertAudio.currentTime = 0;
@@ -630,30 +641,25 @@ async function fetchHelpdeskSnapshot() {
     const currentAssigned = Array.isArray(data.team_assigned)
       ? data.team_assigned.filter((t) => t.waTier !== 3).length
       : (data.team_assigned_count ?? data.gc1_assigned_count ?? 0);
-    // Check if new Assigned ticket arrived -> chime alarm!
-    if (lastKnownAssignedCount !== -1 && currentAssigned > lastKnownAssignedCount) {
-      playAlertSound();
+    // Alarm HANYA berbunyi jika ada tiket Assigned baru masuk dan jumlah assigned > 0
+    if (lastKnownAssignedCount !== -1 && currentAssigned > lastKnownAssignedCount && currentAssigned > 0) {
+      playAlertSound(true);
       if (typeof window.showAssignedTicketToast === "function") {
         window.showAssignedTicketToast(currentAssigned, currentAssigned - lastKnownAssignedCount);
       }
     }
     lastKnownAssignedCount = currentAssigned;
 
-    // Check if new tickets arrived in total scanned pool -> chime alarm!
+    // Perubahan total tiket hanya dicatat untuk visual & chart, TANPA alarm suara
     const currentTotal = (data.all_scanned_tickets && data.all_scanned_tickets.length)
       || (data.all_tickets && data.all_tickets.length)
       || (data.total_itsm_scanned)
       || (data.total_helpdesk)
       || 0;
-    if (lastKnownTotalTickets !== -1 && currentTotal > lastKnownTotalTickets) {
-      playAlertSound();
-    }
     lastKnownTotalTickets = currentTotal;
 
+    // Perubahan eskalasi hanya ditampilkan di card peringatan visual, TANPA alarm suara
     const escCount = data.escalation_count ?? 0;
-    if (lastKnownEscalationCount !== -1 && escCount > lastKnownEscalationCount) {
-      playAlertSound();
-    }
     lastKnownEscalationCount = escCount;
     state.settings.waGroups = data.wa_monitored_groups || [];
 
@@ -1584,7 +1590,12 @@ try {
     if (e.data && e.data.type === "SYNC_HELPDESK_TICKETS") {
       fetchHelpdeskSnapshot();
     } else if (e.data && (e.data.type === "NEW_ALERT" || e.data.type === "ALERT_RECEIVED")) {
-      playAlertSound();
+      const ticketState = (e.data?.data?.requestState || "").toLowerCase();
+      const isAssigned = /^\s*(assigned|ditugaskan)\s*$/i.test(ticketState.trim());
+      const isTelkom = Boolean(e.data?.data?.isTelkom || (e.data?.data?.assignmentGroup || "").toLowerCase().includes("telkom"));
+      if (isAssigned && !isTelkom) {
+        playAlertSound(true);
+      }
       fetchHelpdeskSnapshot();
     }
   };

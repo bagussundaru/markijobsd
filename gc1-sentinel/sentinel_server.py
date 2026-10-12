@@ -1456,29 +1456,47 @@ def build_export_csv(kind="daily", day=""):
 
 
 def build_team_tickets():
-    """Kolam tiket lingkup GC 1: tiket ITSM + pra-tiket WA (yang sudah tertaut tidak ditampilkan dua kali), sudah diperkaya."""
-    # ITSM adalah sumber resmi. Pra-tiket WA yang sudah tertaut ke tiket portal
-    # tidak ditampilkan dua kali: tiket portal diberi anotasi waktu aduan pertama WA.
-    itsm_ids = {(t.get("ticketId") or "").strip() for t in HELPDESK_SNAPSHOT}
+    """Kolam tiket lingkup GC 1: tiket ITSM (berbasis SQLite permanen) + pra-tiket WA (yang sudah tertaut tidak ditampilkan dua kali), sudah diperkaya."""
+    db_tickets = []
+    if 'sentinel_db' in globals():
+        try:
+            db_tickets = sentinel_db.get_all_tickets_from_db()
+        except Exception as e:
+            print(f"[Sentinel Server] SQLite query error: {e}")
+
+    pool, seen_ids = [], set()
+    # 1. Tiket permanen dari database SQLite
+    for t in db_tickets:
+        tid = (t.get("ticketId") or "").strip()
+        if not tid or tid in seen_ids:
+            continue
+        seen_ids.add(tid)
+        pool.append(t)
+
+    # 2. Gabungkan dengan HELPDESK_SNAPSHOT jika ada tiket baru di memori
+    for t in HELPDESK_SNAPSHOT:
+        tid = (t.get("ticketId") or "").strip()
+        if not tid or tid in seen_ids:
+            continue
+        seen_ids.add(tid)
+        pool.append(t)
+
+    itsm_ids = set(seen_ids)
     wa_by_portal = {}
     for w in WA_TICKETS:
         lid = TICKET_REGISTRY.get(w.get("ticketId"), {}).get("linked_portal") or w.get("linkedPortalId") or ""
         if lid:
             wa_by_portal.setdefault(lid, w)
 
-    pool, seen_ids = [], set()
-    for t in HELPDESK_SNAPSHOT:
+    for t in pool:
         tid = (t.get("ticketId") or "").strip()
-        if not tid or tid in seen_ids:
-            continue
-        seen_ids.add(tid)
         w = wa_by_portal.get(tid)
         if w:
             t["waTicketId"] = w.get("ticketId")
             t["waFirstReportAt"] = w.get("createdDate")
             t["waFirstTs"] = w.get("createdTs")
             t["waGroup"] = w.get("waGroup")
-        pool.append(t)
+
     for w in WA_TICKETS:
         tid = (w.get("ticketId") or "").strip()
         lid = TICKET_REGISTRY.get(tid, {}).get("linked_portal") or w.get("linkedPortalId") or ""
@@ -2015,7 +2033,7 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 def st(t):
                     return (t.get("requestState") or "").lower()
 
-                team_assigned = [t for t in our_team_tickets if not t.get("slaClosed") and any(k in st(t) for k in ("assign", "ditugaskan", "disposisi", "open", "baru", "new", "terbuka", "antrean"))]
+                team_assigned = [t for t in our_team_tickets if not t.get("slaClosed") and any(k in st(t) for k in ("assign", "ditugaskan")) and not any(k in st(t) for k in ("hold", "pending", "progress"))]
                 team_pending = [t for t in our_team_tickets if not t.get("slaClosed") and any(k in st(t) for k in ("pending", "menunggu", "hold", "tertunda"))]
                 team_progress = [t for t in our_team_tickets if not t.get("slaClosed") and any(k in st(t) for k in ("progress", "diproses", "penanganan", "analisis"))]
 
