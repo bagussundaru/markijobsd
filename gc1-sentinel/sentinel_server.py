@@ -63,10 +63,15 @@ def is_august_2026_or_newer(t):
     tid = str(t.get("ticketId") or "").strip()
     date_str = str(t.get("createdDate") or "").strip()
     # 1. Cek dari Nomor Tiket (cth: INC-KMF-102026-03494 atau REQ-KMF-082026-...)
-    m = re.search(r"-(\d{2})(2026)-", tid)
+    m = re.search(r"-(\d{2})(\d{4})-", tid)
     if m:
         month = int(m.group(1))
-        return month >= 8
+        year = int(m.group(2))
+        if year < 2026:
+            return False
+        if year == 2026:
+            return month >= 8
+        return True
     # 2. Cek dari teks Created Date (cth: "12 Oct 2026", "23 Sep 2026", "05 Aug 2026")
     months_map = {
         "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "mei": 5, "jun": 6,
@@ -81,10 +86,17 @@ def is_august_2026_or_newer(t):
         if year == 2026:
             return m_num >= 8
         return year > 2026
-    for mon in ["Aug", "Agt", "Agu", "Sep", "Oct", "Okt", "Nov", "Dec", "Des"]:
-        if mon.lower() in date_str.lower():
-            return True
     return False
+
+def is_telkom_ticket(t):
+    """Mendeteksi apakah tiket ditugaskan ke tim Telkom / GC 2 eksternal."""
+    if not t:
+        return False
+    if t.get("isTelkom"):
+        return True
+    g = str(t.get("assignmentGroup") or "").lower()
+    d = str(t.get("shortDesc") or "").lower()
+    return "telkom" in g or "telkom" in d
 
 def normalize_ticket_state_and_desc(tid, desc, state, req_for=""):
     s_clean = (state or "").strip()
@@ -603,6 +615,30 @@ def apply_sla(t, now=None):
             if elapsed >= open_s and not linked:
                 flags.append(f"Belum ada tiket di ITSM ({int(elapsed // 60)} menit): minta pelapor membuka tiket dulu")
 
+    # Follow-up cadence calculation untuk tiket In Progress (waktu mundur follow)
+    is_in_progress = any(k in state for k in ("progress", "diproses", "penanganan")) and not closed
+    update_min = UPDATE_INTERVAL_MIN.get(prio, 240)
+    update_sec = update_min * 60
+    last_act_ts = created_ts
+    for h in e.get("history", []):
+        if h.get("ts") and h.get("ts") > last_act_ts:
+            last_act_ts = h.get("ts")
+    next_followup_ts = last_act_ts + update_sec
+    followup_rem_sec = int(next_followup_ts - now)
+    if followup_rem_sec > 0:
+        followup_overdue = False
+        followup_fmt = fmt_hm(followup_rem_sec)
+        followup_text = f"Follow-up dlm {followup_fmt}"
+        followup_status = "safe" if followup_rem_sec > 900 else "warning"
+    else:
+        followup_overdue = True
+        overdue_sec = abs(followup_rem_sec)
+        followup_fmt = fmt_hm(overdue_sec)
+        followup_text = f"Waktunya Follow-up! (lewat {followup_fmt})"
+        followup_status = "overdue"
+        if is_in_progress:
+            flags.append(f"Jatuh tempo follow-up ke tenan ({update_min}m)")
+
     t.update({
         "priority": prio,
         "priorityOverridden": bool(e.get("priority_override")),
@@ -621,7 +657,15 @@ def apply_sla(t, now=None):
         "slaMode": "pra-tiket" if is_pre else "",
         "responseStatus": resp_status,
         "responseText": resp_text,
-        "updateEveryMin": UPDATE_INTERVAL_MIN.get(prio, 240),
+        "updateEveryMin": update_min,
+        "isInProgress": is_in_progress,
+        "nextFollowupTs": next_followup_ts if is_in_progress else None,
+        "followupRemainingSeconds": max(0, followup_rem_sec) if (is_in_progress and followup_rem_sec > 0) else 0,
+        "followupRemainingFormatted": followup_fmt if is_in_progress else "",
+        "followupStatus": followup_status if is_in_progress else "",
+        "followupText": followup_text if is_in_progress else "",
+        "followupOverdue": followup_overdue if is_in_progress else False,
+        "followupIntervalMin": update_min,
         "escalationFlags": flags,
         "ai": e.get("ai"),
         "aiDecision": e.get("ai_decision"),
@@ -1137,8 +1181,8 @@ def itsm_lists_info():
     out = []
     for e in entries:
         lst = HELPDESK_LISTS.get(e["key"])
-        tickets = lst.get("tickets", []) if lst else []
-        telkom_in_list = len([t for t in tickets if t.get("isTelkom") or "telkom" in (t.get("assignmentGroup", "") + " " + t.get("shortDesc", "")).lower()])
+        raw_tickets = lst.get("tickets", []) if lst else []
+        tickets = [t for t in raw_tickets if is_august_2026_or_newer(t) and not is_telkom_ticket(t)]
         open_in_list = len([t for t in tickets if not t.get("slaClosed")])
         out.append({
             "key": e["key"],
@@ -1146,8 +1190,8 @@ def itsm_lists_info():
             "legacy": e["key"] == "itsm",
             "count": len(tickets),
             "open_count": open_in_list,
-            "team_count": len(tickets) - telkom_in_list,
-            "telkom_count": telkom_in_list,
+            "team_count": len(tickets),
+            "telkom_count": 0,
             "pagination": (lst or {}).get("pagination"),
             "synced_at": lst.get("synced_at") if lst else None,
             "age_sec": int(now - lst["synced_at"]) if lst else None,
@@ -1443,11 +1487,10 @@ def build_team_tickets():
         seen_ids.add(tid)
         pool.append(w)
 
-    # Ruang lingkup: hanya GC 1 & hanya tiket dari Agustus 2026 ke atas. Tiket/aduan Telkom (GC 2) diabaikan.
+    # Ruang lingkup: hanya GC 1 & hanya tiket dari Agustus 2026 ke atas. Tiket/aduan Telkom (GC 2) diabaikan total.
     our_team_tickets = [
         enrich_ticket_with_sop(t) for t in pool
-        if not t.get("isTelkom") and "telkom" not in (t.get("assignmentGroup", "") + " " + t.get("shortDesc", "")).lower()
-        and is_august_2026_or_newer(t)
+        if not is_telkom_ticket(t) and is_august_2026_or_newer(t)
     ]
 
     for t in our_team_tickets:
@@ -1961,17 +2004,8 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
 
             elif path == "/api/helpdesk_snapshot":
                 our_team_tickets = build_team_tickets()
-                # Kumpulkan seluruh tiket yang terpindai dari ITSM (termasuk Telkom jika tampil di layar)
-                all_scanned_pool = []
-                seen_all_ids = set()
-                for lst_obj in HELPDESK_LISTS.values():
-                    for t in lst_obj.get("tickets", []):
-                        tid = (t.get("ticketId") or "").strip()
-                        if tid and tid not in seen_all_ids and is_august_2026_or_newer(t):
-                            seen_all_ids.add(tid)
-                            all_scanned_pool.append(enrich_ticket_with_sop(dict(t)))
-
-                telkom_tickets = [t for t in all_scanned_pool if t.get("isTelkom") or "telkom" in (t.get("assignmentGroup", "") + " " + t.get("shortDesc", "")).lower()]
+                # Kolam tiket operasional GC 1 (Agustus 2026 ke atas, tiket Telkom dihiraukan total)
+                all_scanned_pool = list(our_team_tickets)
 
                 def st(t):
                     return (t.get("requestState") or "").lower()
@@ -1990,7 +2024,7 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
 
                 self.send_json({
                     "total_helpdesk": len(our_team_tickets),
-                    "total_itsm_scanned": len(all_scanned_pool),
+                    "total_itsm_scanned": len(our_team_tickets),
                     "team_assigned_count": len(team_assigned),
                     "team_pending_count": len(team_pending),
                     "team_progress_count": len(team_progress),
@@ -1998,8 +2032,8 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     "sla_safe_count": len(open_tickets) - len(breached),
                     "sla_breached_count": len(breached),
                     "escalation_count": len(escalations),
-                    "telkom_count": len(telkom_tickets) or TELKOM_SKIPPED,
-                    "telkom_tickets": telkom_tickets,
+                    "telkom_count": 0,
+                    "telkom_tickets": [],
                     "wa_count": len(wa_alerts),
                     "itsm_lists": itsm_lists_info(),
                     "wa_outbound_enabled": outbound_enabled(),
@@ -2011,7 +2045,7 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     "escalations": escalations,
                     "wa_alerts": wa_alerts,
                     "all_tickets": our_team_tickets,
-                    "all_scanned_tickets": all_scanned_pool,
+                    "all_scanned_tickets": our_team_tickets,
                     # Backward-compatibility alias
                     "gc1_assigned": team_assigned,
                     "gc1_assigned_count": len(team_assigned),

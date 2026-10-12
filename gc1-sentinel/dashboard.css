@@ -1918,3 +1918,44 @@ body.enterprise-theme {
   border: 1px solid #BFDBFE;
 }
 
+/* LIVE FOLLOW-UP COUNTDOWN TICKER UNTUK TIKET IN PROGRESS */
+.followup-ticker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.followup-ticker.followup-safe {
+  background: #F0FDF4;
+  color: #15803D;
+  border: 1px solid #BBF7D0;
+}
+
+.followup-ticker.followup-warning {
+  background: #FFFBEB;
+  color: #B45309;
+  border: 1px solid #FDE68A;
+}
+
+.followup-ticker.followup-overdue {
+  background: #FEF2F2;
+  color: #B91C1C;
+  border: 1px solid #FECACA;
+  animation: pulse-border-danger 2s infinite ease-in-out;
+}
+
+@keyframes pulse-border-danger {
+  0%, 100% { border-color: #FECACA; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.2); }
+  50% { border-color: #EF4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2); }
+}
+

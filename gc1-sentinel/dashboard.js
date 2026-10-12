@@ -1168,6 +1168,15 @@ function renderHelpdeskTable(tickets) {
               <span class="pic-name">👤 ${escapeHtml(cleanPicName)}</span>
               <span class="pic-tag">${escapeHtml(cleanPicRole)}</span>
             </div>
+            ${isInProgress ? `
+              <div class="followup-ticker live-followup-timer ${t.followupOverdue ? 'followup-overdue' : 'followup-safe'}"
+                   data-followup-ts="${t.nextFollowupTs || 0}"
+                   data-interval="${t.followupIntervalMin || 240}"
+                   data-ticket-id="${escapeHtml(cleanId)}"
+                   title="Waktu mundur follow-up ke tenan (SOP: per ${t.followupIntervalMin || 240} menit)">
+                ⏱ ${escapeHtml(t.followupText || 'Follow-up aktif')}
+              </div>
+            ` : ''}
           </div>
         </td>
         <td>
@@ -1182,7 +1191,7 @@ function renderHelpdeskTable(tickets) {
         </td>
         <td style="text-align:center;">
           <div class="sla-cell">
-            <span class="sla-pill ${slaBadgeClass}">
+            <span class="sla-pill ${slaBadgeClass} live-sla-timer" data-deadline-ts="${t.deadlineTs || 0}" data-ticket-id="${escapeHtml(cleanId)}">
               ⏱️ ${slaStatusText}
             </span>
             ${replyPill}
@@ -1586,37 +1595,76 @@ try {
 // ----------------------------------------------------
 setInterval(() => {
   const allTickets = state.snapshot.all_tickets || [];
-  if (allTickets.length === 0) return;
-
   const nowSecs = Date.now() / 1000;
-  allTickets.forEach((t) => {
-    if (t.deadlineTs && !t.slaClosed && !t.slaMode) {
-      const remainingSecs = Math.max(0, Math.floor(t.deadlineTs - nowSecs));
-      const remH = Math.floor(remainingSecs / 3600);
-      const remM = Math.floor((remainingSecs % 3600) / 60);
-      t.slaRemainingSeconds = remainingSecs;
-      t.slaRemainingFormatted = `${remH}j ${remM}m`;
 
-      const totalSecs = (t.slaLimitHours || 24) * 3600;
-      t.slaPercentRemaining = Math.max(0, Math.min(100, Math.floor((remainingSecs / totalSecs) * 100)));
+  if (allTickets.length > 0) {
+    allTickets.forEach((t) => {
+      if (t.deadlineTs && !t.slaClosed && !t.slaMode) {
+        const remainingSecs = Math.max(0, Math.floor(t.deadlineTs - nowSecs));
+        const remH = Math.floor(remainingSecs / 3600);
+        const remM = Math.floor((remainingSecs % 3600) / 60);
+        t.slaRemainingSeconds = remainingSecs;
+        t.slaRemainingFormatted = `${remH}j ${remM}m`;
 
-      if (remainingSecs === 0) {
-        t.slaBadgeClass = "sla-breached";
-        t.slaStatusText = "SLA Lewat";
-      } else if (t.slaPercentRemaining < 25) {
-        t.slaBadgeClass = "sla-danger";
-        t.slaStatusText = `Sisa ${t.slaRemainingFormatted}`;
-      } else if (t.slaPercentRemaining < 50) {
-        t.slaBadgeClass = "sla-warning";
-        t.slaStatusText = `Sisa ${t.slaRemainingFormatted}`;
-      } else {
-        t.slaBadgeClass = "sla-safe";
-        t.slaStatusText = `Sisa ${t.slaRemainingFormatted}`;
+        const totalSecs = (t.slaLimitHours || 24) * 3600;
+        t.slaPercentRemaining = Math.max(0, Math.min(100, Math.floor((remainingSecs / totalSecs) * 100)));
+
+        if (remainingSecs === 0) {
+          t.slaBadgeClass = "sla-breached";
+          t.slaStatusText = "SLA Lewat";
+        } else if (t.slaPercentRemaining < 25) {
+          t.slaBadgeClass = "sla-danger";
+          t.slaStatusText = `Sisa ${t.slaRemainingFormatted}`;
+        } else if (t.slaPercentRemaining < 50) {
+          t.slaBadgeClass = "sla-warning";
+          t.slaStatusText = `Sisa ${t.slaRemainingFormatted}`;
+        } else {
+          t.slaBadgeClass = "sla-safe";
+          t.slaStatusText = `Sisa ${t.slaRemainingFormatted}`;
+        }
       }
+    });
+  }
+
+  // 1. Live Countdown Follow-Up DOM Ticker (Tiket In Progress)
+  document.querySelectorAll(".live-followup-timer").forEach((el) => {
+    const nextTs = parseFloat(el.getAttribute("data-followup-ts"));
+    if (!nextTs) return;
+    const rem = Math.floor(nextTs - nowSecs);
+    if (rem > 0) {
+      const h = Math.floor(rem / 3600);
+      const m = Math.floor((rem % 3600) / 60);
+      const s = rem % 60;
+      const sStr = s < 10 ? "0" + s : s;
+      const mStr = m < 10 ? "0" + m : m;
+      el.innerHTML = `⏱ Follow-up: <b>${h > 0 ? h + "j " : ""}${mStr}m ${sStr}s</b>`;
+      el.className = "followup-ticker live-followup-timer " + (rem > 900 ? "followup-safe" : "followup-warning");
+    } else {
+      const overdue = Math.abs(rem);
+      const h = Math.floor(overdue / 3600);
+      const m = Math.floor((overdue % 3600) / 60);
+      const s = overdue % 60;
+      const sStr = s < 10 ? "0" + s : s;
+      el.innerHTML = `⚠️ <b>Waktunya Follow-up!</b> (${h > 0 ? h + "j " : ""}${m}m ${sStr}s)`;
+      el.className = "followup-ticker live-followup-timer followup-overdue";
     }
   });
 
-  // If table is visible and not on WA tab, re-render visible table view periodically
+  // 2. Live Countdown SLA DOM Ticker
+  document.querySelectorAll(".live-sla-timer").forEach((el) => {
+    const deadlineTs = parseFloat(el.getAttribute("data-deadline-ts"));
+    if (!deadlineTs) return;
+    const rem = Math.floor(deadlineTs - nowSecs);
+    if (rem > 0) {
+      const h = Math.floor(rem / 3600);
+      const m = Math.floor((rem % 3600) / 60);
+      const s = rem % 60;
+      const sStr = s < 10 ? "0" + s : s;
+      el.textContent = `⏱️ Sisa ${h}j ${m}m ${sStr}s`;
+    } else {
+      el.textContent = "⚠️ SLA Lewat";
+    }
+  });
 }, 1000);
 
 // ----------------------------------------------------

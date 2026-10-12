@@ -278,21 +278,22 @@
   });
 
   function computeTicketBreakdown(list, specificList) {
-    let req = 0, inc = 0, gc1 = 0, telkom = 0;
+    let req = 0, inc = 0, gc1 = 0;
     let pending = 0, progress = 0, onHold = 0, assigned = 0, resolved = 0;
 
     if (list && list.length > 0) {
       for (const t of list) {
+        // Tiket Telkom dihiraukan total (fokus 100% pada operasional GC 1)
+        const isTelk = Boolean(t.isTelkom || (t.assignmentGroup && t.assignmentGroup.toLowerCase().includes("telkom")) || (t.shortDesc && t.shortDesc.toLowerCase().includes("telkom")));
+        if (isTelk) continue;
+
+        gc1++;
         const tid = (t.ticketId || "").toUpperCase();
         const st = (t.serviceType || "").toLowerCase();
         const lists = t.itsmLists || [];
         const isInc = lists.includes("incident") || tid.startsWith("INC") || st === "insiden" || st === "incident";
         if (isInc) inc++;
         else req++;
-
-        const isTelk = Boolean(t.isTelkom || (t.assignmentGroup && t.assignmentGroup.toLowerCase().includes("telkom")) || (t.shortDesc && t.shortDesc.toLowerCase().includes("telkom")));
-        if (isTelk) telkom++;
-        else gc1++;
 
         const rState = (t.requestState || "").toLowerCase();
         const isClosed = t.slaClosed || rState.includes("closed") || rState.includes("resolved") || rState.includes("complete") || rState.includes("selesai") || rState.includes("cancel") || rState.includes("reject") || rState.includes("batal") || rState.includes("tolak");
@@ -310,34 +311,34 @@
       }
     } else {
       if (specificList === "request") {
-        req = 20; gc1 = 16; telkom = 4; pending = 8; progress = 4; onHold = 3; assigned = 0; resolved = 5;
+        req = 23; gc1 = 23; pending = 8; progress = 4; onHold = 3; assigned = 0; resolved = 8;
       } else if (specificList === "incident") {
-        inc = 20; gc1 = 16; telkom = 4; pending = 3; progress = 2; onHold = 3; assigned = 0; resolved = 12;
+        inc = 58; gc1 = 58; pending = 6; progress = 4; onHold = 11; assigned = 0; resolved = 37;
       } else {
-        req = 20; inc = 20; gc1 = 32; telkom = 8; pending = 11; progress = 6; onHold = 6; assigned = 0; resolved = 17;
+        req = 23; inc = 58; gc1 = 81; pending = 14; progress = 8; onHold = 14; assigned = 0; resolved = 45;
       }
     }
 
-    const total = (specificList === "request") ? (req || 20) : (specificList === "incident") ? (inc || 20) : ((req + inc) || 40);
+    const total = (specificList === "request") ? (req || 23) : (specificList === "incident") ? (inc || 58) : ((req + inc) || 81);
     const active = assigned + pending + progress + onHold;
 
     let ratioBarHtml = "";
     let legendHtml = "";
 
     if (!specificList) {
-      const reqPct = Math.round((req / total) * 100) || 50;
+      const reqPct = Math.round((req / total) * 100) || 28;
       const incPct = 100 - reqPct;
       ratioBarHtml = `<div class="k-ratio-bar"><span class="k-bar-seg seg-req" style="width:${reqPct}%" title="${req} Request (${reqPct}%)"></span><span class="k-bar-seg seg-inc" style="width:${incPct}%" title="${inc} Insiden (${incPct}%)"></span></div>`;
-      legendHtml = `<div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-req"></i><b>${req}</b> Request</span><span class="leg-item"><i class="leg-dot dot-inc"></i><b>${inc}</b> Insiden</span><span class="leg-sep">·</span><span class="leg-item"><i class="leg-dot dot-gc1"></i><b>${gc1}</b> GC 1</span><span class="leg-item"><i class="leg-dot dot-telkom"></i><b>${telkom}</b> Telkom</span></div>`;
+      legendHtml = `<div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-req"></i><b>${req}</b> Request</span><span class="leg-item"><i class="leg-dot dot-inc"></i><b>${inc}</b> Insiden</span><span class="leg-sep">•</span><span class="leg-item"><i class="leg-dot dot-ok"></i><b>${resolved}</b> Selesai</span></div>`;
     } else {
-      const gc1Pct = Math.round((gc1 / total) * 100) || 80;
-      const telkPct = 100 - gc1Pct;
-      ratioBarHtml = `<div class="k-ratio-bar"><span class="k-bar-seg seg-gc1" style="width:${gc1Pct}%" title="${gc1} Tim GC 1 (${gc1Pct}%)"></span><span class="k-bar-seg seg-telkom" style="width:${telkPct}%" title="${telkom} Telkom (${telkPct}%)"></span></div>`;
-      legendHtml = `<div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-gc1"></i><b>${gc1}</b> Tim GC 1</span><span class="leg-item"><i class="leg-dot dot-telkom"></i><b>${telkom}</b> Telkom Eksternal</span><span class="leg-sep">·</span><span class="leg-item"><i class="leg-dot dot-progress"></i><b>${active}</b> Aktif</span></div>`;
+      const actPct = Math.round((active / total) * 100) || 30;
+      const resPct = 100 - actPct;
+      ratioBarHtml = `<div class="k-ratio-bar"><span class="k-bar-seg seg-progress" style="width:${actPct}%" title="${active} Aktif (${actPct}%)"></span><span class="k-bar-seg seg-ok" style="width:${resPct}%" title="${resolved} Selesai (${resPct}%)"></span></div>`;
+      legendHtml = `<div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-progress"></i><b>${active}</b> Aktif</span><span class="leg-item"><i class="leg-dot dot-ok"></i><b>${resolved}</b> Selesai</span></div>`;
     }
 
     const visualHtml = ratioBarHtml + legendHtml;
-    const footerText = `${active} Aktif · ${resolved} Selesai`;
+    const footerText = `${active} Aktif • ${resolved} Selesai`;
 
     // Backward compatible chips
     const chips = [];
@@ -346,7 +347,6 @@
       chips.push(`<span class="k-chip chip-inc" title="Tiket Insiden">⚡ ${inc} Inc</span>`);
     }
     chips.push(`<span class="k-chip chip-gc1" title="Tiket Tim GC 1 Internal">🛡️ ${gc1} GC 1</span>`);
-    chips.push(`<span class="k-chip chip-telkom" title="Tiket Telkom Eksternal">🏢 ${telkom} Telkom</span>`);
 
     return {
       visualHtml,
@@ -354,7 +354,7 @@
       legendHtml,
       chipsHtml: chips.join(""),
       footerText: footerText,
-      req, inc, gc1, telkom, active, resolved, pending, progress, onHold, assigned
+      req, inc, gc1, telkom: 0, active, resolved, pending, progress, onHold, assigned
     };
   }
 
@@ -365,6 +365,7 @@
     const st = (t) => (t.requestState || "").toLowerCase();
     const itsm = all.filter((t) => {
       if (t.isFromWa) return false;
+      if (t.isTelkom || (t.assignmentGroup && t.assignmentGroup.toLowerCase().includes("telkom")) || (t.shortDesc && t.shortDesc.toLowerCase().includes("telkom"))) return false;
       if (V3.view !== "itsm" || !V3.itsmList) return true;
       const lists = t.itsmLists || [];
       const tid = (t.ticketId || "").toUpperCase();
@@ -608,12 +609,12 @@
     const progressCount = k.progress || (kk ? Math.max(0, (kk.itsm_open || 0) - assignedCount - pendingCount - onHoldCount) : (snapObj.team_progress_count ?? 0));
 
     const stSnap = getState().snapshot || snapObj;
-    const allScanned = (stSnap && stSnap.all_scanned_tickets && stSnap.all_scanned_tickets.length > 0)
-      ? stSnap.all_scanned_tickets
-      : ((stSnap && stSnap.all_tickets) || (snapObj.all_tickets) || []);
-    const itsmTotal = allScanned.filter(t => !t.isFromWa).length || (kk ? kk.itsm_open : null) || (snapObj.total_helpdesk) || 40;
+    const allScanned = (stSnap && stSnap.all_tickets && stSnap.all_tickets.length > 0)
+      ? stSnap.all_tickets
+      : ((stSnap && stSnap.all_scanned_tickets) || (snapObj.all_tickets) || []);
+    const itsmTotal = allScanned.filter(t => !t.isFromWa && !t.isTelkom).length || (snapObj.total_helpdesk) || 81;
 
-    const bd = computeTicketBreakdown(allScanned.filter(t => !t.isFromWa), false);
+    const bd = computeTicketBreakdown(allScanned.filter(t => !t.isFromWa && !t.isTelkom), false);
 
     // Card 2: Assigned (Siap Ditangani) - Active glowing pulse when assignedCount > 0!
     const isAssignedActive = assignedCount > 0;
@@ -641,7 +642,7 @@
         sub: "Gabungan Request dan Insiden terpantau",
         go: "view:itsm",
         iconSvg: V3_ICONS.total,
-        badgeText: "📁 Terpantau",
+        badgeText: "● Terpantau",
         badgeCls: "badge-total",
         visualHtml: bd.visualHtml,
         footerText: bd.footerText
@@ -682,17 +683,17 @@
         cls: "violet",
         valColorCls: "val-progress",
         category: "PENGERJAAN TEKNIS",
-        label: "Sedang Dikerjakan",
+        label: "Sedang Dikerjakan (In Progress)",
         val: progressCount,
         unit: "tiket",
         sub: "Pengerjaan teknis resolver L1/L2/L3",
         go: "tab:team_progress",
         iconSvg: V3_ICONS.progress,
-        badgeText: "⚡ Proses Aktif",
+        badgeText: "⏱ Waktu Mundur Follow Aktif",
         badgeCls: "badge-progress",
         visualHtml: `<div class="k-ratio-bar"><span class="k-bar-seg seg-progress" style="width:100%"></span></div>
-                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-progress"></i><b>Resolver L1/L2/L3</b></span><span class="leg-item"><i class="leg-dot dot-tech"></i><b>Pengerjaan Aktif</b></span></div>`,
-        footerText: "Pengerjaan aktif resolver"
+                     <div class="k-meta-legend"><span class="leg-item"><i class="leg-dot dot-progress"></i><b>Cadence Follow-up</b></span><span class="leg-item"><i class="leg-dot dot-tech"></i><b>Live Ticker</b></span></div>`,
+        footerText: `${progressCount} tiket dipantau waktu follow-up`
       }) +
       kpi({
         cls: "hold",
