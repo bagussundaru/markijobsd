@@ -1399,9 +1399,20 @@ btnQuickWaRecap?.addEventListener("click", () => {
 // ----------------------------------------------------
 // CONTROLS & EVENT LISTENERS
 // ----------------------------------------------------
-btnForceSync?.addEventListener("click", () => {
-  fetchHelpdeskSnapshot();
+btnForceSync?.addEventListener("click", async () => {
   btnForceSync.textContent = "⏳ Memperbarui...";
+  try {
+    const bus = new BroadcastChannel("gc1_sentinel_bus");
+    bus.postMessage({ type: "RELOAD_ITSM", menu: "all" });
+  } catch (_) {}
+  try {
+    await fetch(`${SERVER}/api/reload_itsm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ menu: "all" })
+    });
+  } catch (_) {}
+  await fetchHelpdeskSnapshot();
   setTimeout(() => {
     btnForceSync.textContent = "🔄 Sync Sekarang";
   }, 1000);
