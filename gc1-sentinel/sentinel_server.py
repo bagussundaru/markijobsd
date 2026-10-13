@@ -185,6 +185,7 @@ DEFAULT_CONFIG = {
     "wa_reply_warn_minutes": 5,
     "wa_reply_breach_minutes": 10,
     "wa_ticket_open_target_minutes": 15,
+    "stale_ticket_hours": 24,
     "doc_rules": [
         {"name": "Pembuatan akun",
          "keywords": ["pembuatan akun", "buat akun", "akun baru", "dibuatkan akun", "pendaftaran akun", "pembuatan user", "buat user", "pembuatan username"],
@@ -435,6 +436,22 @@ def fmt_hm(seconds):
     return f"{seconds // 3600}j {(seconds % 3600) // 60}m"
 
 
+STALE_SCAN_SEC = 900  # >15 menit tanpa pembacaan portal = data dianggap basi
+
+FOLLOWUP_EVENTS = ("Follow-up dicatat", "Status berubah", "Assignment group berubah")
+
+
+def _is_noise_change(h):
+    """Riwayat lama memuat 'perubahan' palsu: status awal belum diketahui ('- -> X') atau hanya beda format ('On Hold -> On-Hold')."""
+    if h.get("event") != "Status berubah":
+        return False
+    m = re.match(r"^(.*?)\s*->\s*(.*)$", str(h.get("detail") or ""))
+    if not m:
+        return False
+    a, b = (re.sub(r"[\s\-]+", " ", x.lower()).strip() for x in m.groups())
+    return a in ("", "-") or a == b
+
+
 def add_history(entry, event, detail="", actor="Sentinel"):
     hist = entry.setdefault("history", [])
     hist.append({
@@ -466,7 +483,13 @@ def track_ticket(tid, state, group=""):
     e["last_seen"] = now
     e.setdefault("history", [])
     prev = e.get("current_state") or ""
-    if state and prev.lower() != state.lower():
+    # Bandingkan status tanpa memedulikan huruf besar/kecil, tanda hubung, dan spasi: "On Hold" -> "On-Hold" hanya beda
+    # format, dan status awal yang belum diketahui ("") bukan perubahan. Keduanya tidak boleh dihitung sebagai aktivitas
+    # (yang me-reset jam follow-up).
+    same_state = lambda a, b: re.sub(r"[\s\-]+", " ", a.lower()).strip() == re.sub(r"[\s\-]+", " ", b.lower()).strip()
+    if state and not prev:
+        e["current_state"] = state
+    elif state and not same_state(prev, state):
         add_history(e, "Status berubah", f"{prev or '-'} -> {state}")
         e["current_state"] = state
         if prev.lower() != "assigned":
@@ -548,8 +571,13 @@ def apply_sla(t, now=None):
     elapsed_pct = max(0, int((now - created_ts) / total * 100))
     pct_left = max(0, min(100, 100 - elapsed_pct))
 
+    # On-Hold = menunggu tenan/vendor: SLA dijeda, tidak dihitung terlambat (keputusan tim GC 1)
+    on_hold = (not closed) and ("hold" in state or "tertunda" in state)
+
     if closed:
         badge, text = "sla-safe", "Selesai"
+    elif on_hold:
+        badge, text = "sla-warning", "SLA dijeda (On-Hold)"
     elif remaining <= 0:
         badge, text = "sla-breached", f"SLA lewat {fmt_hm(-remaining)}"
     elif pct_left < 25:
@@ -576,7 +604,7 @@ def apply_sla(t, now=None):
         resp_text = f"Respons dalam {int((resp_deadline - now) // 60) + 1} menit"
 
     flags = []
-    if not closed:
+    if not closed and not on_hold:
         if resp_status == "late" and not responded_ts:
             flags.append("Respons >15 menit")
         if elapsed_pct >= 50 and "progress" not in state and "pending" not in state:
@@ -627,8 +655,10 @@ def apply_sla(t, now=None):
     update_min = UPDATE_INTERVAL_MIN.get(prio, 240)
     update_sec = update_min * 60
     last_act_ts = created_ts
+    # Hanya aktivitas nyata yang menggeser jam follow-up. "Terdeteksi Sentinel" bukan follow-up,
+    # jadi tiket yang baru terlihat Sentinel tidak otomatis tampak aman.
     for h in e.get("history", []):
-        if h.get("ts") and h.get("ts") > last_act_ts:
+        if h.get("event") in FOLLOWUP_EVENTS and h.get("ts") and h.get("ts") > last_act_ts and not _is_noise_change(h):
             last_act_ts = h.get("ts")
     next_followup_ts = last_act_ts + update_sec
     followup_rem_sec = int(next_followup_ts - now)
@@ -660,7 +690,8 @@ def apply_sla(t, now=None):
         "slaBadgeClass": badge,
         "slaStatusText": text,
         "slaClosed": closed,
-        "slaBreached": (not closed) and remaining <= 0 and not is_pre,
+        "slaBreached": (not closed) and (not on_hold) and remaining <= 0 and not is_pre,
+        "slaPaused": on_hold,
         "slaMode": "pra-tiket" if is_pre else "",
         "responseStatus": resp_status,
         "responseText": resp_text,
@@ -1472,18 +1503,33 @@ def build_team_tickets():
             print(f"[Sentinel Server] SQLite query error: {e}")
 
     pool, seen_ids = [], set()
+    # raw_json di DB hanya memuat satu daftar saat tiket disimpan; keanggotaan multi-daftar yang
+    # terakumulasi ada di memori (HELPDESK_SNAPSHOT) dan arsip, jadi digabungkan di sini.
+    lists_by_tid = {}
+    for src in HELPDESK_SNAPSHOT:
+        lists_by_tid.setdefault(src.get("ticketId"), set()).update(src.get("itsmLists") or [])
     # 1. Tiket permanen dari database SQLite
     for t in db_tickets:
         tid = (t.get("ticketId") or "").strip()
         if not tid or tid in seen_ids:
             continue
         seen_ids.add(tid)
+        t["itsmLists"] = sorted(set(t.get("itsmLists") or []) | lists_by_tid.get(tid, set()))
+        if tid not in TICKET_REGISTRY:
+            # Registry (JSON) dan DB bisa tidak sinkron: isi registry dari DB agar riwayat tidak hilang
+            reg = track_ticket(tid, t.get("requestState", ""), t.get("assignmentGroup", ""))
+            if t.get("firstSeenTs"):
+                reg["first_seen"] = t["firstSeenTs"]
         pool.append(t)
 
     # 2. Gabungkan dengan HELPDESK_SNAPSHOT jika ada tiket baru di memori
+    try:
+        telkom_ids = sentinel_db.get_telkom_ticket_ids()
+    except Exception:
+        telkom_ids = set()
     for t in HELPDESK_SNAPSHOT:
         tid = (t.get("ticketId") or "").strip()
-        if not tid or tid in seen_ids:
+        if not tid or tid in seen_ids or tid in telkom_ids:
             continue
         seen_ids.add(tid)
         pool.append(t)
@@ -1517,6 +1563,20 @@ def build_team_tickets():
         enrich_ticket_with_sop(t) for t in pool
         if not is_telkom_ticket(t) and is_august_2026_or_newer(t) and not is_pending_approval_ticket(t)
     ]
+
+    # Portal berisi puluhan ribu tiket dengan 20 baris per halaman, jadi tiket yang tidak muncul di satu pembacaan
+    # belum tentu tutup. Statusnya TIDAK diubah otomatis: tiket aktif yang lama tidak terpantau hanya ditandai
+    # agar operator memverifikasi di portal.
+    stale_sec = float(CONFIG.get("stale_ticket_hours", 24) or 24) * 3600
+    now_ts = time.time()
+    for t in our_team_tickets:
+        last_seen = t.get("lastSeenTs")
+        age = (now_ts - last_seen) if last_seen else 0
+        t["notSeenSeconds"] = int(age)
+        t["statusStale"] = bool(last_seen) and not t.get("slaClosed") and not t.get("isFromWa") and age > stale_sec
+        if t["statusStale"]:
+            t["escalationFlags"] = list(t.get("escalationFlags") or []) + [
+                f"Status tidak terpantau di portal {int(age // 3600)} jam: verifikasi di ITSM apakah masih aktif"]
 
     for t in our_team_tickets:
         archive_ticket(t)
@@ -1616,7 +1676,7 @@ def compute_stats(rng, itsm_list=None):
     itsm_open = [t for t in itsm if not t.get("slaClosed")]
     wa_open = [t for t in wa if not t.get("slaClosed")]
     open_all = [t for t in scope if not t.get("slaClosed")]
-    sla_pool = [t for t in itsm_open]
+    sla_pool = [t for t in itsm_open if not t.get("slaPaused")]
     breached = [t for t in sla_pool if t.get("slaBreached")]
     kind = {"day": "daily", "week": "weekly", "month": "monthly"}.get(rng, "daily")
     rep = compute_report(kind, time.strftime("%Y-%m-%d"), itsm_list)
@@ -2046,12 +2106,16 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 team_closed = [t for t in our_team_tickets if t.get("slaClosed")]
 
                 open_tickets = [t for t in our_team_tickets if not t.get("slaClosed")]
-                sla_pool = [t for t in open_tickets if not t.get("slaMode")]
+                sla_pool = [t for t in open_tickets if not t.get("slaMode") and not t.get("slaPaused")]
                 breached = [t for t in sla_pool if t.get("slaBreached")]
                 sla_health_pct = 100 if not sla_pool else int(((len(sla_pool) - len(breached)) / len(sla_pool)) * 100)
                 escalations = [t for t in open_tickets if t.get("escalationFlags")]
 
                 wa_alerts = [a for a in ALERTS if a.get("source") == "whatsapp"]
+
+                # Kesegaran data: umur pembacaan portal terbaru oleh ekstensi (None = belum pernah)
+                synced = [l.get("synced_at") for l in HELPDESK_LISTS.values() if l.get("synced_at")]
+                scan_age_sec = int(time.time() - max(synced)) if synced else None
 
                 self.send_json({
                     "total_helpdesk": len(our_team_tickets),
@@ -2062,7 +2126,9 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     "team_pending_count": 0,
                     "team_closed_count": len(team_closed),
                     "sla_health_percent": sla_health_pct,
-                    "sla_safe_count": len(open_tickets) - len(breached),
+                    "sla_safe_count": len(sla_pool) - len(breached),
+                    "sla_paused_count": len([t for t in open_tickets if t.get("slaPaused")]),
+                    "stale_ticket_count": len([t for t in open_tickets if t.get("statusStale")]),
                     "sla_breached_count": len(breached),
                     "escalation_count": len(escalations),
                     "telkom_count": 0,
@@ -2071,7 +2137,9 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     "itsm_lists": itsm_lists_info(),
                     "wa_outbound_enabled": outbound_enabled(),
                     "wa_monitored_groups": CONFIG.get("wa_monitored_groups", []),
-                    "last_sync": LAST_SYNC_TIME or time.strftime("%H:%M:%S WIB"),
+                    "last_sync": LAST_SYNC_TIME or "",
+                    "last_scan_age_sec": scan_age_sec,
+                    "data_stale": scan_age_sec is None or scan_age_sec > STALE_SCAN_SEC,
                     "team_assigned": team_assigned,
                     "team_on_hold": team_on_hold,
                     "team_pending": team_on_hold,
@@ -2180,6 +2248,11 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                     date_val = re.sub(r"\s+", " ", str(t.get("createdDate") or t.get("date") or "")).strip()
                     loc_val = sentinel_db.deduplicate_name(re.sub(r"\s+", " ", re.sub(r"[\r\n\t]", " ", str(t.get("location") or ""))).strip())
                     grp_val = re.sub(r"\s+", " ", str(t.get("assignmentGroup") or t.get("group") or "")).strip()
+
+                    # Pending Approval diurus aplikasi approval lain: jangan masuk kolam kerja GC 1.
+                    # Dicek SEBELUM normalisasi, karena normalisasi memetakan "pending" menjadi On-Hold.
+                    if is_pending_approval_ticket({"requestState": state_val}) or is_pending_approval_ticket({"requestState": desc}):
+                        continue
 
                     # Normalisasi jika kolom tergeser (status tertukar dengan uraian)
                     desc, state_val = normalize_ticket_state_and_desc(tid, desc, state_val, req_for)
@@ -2880,6 +2953,27 @@ class SentinelHandler(http.server.SimpleHTTPRequestHandler):
                 if data.get("ai") and nlp_ai_available():
                     job = start_nlp_job([(i, r["text"]) for i, r in enumerate(results)])
                 self.send_json({"status": "ok", "results": results, "job": job, "ai_available": nlp_ai_available()})
+
+            elif path == "/api/log_followup":
+                by = re.sub(r"\s+", " ", str(data.get("by") or "")).strip()[:60]
+                if len(by) < 2 or by.lower() in ("operator", "operator helpdesk"):
+                    self.send_json({"status": "error", "message": "Nama petugas wajib diisi"}, 400)
+                    return
+                if not self._is_local():
+                    self.send_json({"status": "error", "message": "Hanya dari Mini PC operator"}, 403)
+                    return
+                tid = str(data.get("ticketId") or "").strip()
+                e = TICKET_REGISTRY.get(tid)
+                if e is None:
+                    row = next((t for t in sentinel_db.get_all_tickets_from_db() if t.get("ticketId") == tid), None)
+                    if not row:
+                        self.send_json({"status": "error", "message": "Tiket tidak ditemukan"}, 404)
+                        return
+                    e = track_ticket(tid, row.get("requestState", ""), row.get("assignmentGroup", ""))
+                note = re.sub(r"\s+", " ", str(data.get("note") or "")).strip()[:300]
+                add_history(e, "Follow-up dicatat", note or "Follow-up ke tenan", actor=by)
+                save_persisted_data()
+                self.send_json({"status": "ok", "ticketId": tid, "loggedAt": time.strftime("%d %b %Y %H:%M:%S")})
 
             elif path == "/api/pic_action":
                 by = re.sub(r"\s+", " ", str(data.get("by") or "")).strip()[:60]

@@ -564,6 +564,10 @@
     return null;
   }
 
+  const SYNC_HEARTBEAT_MS = 60000;
+  let lastSyncSig = "";
+  let lastSyncAt = 0;
+
   async function runPassiveScan() {
     try {
       const knownRegistry = getKnownTicketRegistry();
@@ -780,7 +784,21 @@
           }
         };
 
+        // Kirim hanya jika isi berubah, atau sebagai detak (heartbeat) tiap SYNC_HEARTBEAT_MS
+        // agar server tahu ekstensi masih aktif. Tanpa ini scan 5 dtk membanjiri server & sync_logs.
+        const sig = subInfo.key + "|" + (paginationInfo && paginationInfo.text || "") + "|" +
+          scannedTickets.map((t) => [t.ticketId, t.requestState, t.assignmentGroup, t.createdDate].join("~")).sort().join("^");
+        const nowMs = Date.now();
+        if (sig === lastSyncSig && nowMs - lastSyncAt < SYNC_HEARTBEAT_MS) {
+          if (registryModified) saveKnownTicketRegistry(knownRegistry);
+          return;
+        }
+        const changed = sig !== lastSyncSig;
+        lastSyncSig = sig;
+        lastSyncAt = nowMs;
+
         // 1. Kirim via background script (Bebas dari batasan CORS / HTTPS mixed-content)
+        let viaBackground = false;
         if (typeof chrome !== "undefined" && chrome.runtime?.sendMessage) {
           try {
             chrome.runtime.sendMessage({
@@ -790,29 +808,34 @@
             }, () => {
               void chrome.runtime.lastError;
             });
+            viaBackground = true;
           } catch (_) {}
         }
 
-        // 2. Kirim via BroadcastChannel
-        try {
-          const bus = new BroadcastChannel("gc1_sentinel_bus");
-          bus.postMessage({
-            type: "SYNC_HELPDESK_TICKETS",
-            tickets: scannedTickets,
-            count: scannedTickets.length,
-            pagination: paginationInfo,
-            timestamp: Date.now()
-          });
-        } catch (_) {}
+        // 2. Beritahu dashboard hanya bila data benar-benar berubah
+        if (changed) {
+          try {
+            const bus = new BroadcastChannel("gc1_sentinel_bus");
+            bus.postMessage({
+              type: "SYNC_HELPDESK_TICKETS",
+              tickets: scannedTickets,
+              count: scannedTickets.length,
+              pagination: paginationInfo,
+              timestamp: Date.now()
+            });
+          } catch (_) {}
+        }
 
-        // 3. Fallback direct HTTP fetch
-        try {
-          fetch("http://127.0.0.1:8765/api/sync_helpdesk", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(syncPayload)
-          }).catch(() => {});
-        } catch (_) {}
+        // 3. Fallback direct HTTP fetch, hanya bila jalur background tidak tersedia
+        if (!viaBackground) {
+          try {
+            fetch("http://127.0.0.1:8765/api/sync_helpdesk", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(syncPayload)
+            }).catch(() => {});
+          } catch (_) {}
+        }
       }
 
       if (registryModified) {

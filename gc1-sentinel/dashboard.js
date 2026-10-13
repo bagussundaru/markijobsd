@@ -695,7 +695,13 @@ async function fetchHelpdeskSnapshot() {
       liveStatusText.textContent = "Terhubung ke Sentinel";
     }
     if (lastSyncTimeText) {
-      lastSyncTimeText.textContent = data.last_sync || new Date().toLocaleTimeString("id-ID") + " WIB";
+      const age = data.last_scan_age_sec;
+      const ageTxt = age === null || age === undefined ? "" : age < 90 ? " (baru saja)" : ` (${Math.round(age / 60)} mnt lalu)`;
+      lastSyncTimeText.textContent = data.last_sync ? data.last_sync + ageTxt : "Belum ada data dari portal";
+      lastSyncTimeText.style.color = data.data_stale ? "#DC2626" : "";
+      lastSyncTimeText.title = data.data_stale
+        ? "Data basi: ekstensi belum membaca portal >15 menit. Buka tab pdn.layanan.go.id agar angka diperbarui."
+        : "Ekstensi aktif membaca portal";
     }
   } catch (e) {
     if (liveStatusText) {
@@ -1222,6 +1228,11 @@ function renderHelpdeskTable(tickets) {
                    title="Waktu mundur follow-up ke tenan (SOP: per ${t.followupIntervalMin || 240} menit)">
                 ⏱ ${escapeHtml(t.followupText || 'Follow-up aktif')}
               </div>
+              <button type="button" class="action-btn-detail" style="padding:2px 8px;font-size:11px;margin-top:4px;"
+                      title="Catat bahwa tiket ini sudah di-follow up ke tenan; jam kadensi KAK dimulai ulang"
+                      onclick="event.stopPropagation(); window.logFollowup && window.logFollowup('${escapeHtml(cleanId)}')">
+                ✓ Sudah Di-follow Up
+              </button>
             ` : ''}
           </div>
         </td>

@@ -195,13 +195,24 @@ def save_tickets_to_db(tickets, list_key=None, source_url="", db_path=None):
                 is_manual = 1 if (t.get("isManual") or t.get("is_manual") or "manual" in str(source_url).lower()) else 0
 
                 # Periksa apakah tiket sudah ada untuk mendeteksi perubahan status
-                cur = conn.execute("SELECT request_state, first_seen_ts, is_manual FROM itsm_tickets WHERE ticket_id = ?", (tid,))
+                cur = conn.execute("SELECT request_state, first_seen_ts, is_manual, assignment_group, resolver_layer, is_telkom FROM itsm_tickets WHERE ticket_id = ?", (tid,))
                 existing = cur.fetchone()
+
+                # Halaman portal berbeda tidak selalu memuat kolom grup. Bacaan tanpa grup tidak boleh menimpa grup yang
+                # sudah dikenal; kalau tidak, grup/lapisan resolver berkedip dan tiket Telkom bisa lolos saat grupnya kosong.
+                if existing and not grp_val and existing["assignment_group"]:
+                    grp_val = existing["assignment_group"]
+                    layer = existing["resolver_layer"] or layer
+                    if existing["is_telkom"]:
+                        is_telkom = 1
+                        t = {**t, "isTelkom": True}
+                    t = {**t, "assignmentGroup": grp_val, "resolverLayer": layer}
 
                 if existing:
                     first_seen = existing["first_seen_ts"]
                     old_state = existing["request_state"]
-                    if old_state.lower() != state.lower():
+                    _norm = lambda s: " ".join(str(s).lower().replace("-", " ").split())
+                    if _norm(old_state) != _norm(state):
                         conn.execute(
                             "INSERT INTO itsm_history (ticket_id, timestamp, event_type, detail) VALUES (?, ?, ?, ?)",
                             (tid, now, "STATUS_CHANGE", f"Status berubah dari '{old_state}' menjadi '{state}'")
@@ -268,6 +279,15 @@ def save_tickets_to_db(tickets, list_key=None, source_url="", db_path=None):
     return saved_count
 
 
+def get_telkom_ticket_ids(db_path=None):
+    """ID tiket yang pernah terbaca milik tim Telkom (GC 2). Dipakai agar bacaan tanpa grup tidak meloloskannya."""
+    conn = get_connection(db_path)
+    try:
+        return {r[0] for r in conn.execute("SELECT ticket_id FROM itsm_tickets WHERE is_telkom = 1")}
+    finally:
+        conn.close()
+
+
 def get_manual_tickets(db_path=None):
     """Mengambil daftar tiket yang dimasukkan secara manual dari SQLite."""
     conn = get_connection(db_path)
@@ -322,6 +342,8 @@ def get_all_tickets_from_db(service_type=None, itsm_list=None, db_path=None):
                     loaded = json.loads(d["raw_json"])
                     loaded["serviceType"] = d["service_type"]
                     loaded["itsmList"] = d["itsm_list"]
+                    loaded["firstSeenTs"] = d["first_seen_ts"]
+                    loaded["lastSeenTs"] = d["last_seen_ts"]
                     tickets.append(loaded)
                     continue
                 except Exception:

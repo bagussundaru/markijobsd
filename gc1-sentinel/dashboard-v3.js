@@ -727,6 +727,32 @@
     renderPriorityAttentionCard(stSnap.all_tickets || []);
   });
 
+  // Catat follow-up ke tenan agar jam kadensi KAK 18.c dihitung dari aktivitas nyata
+  window.logFollowup = async function (tid) {
+    let by = "";
+    try { by = localStorage.getItem("sentinel_operator_name") || ""; } catch (_) {}
+    if (by.length < 2) {
+      by = (prompt("Nama petugas yang melakukan follow-up (disimpan di browser ini):", "") || "").trim();
+      if (by.length < 2) return;
+      try { localStorage.setItem("sentinel_operator_name", by); } catch (_) {}
+    }
+    const noteRaw = prompt(`Tiket ${tid} sudah di-follow up oleh ${by}.\nCatatan (opsional, mis. "telepon PIC tenan"). Batal = tidak dicatat:`, "");
+    if (noteRaw === null) return;
+    const note = noteRaw.trim();
+    try {
+      const r = await fetch("/api/log_followup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticketId: tid, by, note })
+      });
+      const j = await r.json();
+      if (j.status !== "ok") { alert(j.message || "Gagal mencatat follow-up"); return; }
+      if (typeof fetchHelpdeskSnapshot === "function") fetchHelpdeskSnapshot();
+    } catch (_) {
+      alert("Gagal menghubungi server Sentinel");
+    }
+  };
+
   function renderInProgressFollowupCard(inProgTickets) {
     const listEl = $("ovInProgressFollowupList");
     if (!listEl) return;
@@ -778,10 +804,19 @@
             <div>
               <span>👤 PIC: <b>${esc(picName)}</b> (${esc(picRole)})</span>
               <span style="margin-left:8px;">⏳ SLA: <b>${esc(slaText)}</b></span>
+              ${(() => {
+                const last = (t.history || []).filter(h => h.event === "Follow-up dicatat").pop();
+                return last ? `<span style="margin-left:8px;color:#16A34A;">✓ Follow-up terakhir: <b>${esc((last.time || "").slice(12, 17))}</b> oleh ${esc(last.actor || "-")}</span>` : "";
+              })()}
             </div>
-            <button class="action-btn-detail" style="padding:2px 8px;font-size:11px;" onclick="window.openTicketActivityDetail && window.openTicketActivityDetail('${esc(tid)}')">
-              Detail →
-            </button>
+            <span>
+              <button class="action-btn-detail" style="padding:2px 8px;font-size:11px;" title="Catat bahwa tiket ini sudah di-follow up ke tenan; jam kadensi KAK dimulai ulang" onclick="window.logFollowup && window.logFollowup('${esc(tid)}')">
+                ✓ Sudah Di-follow Up
+              </button>
+              <button class="action-btn-detail" style="padding:2px 8px;font-size:11px;" onclick="window.openTicketActivityDetail && window.openTicketActivityDetail('${esc(tid)}')">
+                Detail →
+              </button>
+            </span>
           </div>
         </div>
       `;
