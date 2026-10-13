@@ -123,136 +123,159 @@
   }
 
   function dispatchClick(el) {
-    if (!el) return;
+    if (!el) return false;
+    try { el.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (_) {}
     try { el.focus(); } catch (_) {}
-    try { el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window })); } catch (_) {}
-    try { el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window })); } catch (_) {}
+
+    // 1. Mouse events lengkap
+    ["mousedown", "mouseup", "click"].forEach((evtName) => {
+      try {
+        const evt = new MouseEvent(evtName, {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          buttons: 1
+        });
+        el.dispatchEvent(evt);
+      } catch (_) {}
+    });
+
+    // 2. Native DOM click
     try { el.click(); } catch (_) {}
+
+    // 3. Parent container click jika el adalah span/text
+    const parentClickable = el.closest("a, button, [role='treeitem'], [role='menuitem'], .z-treecell, .z-treerow, .z-navitem, .z-menuitem, li");
+    if (parentClickable && parentClickable !== el) {
+      try { parentClickable.click(); } catch (_) {}
+    }
+
+    // 4. Interaksi langsung dengan widget ZK Framework jika ada
+    try {
+      const win = el.ownerDocument.defaultView || window;
+      if (win.zk && win.zk.Widget) {
+        const widget = win.zk.Widget.$(el) || (parentClickable ? win.zk.Widget.$(parentClickable) : null);
+        if (widget && typeof widget.fire === "function") {
+          widget.fire("onClick", null, {});
+          widget.fire("onSelect", null, {});
+        }
+      }
+      const jq = win.jQuery || win.jq || win.$;
+      if (jq) {
+        jq(el).trigger("click");
+        if (parentClickable) jq(parentClickable).trigger("click");
+      }
+    } catch (_) {}
+
+    return true;
   }
 
-  // REFRESH 100% SESUAI ALUR SERVICENOW:
-  // - All Request: Klik menu "Request Management" di bar samping, lalu klik "All Request" di bawahnya.
-  // - All Incident: Klik menu "Incident Management" di bar samping, lalu klik "All Incident" di bawahnya.
-  // - DILARANG KERAS menggunakan location.reload() agar tab tidak kembali ke default!
+  // Cari elemen menu khusus di bar samping kiri (sidebar x < 320)
+  function findSidebarElement(keywords, options = {}) {
+    const docs = getAccessibleDocs();
+    const { exact = false, maxLeft = 320, requireVisible = false } = options;
+    const cleanKeywords = (Array.isArray(keywords) ? keywords : [keywords]).map((k) => k.toLowerCase().trim());
+
+    for (const doc of docs) {
+      const all = Array.from(doc.querySelectorAll("a, button, [role='treeitem'], [role='menuitem'], .z-treecell, .z-treerow, .z-navitem, .z-menuitem, li, tr, td, div, span"));
+      for (const el of all) {
+        // Hindari input, dropdown combobox, select, breadcrumbs atau header utama
+        if (el.closest("select, .z-combobox, input, textarea, h1, h2, thead, .page-header, .table-header")) continue;
+
+        const rect = el.getBoundingClientRect();
+        // Saring hanya elemen yang posisinya di bar samping kiri (x < 320)
+        if (rect.width > 0 && rect.left > maxLeft) continue;
+
+        if (requireVisible) {
+          if (el.offsetParent === null || rect.width <= 0 || rect.height <= 0) continue;
+        }
+
+        const rawTxt = (el.textContent || "")
+          .replace(/[▶▼►▼\r\n\t]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .toLowerCase();
+
+        // Hindari kontainer induk yang terlalu panjang
+        if (rawTxt.length > 50) continue;
+
+        const isMatch = cleanKeywords.some((kw) => {
+          if (exact) return rawTxt === kw;
+          return rawTxt === kw || rawTxt.startsWith(kw);
+        });
+
+        if (isMatch) {
+          const clickable = el.querySelector("a, button, .z-treecell-text, .z-menuitem-text") || el;
+          return clickable;
+        }
+      }
+    }
+    return null;
+  }
+
+  // REFRESH & NAVIGASI SUBMENU SERVICENOW / ZK ESTIM:
+  // - All Request: Buka menu "Request Management" di bar samping, lalu klik "All Request" di bawahnya.
+  // - All Incident: Buka menu "Incident Management" di bar samping, lalu klik "All Incident" di bawahnya.
+  // - DILARANG KERAS menggunakan location.reload() agar sesi dan tab tidak reset!
   function clickServiceNowSubmenu(targetType) {
     const isIncident = (targetType === "incident");
     const parentKeywords = isIncident
-      ? ["incident management", "manajemen insiden", "incident mgmt", "incident", "insiden", "gangguan"]
-      : ["request management", "manajemen request", "manajemen permohonan", "request mgmt", "service catalog", "katalog layanan", "permohonan", "request"];
+      ? ["incident management", "manajemen insiden"]
+      : ["request management", "manajemen request", "manajemen permohonan"];
     const subKeywords = isIncident
-      ? ["all incident", "all incidents", "semua insiden", "daftar insiden", "incidents", "all"]
-      : ["all request", "all requests", "semua permohonan", "semua request", "daftar permohonan", "requests", "all"];
-    const hrefKeywords = isIncident
-      ? ["incident_list.do", "incident.do", "table=incident"]
-      : ["sc_req_item_list.do", "sc_request_list.do", "sc_task_list.do", "table=sc_req_item"];
+      ? ["all incident", "all incidents", "semua insiden", "daftar insiden"]
+      : ["all request", "all requests", "semua request", "semua permohonan", "daftar permohonan"];
 
     const labelParent = isIncident ? "Incident Management" : "Request Management";
     const labelSub = isIncident ? "All Incident" : "All Request";
 
-    console.log(`[GC 1 Sentinel] Memulai alur refresh tanpa reload: ${labelParent} -> ${labelSub}...`);
-    showReloadToast(`Menyegarkan: ${labelParent} → ${labelSub}...`);
+    console.log(`[GC 1 Sentinel] Menavigasi menu: ${labelParent} -> ${labelSub}...`);
+    showReloadToast(`Membuka: ${labelSub}...`);
 
+    // 1. Cek apakah Submenu (All Request / All Incident) SUDAH TERLIHAT di sidebar
+    // Jika sudah terbuka, JANGAN klik parent accordion (karena mengklik parent akan MENUTUP accordion!)
+    const visibleSub = findSidebarElement(subKeywords, { exact: true, requireVisible: true }) ||
+                       findSidebarElement(subKeywords, { exact: false, requireVisible: true });
+    if (visibleSub) {
+      console.log(`[GC 1 Sentinel] Submenu "${labelSub}" sudah terbuka. Mengklik langsung...`);
+      dispatchClick(visibleSub);
+      return true;
+    }
+
+    // 2. Jika submenu belum terlihat (accordion tertutup), cari elemen menu utama untuk membukanya
+    const parentEl = findSidebarElement(parentKeywords, { exact: true }) ||
+                     findSidebarElement(parentKeywords, { exact: false });
+
+    if (parentEl) {
+      console.log(`[GC 1 Sentinel] [Langkah 1/2] Membuka accordion menu utama: "${labelParent}"...`);
+      dispatchClick(parentEl);
+
+      // Polling setelah accordion membuka (150ms, 350ms, 700ms, 1200ms)
+      const retryDelays = [150, 350, 700, 1200];
+      retryDelays.forEach((delay) => {
+        setTimeout(() => {
+          const freshSub = findSidebarElement(subKeywords, { exact: true, requireVisible: true }) ||
+                           findSidebarElement(subKeywords, { exact: false, requireVisible: true });
+          if (freshSub) {
+            console.log(`[GC 1 Sentinel] [Langkah 2/2] Mengklik "${labelSub}" setelah accordion terbuka (${delay}ms)...`);
+            dispatchClick(freshSub);
+          }
+        }, delay);
+      });
+      return true;
+    }
+
+    // 3. Fallback: Cari tombol refresh native di halaman jika submenu tidak ditemukan
     const docs = getAccessibleDocs();
-
     for (const doc of docs) {
-      try {
-        const allElements = Array.from(doc.querySelectorAll("a, button, li, div, span, [role='treeitem'], [role='menuitem'], .nav-item, .module-link, .sn-widget-list-item, .navpage-nav-app, .app-node"));
-
-        // 1. Cari elemen menu utama di bar samping (Request Management / Incident Management)
-        let parentEl = null;
-        for (const el of allElements) {
-          const txt = (el.textContent || "").trim().toLowerCase();
-          const title = (el.getAttribute("title") || "").toLowerCase();
-          const aria = (el.getAttribute("aria-label") || "").toLowerCase();
-          if (parentKeywords.some((kw) => txt === kw || txt.startsWith(kw) || title === kw || aria === kw || (txt.includes(kw) && txt.length < kw.length + 25))) {
-            parentEl = el;
-            break;
-          }
-        }
-
-        // 2. Cari elemen submenu di bar samping (All Request / All Incident)
-        let subEl = null;
-        for (const el of allElements) {
-          const txt = (el.textContent || "").trim().toLowerCase();
-          const title = (el.getAttribute("title") || "").toLowerCase();
-          const aria = (el.getAttribute("aria-label") || "").toLowerCase();
-          const href = (el.getAttribute("href") || "").toLowerCase();
-          const dataUrl = (el.getAttribute("data-url") || "").toLowerCase();
-
-          const textMatch = subKeywords.some((kw) => txt === kw || (txt.startsWith(kw) && txt.length < kw.length + 20) || title === kw || aria === kw);
-          const hrefMatch = hrefKeywords.some((kw) => href.includes(kw) || dataUrl.includes(kw));
-
-          if (hrefMatch || textMatch) {
-            subEl = el;
-            if (parentEl && (parentEl.contains(el) || (el.compareDocumentPosition(parentEl) & Node.DOCUMENT_POSITION_PRECEDING))) {
-              break;
-            }
-          }
-        }
-
-        // Langkah 1: Klik Menu Utama di bar samping
-        if (parentEl) {
-          console.log(`[GC 1 Sentinel] [Langkah 1/2] Klik menu samping: "${labelParent}"`);
-          dispatchClick(parentEl);
-
-          // Langkah 2: Klik Submenu di bawahnya setelah jeda singkat (agar accordion membuka)
-          setTimeout(() => {
-            if (subEl) {
-              console.log(`[GC 1 Sentinel] [Langkah 2/2] Klik submenu di bawahnya: "${labelSub}"`);
-              dispatchClick(subEl);
-            } else {
-              // Cari ulang submenu yang baru muncul setelah menu utama dibuka
-              const freshSub = Array.from(doc.querySelectorAll("a, button, li, div, [role='treeitem'], [role='menuitem']")).find((el) => {
-                const txt = (el.textContent || "").trim().toLowerCase();
-                const href = (el.getAttribute("href") || "").toLowerCase();
-                const dataUrl = (el.getAttribute("data-url") || "").toLowerCase();
-                return hrefKeywords.some((kw) => href.includes(kw) || dataUrl.includes(kw)) ||
-                       subKeywords.some((kw) => txt === kw || txt.startsWith(kw));
-              });
-              if (freshSub) {
-                console.log(`[GC 1 Sentinel] [Langkah 2/2] Klik submenu setelah dropdown terbuka: "${labelSub}"`);
-                dispatchClick(freshSub);
-              }
-            }
-          }, 250);
-          return true;
-        } else if (subEl) {
-          // Jika menu utama sudah terbuka sebelumnya atau link modul langsung tersedia
-          console.log(`[GC 1 Sentinel] Klik submenu langsung: "${labelSub}"`);
-          dispatchClick(subEl);
-          return true;
-        }
-      } catch (err) {
-        console.warn("[GC 1 Sentinel] Error saat navigasi menu bar samping:", err);
+      const refreshBtn = doc.querySelector("button[name='refresh'], button[title*='Refresh'], button[aria-label*='Refresh'], .z-icon-refresh, .list_nav_refresh, .table-refresh-btn");
+      if (refreshBtn) {
+        console.log("[GC 1 Sentinel] Mengklik tombol refresh native tabel...");
+        dispatchClick(refreshBtn);
+        return true;
       }
     }
 
-    // Fallback 1: Cari frame utama gsft_main dan panggil g_list.refresh(1)
-    for (const doc of docs) {
-      try {
-        const win = doc.defaultView;
-        if (win && typeof win.g_list !== "undefined" && typeof win.g_list.refresh === "function") {
-          console.log("[GC 1 Sentinel] Menggunakan ServiceNow in-frame g_list.refresh(1) (tanpa reload browser)");
-          win.g_list.refresh(1);
-          return true;
-        }
-      } catch (_) {}
-    }
-
-    // Fallback 2: Tombol refresh di header daftar tabel ServiceNow
-    for (const doc of docs) {
-      try {
-        const snRefreshBtn = doc.querySelector("button[name='refresh'], button[title*='Refresh'], button[aria-label*='Refresh'], .list_nav_refresh, .table-refresh-btn, button#sn_header_refresh");
-        if (snRefreshBtn) {
-          console.log("[GC 1 Sentinel] Mengklik tombol refresh tabel ServiceNow...");
-          snRefreshBtn.click();
-          return true;
-        }
-      } catch (_) {}
-    }
-
-    // CATATAN KETAT: JANGAN PERNAH gunakan location.reload()!
-    console.log("[GC 1 Sentinel] Selesai alur refresh tanpa reload (tidak mereload halaman browser).");
+    console.warn(`[GC 1 Sentinel] Gagal menemukan menu ${labelParent} / ${labelSub}`);
     return false;
   }
 
@@ -283,22 +306,40 @@
     const subInfo = detectSubmenuInfo();
     let targetType = subInfo.key;
 
-    // Jika forcedType spesifik ('request' atau 'incident') diberikan:
-    // Pastikan tab ini tidak dialihkan secara keliru jika tab ini adalah jenis yang berlawanan!
-    if (forcedType && forcedType !== "active" && forcedType !== "all") {
-      const cleanForced = (forcedType === "incident" || forcedType.includes("inc")) ? "incident" : "request";
-      if (subInfo.key && subInfo.key !== cleanForced) {
-        console.log(`[GC 1 Sentinel] Permintaan reload '${forcedType}' dilewati pada tab '${subInfo.key}' agar peran tab tidak tertukar.`);
-        return false;
-      }
-      targetType = cleanForced;
+    // 1. Jika ada instruksi eksplisit ('request' atau 'incident') dari dashboard atau inter-tab bus
+    if (forcedType === "incident" || forcedType === "request") {
+      targetType = forcedType;
+      try { sessionStorage.setItem("gc1_itsm_tab_role", targetType); } catch (_) {}
+      return clickServiceNowSubmenu(targetType);
     }
 
+    // 2. Mode Otomatis (Auto-Cycle / Auto-Alternate):
+    // Jika hanya ada 1 tab yang aktif membuka portal PDN, gantian secara otomatis
+    // antara All Request dan All Incident agar kedua kelompok tiket tetap segar!
+    const now = Date.now();
+    let lastReq = 0;
+    let lastInc = 0;
+    try {
+      lastReq = parseInt(localStorage.getItem("gc1_itsm_last_scan_request") || "0", 10);
+      lastInc = parseInt(localStorage.getItem("gc1_itsm_last_scan_incident") || "0", 10);
+    } catch (_) {}
+
+    // Bila ada tab lain yang aktif memperbarui Request (<30 dtk), dan tab ini Incident, pertahankan
+    if (subInfo.key === "incident" && now - lastReq < 30000) {
+      targetType = "incident";
+    } else if (subInfo.key === "request" && now - lastInc < 30000) {
+      targetType = "request";
+    } else {
+      // Bergantian secara otomatis agar kedua menu dipindai bergantian
+      targetType = (subInfo.key === "incident") ? "request" : "incident";
+    }
+
+    try { sessionStorage.setItem("gc1_itsm_tab_role", targetType); } catch (_) {}
     return clickServiceNowSubmenu(targetType);
   }
 
   function setupAutoReload() {
-    const intervalSec = parseInt(settings.autoRefreshHelpdeskSeconds || 60, 10);
+    const intervalSec = parseInt(settings.autoRefreshHelpdeskSeconds || 45, 10);
     if (!intervalSec || intervalSec <= 0) return;
 
     setInterval(() => {
@@ -307,10 +348,10 @@
         const isHelpdeskUrl = settings.helpdeskUrlPatterns.some((p) => url.includes(p.toLowerCase()));
         if (!isHelpdeskUrl) return;
 
-        // Jangan refresh jika operator sedang aktif berinteraksi dalam 20 detik terakhir
+        // Jangan reload jika operator sedang aktif menggerakkan mouse / mengetik dalam 20 detik terakhir
         if (Date.now() - lastUserActivity < 20000) return;
 
-        // Jangan refresh jika operator sedang fokus pada kolom input teks atau textarea
+        // Jangan reload jika operator sedang fokus pada input teks / textarea
         const activeEl = document.activeElement;
         if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")) return;
 
@@ -796,6 +837,9 @@
         const changed = sig !== lastSyncSig;
         lastSyncSig = sig;
         lastSyncAt = nowMs;
+        try {
+          localStorage.setItem("gc1_itsm_last_scan_" + subInfo.key, String(nowMs));
+        } catch (_) {}
 
         // 1. Kirim via background script (Bebas dari batasan CORS / HTTPS mixed-content)
         let viaBackground = false;
